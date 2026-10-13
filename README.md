@@ -210,7 +210,7 @@ Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for
 
 ## Security
 
-Please don't report vulnerabilities in public issues. Use GitHub's private vulnerability reporting instead (**Security → Report a vulnerability** on the repository).
+Please don't report vulnerabilities in public issues. Email [guoylyy@gmail.com](mailto:guoylyy@gmail.com) with the details and steps to reproduce.
 
 ## License
 
