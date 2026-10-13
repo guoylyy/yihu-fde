@@ -398,6 +398,10 @@ export const fde = {
     list: (params = {}) => { const q = new URLSearchParams(params).toString(); return request('/api/fde/engineer-profiles' + (q ? '?' + q : '')) },
     detail: (id) => request(`/api/fde/engineer-profiles/${id}`)
   },
+  systemSettings: {
+    get: () => request('/api/fde/system-settings'),
+    update: (values) => request('/api/fde/system-settings', { method: 'PUT', body: JSON.stringify({ values }) })
+  },
   llmConfigs: {
     list: () => request('/api/fde/llm-configs'),
     create: (data) => request('/api/fde/llm-configs', { method: 'POST', body: JSON.stringify(data) }),

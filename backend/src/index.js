@@ -52,6 +52,8 @@ import rolePermissionsRouter from './routes/fde/rolePermissions.js'
 import notificationsRouter from './routes/fde/notifications.js'
 import auditLogsRouter from './routes/fde/audit-logs.js'
 import llmConfigsRouter from './routes/fde/llm-configs.js'
+import systemSettingsRouter from './routes/fde/system-settings.js'
+import { loadSettings } from './lib/settings.js'
 
 // Prisma 的 BigInt 主键默认无法 JSON.stringify
 BigInt.prototype.toJSON = function () { return this.toString() }
@@ -123,6 +125,7 @@ app.use('/api/fde/role-permissions', rolePermissionsRouter)
 app.use('/api/fde/notifications', notificationsRouter)
 app.use('/api/fde/audit-logs', auditLogsRouter)
 app.use('/api/fde/llm-configs', llmConfigsRouter)
+app.use('/api/fde/system-settings', systemSettingsRouter)
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() })
@@ -160,6 +163,12 @@ loadRoles()
   })
   .catch(e => console.error('[roles] load failed, using built-in roles and default permissions:', e.message))
 
-app.listen(PORT, () => {
-  console.log(`Backend listening on http://localhost:${PORT} (storage: ${STORAGE_DRIVER})`)
-})
+// 系统设置(品牌/访问地址)要在接请求前生效; 读不到库就按环境变量起
+loadSettings()
+  .then(n => { if (n) console.log(`[settings] ${n} system settings applied`) })
+  .catch(e => console.error('[settings] load failed, using environment variables:', e.message))
+  .finally(() => {
+    app.listen(PORT, () => {
+      console.log(`Backend listening on http://localhost:${PORT} (storage: ${STORAGE_DRIVER})`)
+    })
+  })

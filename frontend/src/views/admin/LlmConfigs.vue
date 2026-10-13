@@ -2,7 +2,7 @@
   <div class="llm-page" v-loading="loading">
     <div class="page-header">
       <div>
-        <h2 class="page-title">{{ $t('common.llm_settings') }}</h2>
+        <h2 v-if="!embedded" class="page-title">{{ $t('common.llm_settings') }}</h2>
         <p class="hint">{{ $t('llmConfigs.configure_llms_parameters_platform_can_call') }}</p>
       </div>
       <!-- 已接入以虎 One: 平台托管的模型一键同步, 不用填密钥 -->
@@ -124,6 +124,9 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Plus, Refresh } from '@element-plus/icons-vue'
 import { fde } from '@/api/index.js'
+
+// embedded: 放在系统设置的标签页里, 不重复页面标题
+defineProps({ embedded: { type: Boolean, default: false } })
 
 // 供应商预设: Claude 模型清单以官方为准, 其余为常见型号(可手输覆盖)
 const PROVIDERS = [

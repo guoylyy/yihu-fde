@@ -87,8 +87,10 @@ const routes = [
       { path: 'api-keys', name: 'AdminApiKeys', component: () => import('@/views/admin/ApiKeys.vue'),
         meta: { requiredPerm: 'apiKey.manage', requiredRoles: ['ADMIN', 'FDE_ENGINEER'] } },
       // 大模型配置 (基础模块, 仅 ADMIN)
-      { path: 'llm-configs', name: 'AdminLlmConfigs', component: () => import('@/views/admin/LlmConfigs.vue'),
-        meta: { requiredPerm: 'llmConfig.manage', requiredRoles: ['ADMIN'] } },
+      { path: 'settings', name: 'AdminSystemSettings', component: () => import('@/views/admin/SystemSettings.vue'),
+        meta: { requiredPerm: 'system.manage', requiredRoles: ['ADMIN'] } },
+      // 大模型配置已并入系统设置
+      { path: 'llm-configs', redirect: { path: '/admin/settings', query: { tab: 'llm' } } },
       { path: 'notifications', name: 'AdminNotifications', component: () => import('@/views/admin/Notifications.vue'),
         meta: { requiredPerm: 'me.view', requiredRoles: ['ADMIN', 'MANAGER', 'FDE_ENGINEER'] } },
       // 基础配置 · 角色权限配置（仅 ADMIN, 与后端 rolePermission.manage 一致）

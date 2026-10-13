@@ -3,13 +3,12 @@ import { getBrand } from '../config/brand.js'
 // 风格：统一 layout
 // 颜色：主橙 #f54e00，文字 #303133，灰底 #f5f5f5
 
-// 名字/主色跟随实例品牌(config/brand.js)
-const instanceBrand = getBrand()
+// 名字/主色跟随实例品牌(config/brand.js), 每次取值都读当前的(系统设置里改了立即生效)
 const BRAND = {
-  name: instanceBrand.name,
-  url: process.env.MAIL_BRAND_URL || instanceBrand.siteUrl,
-  logo: process.env.MAIL_BRAND_LOGO || instanceBrand.logoUrl || '',
-  primary: instanceBrand.primaryColor,
+  get name() { return getBrand().name },
+  get url() { return process.env.MAIL_BRAND_URL || getBrand().siteUrl },
+  get logo() { return process.env.MAIL_BRAND_LOGO || getBrand().logoUrl || '' },
+  get primary() { return getBrand().primaryColor },
   text: '#303133',
   muted: '#909399',
   bg: '#f5f5f5',

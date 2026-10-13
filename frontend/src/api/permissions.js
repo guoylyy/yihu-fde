@@ -74,6 +74,7 @@ export const PERMISSIONS = {
   "apiKey.manageAll": ["ADMIN"],
   "audit.list": ["ADMIN"],
   "llmConfig.manage": ["ADMIN"],
+  "system.manage": ["ADMIN"],
   "projectRecord.create": ["ADMIN","MANAGER","FDE_ENGINEER"],
   "projectRecord.manage": ["ADMIN","MANAGER"],
   "notification.send": ["ADMIN","MANAGER"]

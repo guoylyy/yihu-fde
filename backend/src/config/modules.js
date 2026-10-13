@@ -36,6 +36,7 @@ export const MODULE_PREFIXES = [
   ['/api/fde/audit-logs', 'admin'],
   ['/api/fde/api-keys', 'admin'],
   ['/api/fde/llm-configs', 'admin'],
+  ['/api/fde/system-settings', 'admin'],
   ['/api/auth', 'auth'],
   ['/api/public', 'public']
 ].sort((a, b) => b[0].length - a[0].length)

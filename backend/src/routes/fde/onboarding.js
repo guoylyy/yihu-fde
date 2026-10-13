@@ -14,6 +14,7 @@ import JSZip from 'jszip'
 import prisma from '../../lib/prisma.js'
 import { internalAuth, hasRole } from '../../lib/auth.js'
 import { generateApiKey } from '../../lib/apiKey.js'
+import { mcpUrl } from '../../lib/settings.js'
 
 const router = express.Router()
 router.use(internalAuth)
@@ -22,14 +23,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const TPL_DIR = path.join(__dirname, '../../templates/onboarding')
 const PKG_KEY_NAME = '开发配置包'
 const COMMIT_LINK_MARK = '🔗 自动关联提交'   // 与 services/repoSync.js 的评论文案保持一致
-// 配置包里的 MCP 地址: 显式配置 > 对外基址 > 当前请求的来源(反向代理时取 X-Forwarded-*)
-function mcpUrl(req) {
-  if (process.env.PUBLIC_MCP_URL) return process.env.PUBLIC_MCP_URL
-  if (process.env.PUBLIC_BASE_URL) return `${process.env.PUBLIC_BASE_URL.replace(/\/$/, '')}/api/mcp`
-  const proto = String(req.headers['x-forwarded-proto'] || req.protocol).split(',')[0]
-  const host = String(req.headers['x-forwarded-host'] || req.headers.host).split(',')[0]
-  return `${proto}://${host}/api/mcp`
-}
 
 const STEP_DEFS = [
   { key: 'package', title: '下载开发配置包', desc: '一键生成专属密钥并下载 .mcp.json + fde-tasks 技能 + 上手教程' },
@@ -109,7 +102,7 @@ router.get('/steps', async (req, res) => {
   try {
     const userId = BigInt(req.user.userId)
     const steps = (await computeSteps([{ id: userId }])).get(String(userId))
-    res.json({ code: 0, data: { steps, doneCount: steps.filter(s => s.done).length, total: steps.length, mcpUrl: MCP_URL } })
+    res.json({ code: 0, data: { steps, doneCount: steps.filter(s => s.done).length, total: steps.length, mcpUrl: mcpUrl(req) } })
   } catch (e) {
     console.error('[onboarding:steps]', e)
     res.status(500).json({ code: 9001, message: e.message })

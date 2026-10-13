@@ -1173,7 +1173,7 @@ model AgentMessage {
 // v2.1.7(#495): 轻量系统级 KV 开关(首个使用方: 报工必须关联任务 timesheet.requireTask)
 model AppSetting {
   key       String   @id @db.VarChar(50)
-  value     String   @db.VarChar(200)
+  value     String   @db.VarChar(1000)
   updatedBy BigInt?  @map("updated_by")
   updatedAt DateTime @updatedAt @map("updated_at")
 

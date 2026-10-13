@@ -105,10 +105,10 @@
             <el-icon><Key /></el-icon>
             <span>{{ $t('common.role_permissions') }}</span>
           </el-menu-item>
-          <!-- 2026-07-31 大模型配置 (基础模块, 仅 ADMIN) -->
-          <el-menu-item v-if="can('llmConfig.manage')" index="/admin/llm-configs">
-            <el-icon><Cpu /></el-icon>
-            <span>{{ $t('common.llm_settings') }}</span>
+          <!-- 系统设置: 品牌外观 / 访问地址 / 大模型 / 登录方式 (仅 ADMIN) -->
+          <el-menu-item v-if="can('system.manage')" index="/admin/settings">
+            <el-icon><Setting /></el-icon>
+            <span>{{ $t('systemSettings.title') }}</span>
           </el-menu-item>
         </el-sub-menu>
 
@@ -280,8 +280,8 @@
             <el-menu-item v-if="can('rolePermission.manage')" index="/admin/role-permissions">
               <el-icon><Key /></el-icon><span>{{ $t('common.role_permissions') }}</span>
             </el-menu-item>
-            <el-menu-item v-if="can('llmConfig.manage')" index="/admin/llm-configs">
-              <el-icon><Cpu /></el-icon><span>{{ $t('common.llm_settings') }}</span>
+            <el-menu-item v-if="can('system.manage')" index="/admin/settings">
+              <el-icon><Setting /></el-icon><span>{{ $t('systemSettings.title') }}</span>
             </el-menu-item>
           </el-sub-menu>
         </el-menu>
@@ -294,7 +294,7 @@
 import { $t } from '@/i18n'
 import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowDown, Bell, User, Document, Avatar, Clock, UserFilled, List, DataAnalysis, Reading, Key, Cpu, Connection, Checked, MagicStick, Guide, Files, Fold, Expand, Opportunity, OfficeBuilding } from '@element-plus/icons-vue'
+import { ArrowDown, Bell, User, Document, Avatar, Clock, UserFilled, List, DataAnalysis, Reading, Key, Setting, Connection, Checked, MagicStick, Guide, Files, Fold, Expand, Opportunity, OfficeBuilding } from '@element-plus/icons-vue'
 import { fde } from '@/api/index.js'
 import LangSwitch from '@/components/common/LangSwitch.vue'
 import { can as permCan, refreshMyPermissions, clearMyPermissions } from '@/api/permissions.js'
@@ -342,7 +342,7 @@ const titles = {
   '/admin/timesheets': $t('common.hours'),
   '/admin/users': $t('common.users'),
   '/admin/api-keys': $t('common.api_keys'),
-  '/admin/llm-configs': $t('common.llm_settings'),
+  '/admin/settings': $t('systemSettings.title'),
   '/admin/teams': $t('common.team_management'),
   '/admin/audit-logs': $t('common.audit_log'),
   '/admin/my': $t('common.my_workbench'),

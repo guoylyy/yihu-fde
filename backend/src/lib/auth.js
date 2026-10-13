@@ -203,6 +203,7 @@ export const PERMISSIONS = {
 
   // 2026-07-31 大模型配置 (基础模块, 仅存配置; 涉及 API 密钥, 收紧到 ADMIN)
   'llmConfig.manage':        ['ADMIN'],
+  'system.manage':           ['ADMIN'],
 
   // v1.4.x 项目记录 (过程资料: 会议纪要/对接沟通/现场记录, 参与交付的都能记)
   'projectRecord.create':    ['ADMIN', 'MANAGER', 'FDE_ENGINEER'],

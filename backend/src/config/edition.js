@@ -96,7 +96,7 @@ export const PERM_PREFIX_MODULE = {
   me: 'me',
   user: 'admin', role: 'admin', rolePermission: 'admin', team: 'admin',
   audit: 'admin', apiKey: 'admin',
-  llmConfig: 'admin'
+  llmConfig: 'admin', system: 'admin'
 }
 
 export function moduleOfPermission(key) {

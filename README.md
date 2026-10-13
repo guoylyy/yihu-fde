@@ -103,7 +103,13 @@ Everything is configured through environment variables; see [`backend/.env.examp
 | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | Single sign-on with Yihu One or another OIDC provider |
 | `PASSWORD_LOGIN` | Set to `false` to allow only single sign-on |
 
-LLM providers and keys are configured in the admin UI under **LLM settings**.
+Admins can change the most common instance settings without a restart under **System settings**:
+- **Branding:** name, tagline, logo (upload or URL) and primary color.
+- **Addresses:** public URL and MCP URL.
+- **LLM settings:** providers, keys, and models synced from Yihu One.
+- **Sign-in:** shows how sign-in is configured (read-only).
+
+A value saved there overrides the matching environment variable (`BRAND_*`, `PUBLIC_BASE_URL`, `PUBLIC_MCP_URL`). Clearing it falls back to the environment variable, then to the default.
 
 ### Run on Yihu One
 

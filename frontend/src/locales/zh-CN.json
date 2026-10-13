@@ -1827,7 +1827,8 @@
     "steps": "步骤",
     "stuck_at": "卡在",
     "all_done_2": "✓ 全部完成",
-    "kit_downloaded_key_in_mcp_json": "配置包已下载，密钥在 .mcp.json 里，请勿外传或提交进仓库"
+    "kit_downloaded_key_in_mcp_json": "配置包已下载，密钥在 .mcp.json 里，请勿外传或提交进仓库",
+    "change_mcp_url": "在系统设置里修改"
   },
   "profile": {
     "change_avatar": "更换头像",
@@ -2139,5 +2140,41 @@
     "good_afternoon_2": "下午好",
     "good_evening": "晚上好",
     "p2_p0_p1": "{p0} 月 {p1} 日 {p2}"
+  },
+  "systemSettings": {
+    "title": "系统设置",
+    "subtitle": "本系统的品牌外观、访问地址、大模型与登录方式。这里保存的值优先于环境变量。",
+    "tab_brand": "品牌外观",
+    "tab_urls": "访问地址",
+    "tab_login": "登录方式",
+    "brand_name": "系统名称",
+    "tagline": "副标题",
+    "logo": "Logo",
+    "upload_logo": "上传图片",
+    "use_builtin_logo": "改用内置标志",
+    "logo_url_placeholder": "或粘贴图片地址",
+    "logo_hint": "建议正方形 PNG/SVG/WebP，不超过 2 MB。",
+    "logo_too_large": "Logo 不能超过 2 MB",
+    "primary_color": "主题色",
+    "brand_save_hint": "保存后页面会刷新，让新品牌在各处生效。",
+    "public_url": "对外地址",
+    "public_url_hint": "大家访问本系统用的地址，用在邮件、文件链接和统一登录回调里。",
+    "mcp_url": "MCP 地址",
+    "mcp_url_hint": "写进开发配置包、显示在开发上手页。留空 = 对外地址 + /api/mcp。",
+    "in_use": "当前生效",
+    "empty_uses_env": "留空：使用环境变量 {p0}",
+    "empty_uses_default": "留空：使用默认值 {p0}",
+    "empty_derived_from_request": "留空：按浏览器访问的地址推算",
+    "empty_mcp_default": "留空：对外地址 + /api/mcp",
+    "optional": "可选",
+    "source_env": "当前来自环境变量 {p0}。",
+    "source_settings": "已在此保存，覆盖环境变量 {p0}。",
+    "password_login": "账号密码登录",
+    "sso": "统一登录",
+    "new_accounts": "首次登录",
+    "auto_create": "自动开通账号，角色为 {p0}",
+    "admin_creates": "需要管理员先开通账号",
+    "login_hint": "登录方式由部署配置决定：环境变量 OIDC_ISSUER、OIDC_CLIENT_ID、OIDC_CLIENT_SECRET、PASSWORD_LOGIN。凭证不会存进数据库。",
+    "login_hint_hosted": "本系统运行在以虎 One 上：用平台账号登录，凭证由平台提供。"
   }
 }

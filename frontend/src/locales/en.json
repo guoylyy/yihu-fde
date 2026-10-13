@@ -1827,7 +1827,8 @@
     "steps": "Steps",
     "stuck_at": "Stuck at",
     "all_done_2": "✓ All done",
-    "kit_downloaded_key_in_mcp_json": "Kit downloaded. The key is in .mcp.json; don't share it or commit it to a repository"
+    "kit_downloaded_key_in_mcp_json": "Kit downloaded. The key is in .mcp.json; don't share it or commit it to a repository",
+    "change_mcp_url": "Change it in System settings"
   },
   "profile": {
     "change_avatar": "Change avatar",
@@ -2139,5 +2140,41 @@
     "good_afternoon_2": "Good afternoon",
     "good_evening": "Good evening",
     "p2_p0_p1": "{p2}, {p0}/{p1}"
+  },
+  "systemSettings": {
+    "title": "System settings",
+    "subtitle": "Branding, addresses, models and sign-in for this installation. Values saved here override environment variables.",
+    "tab_brand": "Branding",
+    "tab_urls": "Addresses",
+    "tab_login": "Sign-in",
+    "brand_name": "Name",
+    "tagline": "Tagline",
+    "logo": "Logo",
+    "upload_logo": "Upload image",
+    "use_builtin_logo": "Use the built-in mark",
+    "logo_url_placeholder": "Or paste an image URL",
+    "logo_hint": "Square PNG/SVG/WebP works best, up to 2 MB.",
+    "logo_too_large": "The logo must be 2 MB or smaller",
+    "primary_color": "Primary color",
+    "brand_save_hint": "The page reloads after saving so the new branding shows everywhere.",
+    "public_url": "Public URL",
+    "public_url_hint": "The address people open this system at. Used in emails, file links and the single sign-on callback.",
+    "mcp_url": "MCP URL",
+    "mcp_url_hint": "Written into developer kits and shown on the onboarding page. Leave empty to use the public URL + /api/mcp.",
+    "in_use": "In use",
+    "empty_uses_env": "Empty: uses the environment value {p0}",
+    "empty_uses_default": "Empty: uses the default {p0}",
+    "empty_derived_from_request": "Empty: worked out from the address in the browser",
+    "empty_mcp_default": "Empty: public URL + /api/mcp",
+    "optional": "Optional",
+    "source_env": "Currently from the {p0} environment variable.",
+    "source_settings": "Saved here; overrides the {p0} environment variable.",
+    "password_login": "Password sign-in",
+    "sso": "Single sign-on",
+    "new_accounts": "First sign-in",
+    "auto_create": "An account is created automatically with the role {p0}",
+    "admin_creates": "An admin has to create the account first",
+    "login_hint": "Sign-in is set by the deployment: OIDC_ISSUER, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET and PASSWORD_LOGIN in the environment. Credentials are never stored in the database.",
+    "login_hint_hosted": "This system runs on Yihu One: sign-in uses the platform account, and the credentials are provided by the platform."
   }
 }

@@ -43,6 +43,7 @@
           <!-- 第 2 步提示连接地址 -->
           <div v-else-if="s.key === 'mcp' && !s.done" class="step-action">
             <span class="action-note">{{ $t('onboarding.platform_url') }}<code>{{ mcpUrl }}</code>{{ $t('onboarding.already_filled_in_kit_put_files') }}</span>
+            <router-link v-if="can('system.manage')" to="/admin/settings?tab=url" class="action-note">{{ $t('onboarding.change_mcp_url') }}</router-link>
           </div>
         </div>
       </div>
@@ -95,6 +96,7 @@ import { $t } from '@/i18n'
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { fde } from '@/api/index.js'
+import { can } from '@/api/permissions.js'
 
 const user = JSON.parse(localStorage.getItem('fde_internal_user') || 'null')
 const isManager = computed(() => ['ADMIN', 'MANAGER'].includes(user?.role))
