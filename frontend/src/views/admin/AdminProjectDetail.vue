@@ -447,7 +447,7 @@
             </div>
           </el-tab-pane>
 
-          <el-tab-pane name="progress">
+          <el-tab-pane name="progress" lazy>
             <template #label><el-icon><TrendCharts /></el-icon> {{ $t('projectDetail.progress_stats') }}</template>
             <!-- v2.0.5(#406/#407/#408/#409): 进展驾驶舱(KPI条/里程碑泳道/五态/工时/代码/投屏), 替代 v1.9.4 统计块 -->
             <ProgressDashboard ref="progressDashRef" :project-id="pid()" />
@@ -1319,8 +1319,7 @@
 
 <script setup>
 import { $t } from '@/i18n'
-import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
-import * as echarts from 'echarts'   // v1.9.4 进展和统计图表
+import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick, defineAsyncComponent } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowLeft, DataBoard, TrendCharts, Flag, User, Plus, UploadFilled, FolderOpened, Link, Clock, Refresh, Notebook, Grid, MagicStick, Collection, Search, Files, Guide, Fold, Expand, ArrowUp, ArrowDown, Menu } from '@element-plus/icons-vue'
@@ -1331,8 +1330,9 @@ import { marked } from 'marked'
 import { fde, formatDate } from '@/api/index.js'
 import { can } from '@/api/permissions.js'
 import TaskDetailDialog from '@/components/admin/TaskDetailDialog.vue'
-import ProgressDashboard from '@/components/admin/ProgressDashboard.vue'   // v2.0.5(#406-409)
-import ProjectAssetsPanel from '@/components/admin/assets/ProjectAssetsPanel.vue'
+// 非首屏 Tab 的组件按需加载(进展含图表库), 打开对应 Tab 时才下载
+const ProgressDashboard = defineAsyncComponent(() => import('@/components/admin/ProgressDashboard.vue'))   // v2.0.5(#406-409)
+const ProjectAssetsPanel = defineAsyncComponent(() => import('@/components/admin/assets/ProjectAssetsPanel.vue'))
 import RoadmapView from '@/components/admin/roadmap/RoadmapView.vue'   // v2.8.0(#1144) 里程碑路径图
 
 const route = useRoute()
@@ -2520,61 +2520,6 @@ function viewOrphanTasks() {
   loadBoard()
 }
 
-// ---------- v1.9.4 进展和统计: 项目历史汇总图表(数据 = timesheets summary, 已审批口径) ----------
-const hoursTrendRef = ref(null)
-const hoursByPersonRef = ref(null)
-const hoursByEngineer = ref([])
-const hoursByDay = ref([])
-let statsLoaded = false
-async function loadProjectStats() {
-  try {
-    const [eng, day] = await Promise.all([
-      fde.timesheets.summary({ projectId: pid(), groupBy: 'ENGINEER' }),
-      fde.timesheets.summary({ projectId: pid(), groupBy: 'DAY' })
-    ])
-    hoursByEngineer.value = eng.list || []
-    hoursByDay.value = day.list || []
-    statsLoaded = true
-    nextTick(renderStatsCharts)
-  } catch (e) { console.warn('[project-stats]', e) }
-}
-function renderStatsCharts() {
-  // 周趋势: 按周一为起点聚合全部历史
-  if (hoursTrendRef.value) {
-    const byWeek = new Map()
-    for (const d of hoursByDay.value) {
-      const dt = new Date(d.date)
-      const monday = new Date(dt)
-      monday.setDate(dt.getDate() - ((dt.getDay() + 6) % 7))
-      const key = monday.toISOString().slice(0, 10)
-      byWeek.set(key, (byWeek.get(key) || 0) + Number(d.totalHours))
-    }
-    const weeks = [...byWeek.entries()].sort((a, b) => a[0].localeCompare(b[0]))
-    echarts.init(hoursTrendRef.value).setOption({
-      grid: { left: 40, right: 16, top: 24, bottom: 24 },
-      tooltip: { trigger: 'axis' },
-      xAxis: { type: 'category', data: weeks.map(w => w[0].slice(5)), axisLabel: { fontSize: 10 } },
-      yAxis: { type: 'value', name: $t('common.hours_2') },
-      series: [{ type: 'line', smooth: true, areaStyle: { opacity: 0.12 }, itemStyle: { color: '#d2521e' }, data: weeks.map(w => Math.round(w[1] * 10) / 10) }]
-    })
-  }
-  // 每人投入: 横向条形, 多的在上
-  if (hoursByPersonRef.value) {
-    const rows = hoursByEngineer.value.slice().sort((a, b) => a.totalHours - b.totalHours)
-    echarts.init(hoursByPersonRef.value).setOption({
-      grid: { left: 70, right: 30, top: 8, bottom: 24 },
-      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-      xAxis: { type: 'value', name: $t('common.hours_2') },
-      yAxis: { type: 'category', data: rows.map(r => r.name), axisLabel: { fontSize: 11 } },
-      series: [{ type: 'bar', barMaxWidth: 18, itemStyle: { color: '#1c1917', borderRadius: [0, 4, 4, 0] }, label: { show: true, position: 'right', fontSize: 10 }, data: rows.map(r => r.totalHours) }]
-    })
-  }
-}
-watch(activeTab, v => {
-  if (v !== 'progress') return
-  if (!statsLoaded) loadProjectStats()
-  else nextTick(renderStatsCharts)   // 重进 tab 时容器可能重建, 重渲染
-})
 // v1.9.3: 负责人选项 = 项目成员(按 userId; 双轨: user 直挂 / engineer.user)
 const memberUserOptions = computed(() =>
   (project.value?.members || [])

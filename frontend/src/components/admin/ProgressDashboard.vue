@@ -153,7 +153,7 @@ import { $t } from '@/i18n'
 import { ref, reactive, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
-import * as echarts from 'echarts'
+import { echarts } from '@/utils/echarts.js'
 import { fde } from '@/api/index.js'
 
 const props = defineProps({ projectId: { type: [String, Number], required: true } })

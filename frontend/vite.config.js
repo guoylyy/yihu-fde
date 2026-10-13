@@ -17,6 +17,19 @@ export default defineConfig({
       resolvers: [ElementPlusResolver()]
     })
   ],
+  build: {
+    rollupOptions: {
+      output: {
+        // 第三方库拆成独立文件: 各页面共用、浏览器单独缓存, 业务代码更新时不用重新下载
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return
+          if (/node_modules\/(echarts|zrender)\//.test(id)) return 'vendor-echarts'
+          if (/node_modules\/(element-plus|@element-plus)\//.test(id)) return 'vendor-element'
+          if (/node_modules\/(vue|@vue|vue-router|pinia|vue-i18n|@intlify)\//.test(id)) return 'vendor-vue'
+        }
+      }
+    }
+  },
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url))
