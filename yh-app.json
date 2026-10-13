@@ -15,5 +15,5 @@
     "PASSWORD_LOGIN": "false",
     "OIDC_DEFAULT_ROLE": "FDE_ENGINEER"
   },
-  "deploy": { "branch": "main", "mode": "manual" }
+  "deploy": { "branch": "release", "mode": "manual" }
 }
