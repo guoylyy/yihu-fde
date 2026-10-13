@@ -33,6 +33,8 @@ model User {
   lastActiveAt       DateTime? @map("last_active_at")
   // 2026-07-05: 是否需要强制修改密码（首次登录 / 重置后）
   mustChangePassword Boolean   @default(false) @map("must_change_password")
+  // 外部身份(OIDC, 如以虎 One)的用户 id(sub); 统一登录按它找人, 为空 = 只用本地账号
+  oidcSubject        String?   @unique @map("oidc_subject") @db.VarChar(191)
   // 通知偏好（JSON）：{ [eventType]: { site?: bool, feishu?: bool, mail?: bool } }
   notificationPrefs  Json?     @map("notification_prefs")
   createdAt          DateTime  @default(now()) @map("created_at")

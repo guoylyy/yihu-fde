@@ -3,6 +3,7 @@
 import crypto from 'node:crypto'
 import prisma from './prisma.js'
 import { verifyToken } from './auth.js'
+import { resolveOidcAccessToken } from './oidc.js'
 
 const KEY_PREFIX = 'fde_'
 // 旧版签发的 Key 前缀, 照常认
@@ -79,7 +80,11 @@ export async function resolveUserToken(raw) {
     include: { engineer: true }
   })
   if (!user || user.status !== 1 || user.deletedAt) return null
-  // v2.0.9(#435): 用户 token 透传也带出默认 Agent 档案 —— report_presence 心跳需要 Agent 身份
+  return userPayload(user, 'USER_TOKEN')
+}
+
+/** 本地用户 → 与 internalAuth 同构的身份(带出默认 Agent 档案: report_presence 心跳需要 Agent 身份) */
+async function userPayload(user, authVia) {
   const defaultAgent = await prisma.agentProfile.findFirst({
     where: { userId: user.id, status: 1, deletedAt: null },
     orderBy: { id: 'asc' }
@@ -91,21 +96,30 @@ export async function resolveUserToken(raw) {
     role: user.role,
     engineerId: user.engineer && !user.engineer.deletedAt ? user.engineer.id.toString() : undefined,
     agentProfileId: defaultAgent ? defaultAgent.id.toString() : undefined,
-    authVia: 'USER_TOKEN'
+    authVia
   }
+}
+
+/** 统一登录身份提供方(如以虎 One)签发的 access_token: 其 AI 助手调 MCP 时带的就是它 */
+async function resolveOidcToken(raw) {
+  const user = await resolveOidcAccessToken(raw)
+  return user ? userPayload(user, 'OIDC_TOKEN') : null
 }
 
 /**
  * Express 中间件：MCP 鉴权, 两种凭证任选其一（均走 Authorization: Bearer 或 X-API-Key）
  * - fde_ 前缀(旧版 yhk_) → 个人 API Key（代理用户模式）
- * - 其余 → 用户登录 JWT（Agent 平台透传模式: 平台把用户自己的 Token 原样带过来）
+ * - 其余 → 用户登录 JWT（Agent 平台透传模式: 平台把用户自己的 Token 原样带过来）,
+ *   再不行按统一登录身份提供方的 access_token 校验（以虎 One 的 AI 助手调 MCP）
  * 通过后 req.user 与 internalAuth 同构
  */
 export function mcpAuth(req, res, next) {
   const auth = req.headers.authorization || ''
   const raw = auth.startsWith('Bearer ') ? auth.slice(7) : req.headers['x-api-key']
   const isApiKey = isApiKeyFormat(raw)
-  const resolve = isApiKey ? resolveApiKey : resolveUserToken
+  const resolve = isApiKey
+    ? resolveApiKey
+    : async (t) => (await resolveUserToken(t)) || (await resolveOidcToken(t))
   resolve(raw)
     .then((payload) => {
       if (!payload) {
@@ -113,7 +127,7 @@ export function mcpAuth(req, res, next) {
           code: 1002,
           message: isApiKey
             ? 'API Key 无效或已吊销'
-            : '凭证无效：请携带个人 API Key（fde_ 前缀）或有效的用户登录 Token（Authorization: Bearer <token>）'
+            : '凭证无效：请携带个人 API Key（fde_ 前缀）、本系统登录 Token 或统一登录(OIDC) access_token（Authorization: Bearer <token>）'
         })
       }
       if (payload.apiKeyScope === 'AGENT') {

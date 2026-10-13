@@ -476,7 +476,7 @@ function onCommand(cmd) {
     localStorage.removeItem('fde_internal_token')
     localStorage.removeItem('fde_internal_user')
     clearMyPermissions()
-    router.push('/admin/login')
+    router.push({ path: '/admin/login', query: { signed_out: '1' } })
   } else if (cmd === 'profile') {
     router.push('/admin/profile')
   } else if (cmd === 'agents') {

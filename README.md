@@ -100,8 +100,22 @@ Everything is configured through environment variables; see [`backend/.env.examp
 | `SMTP_*` | Email |
 | `GITHUB_TOKEN`, `GITLAB_TOKEN`, `GITEE_ACCESS_TOKEN` | Repository commit sync |
 | `ENABLED_MODULES` / `DISABLED_MODULES` | Turn modules on or off per instance |
+| `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | Single sign-on with Yihu One or another OIDC provider |
+| `PASSWORD_LOGIN` | Set to `false` to allow only single sign-on |
 
 LLM providers and keys are configured in the admin UI under **LLM settings**.
+
+### Sign in with Yihu One
+
+Any OpenID Connect provider works; these steps use Yihu One as the example.
+
+1. In Yihu One, go to **管理 → 应用 → 登记外部应用** and register the app with the redirect URI `<PUBLIC_BASE_URL>/api/auth/oidc/callback`.
+2. Set `OIDC_ISSUER` (the Yihu One address, e.g. `https://one.example.com`), `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET`, then restart the backend.
+3. The login page now shows **Sign in with 以虎 One** (rename it with `OIDC_NAME`).
+
+On first sign-in, an account is matched by the Yihu One user id. If there is no match, it is linked to an existing account with the same verified email. Otherwise a new account is created with `OIDC_DEFAULT_ROLE`. Users whose Yihu One roles include `OIDC_ADMIN_ROLES` become admins. Disabled accounts cannot sign in.
+
+The MCP endpoint (`/api/mcp`) also accepts Yihu One access tokens, so the Yihu One assistant can call the platform as the signed-in user. Register `<PUBLIC_BASE_URL>/api/mcp` as the app's MCP address.
 
 ## Project structure
 

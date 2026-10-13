@@ -968,7 +968,9 @@
     "enter_your_password": "Enter your password",
     "stay_signed_in_30_days": "Stay signed in (30 days)",
     "signing_in_automatically": "Signing in automatically…",
-    "sign_in_failed": "Sign-in failed"
+    "sign_in_failed": "Sign-in failed",
+    "sign_in_with": "Sign in with {p0}",
+    "or_use_password": "or sign in with a password"
   },
   "projectDetail": {
     "project_doesnt_exist_or_you_cant": "Project doesn't exist or you can't view it",

@@ -32,7 +32,9 @@ export default defineConfig({
       // 后端地址可用 VITE_API_TARGET 覆盖(如本地同时起两套实例)
       '/api': {
         target: process.env.VITE_API_TARGET || 'http://localhost:3005',
-        changeOrigin: true
+        changeOrigin: true,
+        // 带上浏览器看到的主机名: 统一登录的回调地址按它推导
+        configure: (proxy) => proxy.on('proxyReq', (proxyReq, req) => proxyReq.setHeader('x-forwarded-host', req.headers.host))
       },
       // 本地存储驱动的上传文件由后端托管
       '/uploads': {

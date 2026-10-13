@@ -968,7 +968,9 @@
     "enter_your_password": "请输入密码",
     "stay_signed_in_30_days": "下次自动登录（30 天内免登录）",
     "signing_in_automatically": "自动登录中…",
-    "sign_in_failed": "登录失败"
+    "sign_in_failed": "登录失败",
+    "sign_in_with": "使用 {p0} 登录",
+    "or_use_password": "或使用账号密码登录"
   },
   "projectDetail": {
     "project_doesnt_exist_or_you_cant": "项目不存在或无权查看",
