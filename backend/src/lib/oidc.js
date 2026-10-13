@@ -60,6 +60,11 @@ function internal(url, cfg) {
   return u.toString()
 }
 
+/** 服务端访问身份提供方上某个路径的地址(OIDC_INTERNAL_URL 优先), 如 serverUrl('/api/open/llm') */
+export function serverUrl(pathPart, cfg = oidcConfig()) {
+  return internal(`${cfg.issuer}${pathPart}`, cfg)
+}
+
 export async function discover(cfg = oidcConfig()) {
   if (discoveryCache && discoveryCache.issuer === cfg.issuer && Date.now() - discoveryCache.at < DISCOVERY_TTL) {
     return discoveryCache.doc

@@ -222,10 +222,8 @@
     "request_timed_out_s_please_try": "请求超时（{p0}秒）请稍后重试",
     "recognition_failed": "识别失败",
     "parse_failed": "解析失败",
-    "operations": "平台运营",
     "project_manager": "项目经理",
     "fde_engineer": "FDE 工程师",
-    "sales": "销售",
     "name_2": "姓名",
     "phone": "手机号",
     "email": "邮箱",
@@ -1754,7 +1752,11 @@
     "configuration_name_required": "配置名不能为空",
     "choose_provider": "请选择供应商",
     "choose_or_enter_model_id_2": "请选择或输入模型 ID",
-    "now_default": "「{p0}」已设为默认配置"
+    "now_default": "「{p0}」已设为默认配置",
+    "sync_from": "从{p0}同步",
+    "platform_credentials": "平台凭证",
+    "yihu_one_hint": "使用{p0}里配置的模型，用本应用在平台的凭证调用，不需要填地址和密钥。",
+    "sync_result": "平台共 {p0} 个模型：新增 {p1}，更新 {p2}，停用 {p3}"
   },
   "myBots": {
     "all_robots_you_own_total": "你名下的全部机器人 · 共 {p0} 个",

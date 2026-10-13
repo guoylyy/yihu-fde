@@ -52,7 +52,7 @@ export const DOC_GROUPS = [
         title: 'MCP 智能体接入',
         desc: '把支持 MCP 的智能体平台接入FDE 系统：端点、鉴权、工具清单',
         load: () => import('./mcp.md?raw')
-      },,
+      },
       {
         slug: 'agent-collab',
         title: 'Agent 协作与数据沉淀',

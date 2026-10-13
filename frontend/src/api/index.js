@@ -403,7 +403,8 @@ export const fde = {
     create: (data) => request('/api/fde/llm-configs', { method: 'POST', body: JSON.stringify(data) }),
     update: (id, data) => request(`/api/fde/llm-configs/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     setDefault: (id) => request(`/api/fde/llm-configs/${id}/set-default`, { method: 'POST' }),
-    remove: (id) => request(`/api/fde/llm-configs/${id}`, { method: 'DELETE' })
+    remove: (id) => request(`/api/fde/llm-configs/${id}`, { method: 'DELETE' }),
+    syncYihuOne: () => request('/api/fde/llm-configs/yihu-one/sync', { method: 'POST' })
   },
   // API Key（MCP/智能体对接凭证）
   apiKeys: {

@@ -50,7 +50,7 @@ export function internalAuth(req, res, next) {
 
 /**
  * 路由级角色权限检查中间件
- * 用法：router.use(internalAuth, requireRole('ADMIN', 'PLATFORM', 'MANAGER'))
+ * 用法：router.use(internalAuth, requireRole('ADMIN', 'MANAGER'))
  *       或单个：router.use(requireRole('ADMIN'))
  *
  * 返回 403 表示未授权
@@ -93,19 +93,19 @@ export function hasRole(user, ...roles) {
  */
 export const PERMISSIONS = {
   // 模块入口 (原路由级 requireRole 白名单, 现改为可配置的 *.access 权限点)
-  'customer.access':         ['ADMIN', 'PLATFORM', 'MANAGER', 'SALES'],
-  'project.access':          ['ADMIN', 'PLATFORM', 'MANAGER', 'SALES', 'FDE_ENGINEER'],
-  'engineer.access':         ['ADMIN', 'PLATFORM', 'MANAGER'],
-  'engineer_stats.access':   ['ADMIN', 'PLATFORM', 'MANAGER', 'FDE_ENGINEER'],
-  'timesheet.access':        ['ADMIN', 'PLATFORM', 'MANAGER', 'FDE_ENGINEER', 'SALES'],
-  'knowledge.access':        ['ADMIN', 'PLATFORM', 'MANAGER', 'FDE_ENGINEER', 'SALES'],
-  'skill.access':            ['ADMIN', 'PLATFORM', 'MANAGER', 'FDE_ENGINEER', 'SALES'],
+  'customer.access':         ['ADMIN', 'MANAGER'],
+  'project.access':          ['ADMIN', 'MANAGER', 'FDE_ENGINEER'],
+  'engineer.access':         ['ADMIN', 'MANAGER'],
+  'engineer_stats.access':   ['ADMIN', 'MANAGER', 'FDE_ENGINEER'],
+  'timesheet.access':        ['ADMIN', 'MANAGER', 'FDE_ENGINEER'],
+  'knowledge.access':        ['ADMIN', 'MANAGER', 'FDE_ENGINEER'],
+  'skill.access':            ['ADMIN', 'MANAGER', 'FDE_ENGINEER'],
 
   // 页面级查看权限 (前端菜单/路由控制用, 与 frontend/src/api/permissions.js 对应)
-  'customer.view':           ['ADMIN', 'PLATFORM', 'MANAGER', 'SALES'],
-  'project.view':            ['ADMIN', 'PLATFORM', 'MANAGER', 'SALES', 'FDE_ENGINEER'],
-  'timesheet.view':          ['ADMIN', 'PLATFORM', 'MANAGER', 'FDE_ENGINEER', 'SALES'],
-  'me.view':                 ['ADMIN', 'PLATFORM', 'MANAGER', 'FDE_ENGINEER', 'SALES'],
+  'customer.view':           ['ADMIN', 'MANAGER'],
+  'project.view':            ['ADMIN', 'MANAGER', 'FDE_ENGINEER'],
+  'timesheet.view':          ['ADMIN', 'MANAGER', 'FDE_ENGINEER'],
+  'me.view':                 ['ADMIN', 'MANAGER', 'FDE_ENGINEER'],
 
   // 角色权限配置 (仅 ADMIN, 且不可在后台改动此权限点本身, 防止把自己锁在门外)
   'rolePermission.manage':   ['ADMIN'],
@@ -113,41 +113,41 @@ export const PERMISSIONS = {
   'role.manage':             ['ADMIN'],
 
   // 客户
-  'customer.create':         ['ADMIN', 'MANAGER', 'SALES'],
-  'customer.edit':           ['ADMIN', 'MANAGER', 'SALES'],
+  'customer.create':         ['ADMIN', 'MANAGER'],
+  'customer.edit':           ['ADMIN', 'MANAGER'],
   'customer.delete':         ['ADMIN', 'MANAGER'],
 
   // 项目
-  'project.create':          ['ADMIN', 'MANAGER', 'SALES'],
-  'project.edit':            ['ADMIN', 'MANAGER', 'SALES'],
+  'project.create':          ['ADMIN', 'MANAGER'],
+  'project.edit':            ['ADMIN', 'MANAGER'],
   'project.delete':          ['ADMIN', 'MANAGER'],
   'project.changeStatus':    ['ADMIN', 'MANAGER'],
   'project.manageMembers':   ['ADMIN', 'MANAGER'],
   // 项目预算/成本: FDE 工程师不可见
-  'project.viewFinance':     ['ADMIN', 'PLATFORM', 'MANAGER', 'SALES'],
+  'project.viewFinance':     ['ADMIN', 'MANAGER'],
 
   // 任务 (2026-07-20 拆分: 原先创建/删除借用 project.edit, 编辑/状态流转只验登录)
   // 注: 状态流转另有数据级校验——非管理层只能改自己负责的任务, 见 tasks.js
-  'task.view':               ['ADMIN', 'PLATFORM', 'MANAGER', 'FDE_ENGINEER', 'SALES'],
+  'task.view':               ['ADMIN', 'MANAGER', 'FDE_ENGINEER'],
   // v1.4.x 主人拍板: FDE 工程师可创建任务(个人任务管理/MCP 智能体场景)
-  'task.create':             ['ADMIN', 'MANAGER', 'SALES', 'FDE_ENGINEER'],
-  'task.edit':               ['ADMIN', 'PLATFORM', 'MANAGER', 'FDE_ENGINEER', 'SALES'],
-  'task.changeStatus':       ['ADMIN', 'PLATFORM', 'MANAGER', 'FDE_ENGINEER', 'SALES'],
-  'task.delete':             ['ADMIN', 'MANAGER', 'SALES'],
+  'task.create':             ['ADMIN', 'MANAGER', 'FDE_ENGINEER'],
+  'task.edit':               ['ADMIN', 'MANAGER', 'FDE_ENGINEER'],
+  'task.changeStatus':       ['ADMIN', 'MANAGER', 'FDE_ENGINEER'],
+  'task.delete':             ['ADMIN', 'MANAGER'],
 
   // 子任务 (原先只验登录)
-  'subtask.manage':          ['ADMIN', 'PLATFORM', 'MANAGER', 'FDE_ENGINEER', 'SALES'],
+  'subtask.manage':          ['ADMIN', 'MANAGER', 'FDE_ENGINEER'],
 
   // 里程碑/问题/风险 (2026-07-20 拆分: 原先借用 project.edit)
-  'milestone.manage':        ['ADMIN', 'MANAGER', 'SALES'],
-  'issue.manage':            ['ADMIN', 'MANAGER', 'SALES'],
-  'risk.manage':             ['ADMIN', 'MANAGER', 'SALES'],
+  'milestone.manage':        ['ADMIN', 'MANAGER'],
+  'issue.manage':            ['ADMIN', 'MANAGER'],
+  'risk.manage':             ['ADMIN', 'MANAGER'],
 
   // 工程师
-  'engineer.view':           ['ADMIN', 'PLATFORM', 'MANAGER'],
-  'engineer.create':         ['ADMIN', 'PLATFORM', 'MANAGER', 'SALES'],
-  'engineer.edit':           ['ADMIN', 'PLATFORM', 'MANAGER', 'SALES'],
-  'engineer.disable':        ['ADMIN', 'PLATFORM', 'MANAGER'],
+  'engineer.view':           ['ADMIN', 'MANAGER'],
+  'engineer.create':         ['ADMIN', 'MANAGER'],
+  'engineer.edit':           ['ADMIN', 'MANAGER'],
+  'engineer.disable':        ['ADMIN', 'MANAGER'],
 
   // 工时
   'timesheet.create':        ['ADMIN', 'MANAGER', 'FDE_ENGINEER'],
@@ -157,35 +157,35 @@ export const PERMISSIONS = {
   'timesheet.approve':       ['ADMIN', 'MANAGER'],
 
   // 报表导出
-  'report.export':           ['ADMIN', 'PLATFORM', 'MANAGER', 'FDE_ENGINEER', 'SALES'],
+  'report.export':           ['ADMIN', 'MANAGER', 'FDE_ENGINEER'],
 
   // 知识库
-  'knowledge.view':      ['ADMIN', 'PLATFORM', 'MANAGER', 'FDE_ENGINEER', 'SALES'],
-  'knowledge.create':    ['ADMIN', 'PLATFORM', 'MANAGER', 'FDE_ENGINEER'],
-  'knowledge.edit':      ['ADMIN', 'PLATFORM', 'MANAGER', 'FDE_ENGINEER'],
+  'knowledge.view':      ['ADMIN', 'MANAGER', 'FDE_ENGINEER'],
+  'knowledge.create':    ['ADMIN', 'MANAGER', 'FDE_ENGINEER'],
+  'knowledge.edit':      ['ADMIN', 'MANAGER', 'FDE_ENGINEER'],
   'knowledge.delete':    ['ADMIN', 'MANAGER'],
 
   // 技能主数据
-  'skill.manage':            ['ADMIN', 'PLATFORM', 'MANAGER'],
+  'skill.manage':            ['ADMIN', 'MANAGER'],
 
   // v2.0.9 Skills 能力包框架 (#428): 查看全员, 维护限经理/管理员
-  'skillPackage.view':       ['ADMIN', 'PLATFORM', 'MANAGER', 'FDE_ENGINEER', 'SALES'],
-  'skillPackage.manage':     ['ADMIN', 'PLATFORM', 'MANAGER'],
+  'skillPackage.view':       ['ADMIN', 'MANAGER', 'FDE_ENGINEER'],
+  'skillPackage.manage':     ['ADMIN', 'MANAGER'],
 
   // v2.7 项目资产库 (#1140): 全员可看; 工程师可登记(进草稿)与登记复用; 发布/改/删限经理
-  'asset.view':              ['ADMIN', 'PLATFORM', 'MANAGER', 'FDE_ENGINEER', 'SALES'],
-  'asset.create':            ['ADMIN', 'PLATFORM', 'MANAGER', 'FDE_ENGINEER'],
-  'asset.use':               ['ADMIN', 'PLATFORM', 'MANAGER', 'FDE_ENGINEER'],
-  'asset.manage':            ['ADMIN', 'PLATFORM', 'MANAGER'],
+  'asset.view':              ['ADMIN', 'MANAGER', 'FDE_ENGINEER'],
+  'asset.create':            ['ADMIN', 'MANAGER', 'FDE_ENGINEER'],
+  'asset.use':               ['ADMIN', 'MANAGER', 'FDE_ENGINEER'],
+  'asset.manage':            ['ADMIN', 'MANAGER'],
 
   // v2.10.0 创意中心 (#1180): 面向全公司, 谁都能看能发能开话题; 转里程碑与置顶/搁置/删别人的限经理
-  'idea.view':               ['ADMIN', 'PLATFORM', 'MANAGER', 'FDE_ENGINEER', 'SALES'],
-  'idea.create':             ['ADMIN', 'PLATFORM', 'MANAGER', 'FDE_ENGINEER', 'SALES'],
+  'idea.view':               ['ADMIN', 'MANAGER', 'FDE_ENGINEER'],
+  'idea.create':             ['ADMIN', 'MANAGER', 'FDE_ENGINEER'],
   'idea.convert':            ['ADMIN', 'MANAGER'],
-  'idea.manage':             ['ADMIN', 'PLATFORM', 'MANAGER'],
+  'idea.manage':             ['ADMIN', 'MANAGER'],
 
   // v1.5.6 团队管理 (团队清单任何登录用户可读; 增删改/成员调整需此权限)
-  'team.manage':             ['ADMIN', 'PLATFORM'],
+  'team.manage':             ['ADMIN'],
 
   // 用户管理（仅 ADMIN）
   'user.view':               ['ADMIN'],
@@ -205,12 +205,12 @@ export const PERMISSIONS = {
   'llmConfig.manage':        ['ADMIN'],
 
   // v1.4.x 项目记录 (过程资料: 会议纪要/对接沟通/现场记录, 参与交付的都能记)
-  'projectRecord.create':    ['ADMIN', 'PLATFORM', 'MANAGER', 'FDE_ENGINEER', 'SALES'],
-  'projectRecord.manage':    ['ADMIN', 'PLATFORM', 'MANAGER'],
+  'projectRecord.create':    ['ADMIN', 'MANAGER', 'FDE_ENGINEER'],
+  'projectRecord.manage':    ['ADMIN', 'MANAGER'],
 
   // MCP 工具补全: 主动给同事发站内通知(只进站内信箱, 不外发飞书/邮件)
   // 收紧到管理侧 —— 谁都能发就成骚扰通道了
-  'notification.send':       ['ADMIN', 'PLATFORM', 'MANAGER']
+  'notification.send':       ['ADMIN', 'MANAGER']
 }
 
 // ===== 角色定义入库 (v1.3.2 动态角色) =====
@@ -223,10 +223,8 @@ export const DATA_SCOPES = ['ALL', 'OWN_PROJECTS', 'OWN_RECORDS']
 // DB 不可用时的兜底(与 migration seed 一致), 保证鉴权永不因角色表故障而全站瘫痪
 export const BUILTIN_ROLES = [
   { code: 'ADMIN',        name: '系统管理员', dataScope: 'ALL',          builtin: true, status: 1 },
-  { code: 'PLATFORM',     name: '平台运营',   dataScope: 'ALL',          builtin: true, status: 1 },
   { code: 'MANAGER',      name: '项目经理',   dataScope: 'OWN_PROJECTS', builtin: true, status: 1 },
-  { code: 'FDE_ENGINEER', name: 'FDE 工程师', dataScope: 'OWN_RECORDS',  builtin: true, status: 1 },
-  { code: 'SALES',        name: '销售',       dataScope: 'OWN_RECORDS',  builtin: true, status: 1 }
+  { code: 'FDE_ENGINEER', name: 'FDE 工程师', dataScope: 'OWN_RECORDS',  builtin: true, status: 1 }
 ]
 
 let roleCache = new Map(BUILTIN_ROLES.map(r => [r.code, r]))
@@ -341,13 +339,10 @@ export function hasPermission(user, perm) {
  * 数据级权限范围 — v1.3.2 起按角色的 dataScope 属性分支, 不再按角色字面量分支
  *
  * dataScope 语义 (逐实体对齐 v1.3.1 前的五角色行为, 回归基准):
- * - ALL          → 不过滤 (原 ADMIN/PLATFORM)
+ * - ALL          → 不过滤 (ADMIN)
  * - OWN_PROJECTS → 经理型: 自己负责(managerId)/创建/参与成员的项目; 业务单据看自己负责的项目
  *                  (原 MANAGER。工时/线索沿用原行为不过滤 — 审批流需要全量)
- * - OWN_RECORDS  → 个人型: 仅本人参与项目 + 本人产生/被指派的记录 (原 FDE_ENGINEER/SALES)
- *
- * 保留的 code 级特判 (计划允许, 不强求一步纯配置化):
- * - SALES 的 createdBy 语义: 项目=自己创建的
+ * - OWN_RECORDS  → 个人型: 仅本人参与项目 + 本人产生/被指派的记录 (FDE_ENGINEER)
  */
 export async function buildScopeWhere(user, entity) {
   if (!user) return {}
@@ -356,15 +351,6 @@ export async function buildScopeWhere(user, entity) {
     return {}
   }
   const uid = BigInt(user.id)
-
-  // ---- SALES 特判 (createdBy 语义, dataScope 覆盖不了) ----
-  if (user.role === 'SALES') {
-    if (entity === 'project') {
-      // v2.12: lead 转化分支随 CRM 删除, 销售只看自己创建的
-      return { createdBy: uid }
-    }
-    return {}  // timesheet: 原行为不过滤
-  }
 
   if (scope === 'OWN_PROJECTS') {
     if (entity === 'project') {
@@ -419,7 +405,7 @@ async function getMemberProjectIds(user) {
 /**
  * 单条记录的访问判定（同步，只看手上这条记录的字段）。
  *
- * ⚠️ 局限: 它判断不了「成员关系」这类要查库的归属 —— OWN_RECORDS 角色(FDE 工程师/销售)
+ * ⚠️ 局限: 它判断不了「成员关系」这类要查库的归属 —— OWN_RECORDS 角色(FDE 工程师)
  * 的 project 会落到末尾 return true, 也就是不做任何限制。这曾导致项目详情页放行、
  * 而同一项目的子资源(记录/里程碑/问题风险, 走 buildScopeWhere)返回 404, 两边口径分叉。
  * **项目的归属判定请用 routes/fde/projects.js 的 isProjectInScope()**, 它与 buildScopeWhere 同源。
@@ -429,11 +415,6 @@ export function canAccessRecord(user, entity, record) {
   const scope = getDataScope(user.role)
   if (scope === 'ALL') return true
   const uid = BigInt(user.id)
-
-  // SALES 特判 (与 buildScopeWhere 对齐)
-  if (user.role === 'SALES') {
-    return true
-  }
 
   if (scope === 'OWN_PROJECTS') {
     if (entity === 'project') {

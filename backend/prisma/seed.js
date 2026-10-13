@@ -9,10 +9,8 @@ const prisma = new PrismaClient()
 
 const ROLE_DESCRIPTIONS = {
   ADMIN: 'All permissions + user management',
-  PLATFORM: 'Operations: global visibility across all business data',
   MANAGER: 'Manages projects; data limited to projects they lead or join',
-  FDE_ENGINEER: 'Logs hours and works on tasks; data limited to own records',
-  SALES: 'Customers and project kickoff; data limited to records they own'
+  FDE_ENGINEER: 'Logs hours and works on tasks; data limited to own records'
 }
 
 const IDEA_TOPICS = [
@@ -52,7 +50,6 @@ async function main() {
   const admin = await upsertUser('admin', 'Admin', 'ADMIN')
   const manager = await upsertUser('manager', 'Morgan Lee', 'MANAGER')
   const fdeUser = await upsertUser('fde001', 'Sam Chen', 'FDE_ENGINEER')
-  await upsertUser('sales', 'Alex Kim', 'SALES')
   const engineer = await prisma.engineer.upsert({
     where: { userId: fdeUser.id },
     update: {},
@@ -66,7 +63,13 @@ async function main() {
       available: 1
     }
   })
-  console.log('  ✅ users: admin / manager / fde001 / sales')
+  const fdeUser2 = await upsertUser('fde002', 'Riley Park', 'FDE_ENGINEER')
+  await prisma.engineer.upsert({
+    where: { userId: fdeUser2.id },
+    update: {},
+    create: { userId: fdeUser2.id, level: 'MIDDLE', skills: ['Vue', 'Prompt engineering'], city: 'Remote', available: 1 }
+  })
+  console.log('  ✅ users: admin / manager / fde001 / fde002')
 
   // 3. 创意中心默认话题
   if (!(await prisma.ideaTopic.count())) {
@@ -140,7 +143,7 @@ async function main() {
   }
 
   console.log('\n🎉 Seed done. Demo accounts (password 123456):')
-  console.log('  admin (ADMIN) · manager (MANAGER) · fde001 (FDE_ENGINEER) · sales (SALES)')
+  console.log('  admin (ADMIN) · manager (MANAGER) · fde001 (FDE_ENGINEER)')
 }
 
 main()

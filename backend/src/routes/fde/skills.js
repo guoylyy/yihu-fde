@@ -35,7 +35,7 @@ router.get('/', async (req, res) => {
 
 /**
  * POST /api/fde/skills
- * 新建技能（ADMIN/PLATFORM/MANAGER）
+ * 新建技能（ADMIN/MANAGER）
  */
 router.post('/', requirePermission('skill.manage'), async (req, res) => {
   try {

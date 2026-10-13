@@ -222,10 +222,8 @@
     "request_timed_out_s_please_try": "Request timed out ({p0}s), please try again later",
     "recognition_failed": "Recognition failed",
     "parse_failed": "Parse failed",
-    "operations": "Operations",
     "project_manager": "Project Manager",
     "fde_engineer": "FDE Engineer",
-    "sales": "Sales",
     "name_2": "Name",
     "phone": "Phone",
     "email": "Email",
@@ -1754,7 +1752,11 @@
     "configuration_name_required": "Configuration name is required",
     "choose_provider": "Choose a provider",
     "choose_or_enter_model_id_2": "Choose or enter a model ID",
-    "now_default": "\"{p0}\" is now the default"
+    "now_default": "\"{p0}\" is now the default",
+    "sync_from": "Sync from {p0}",
+    "platform_credentials": "Platform credentials",
+    "yihu_one_hint": "Runs on the models configured in {p0}. Uses this app's platform credentials, so no endpoint or API key is needed.",
+    "sync_result": "{p0} models on the platform: {p1} added, {p2} updated, {p3} disabled"
   },
   "myBots": {
     "all_robots_you_own_total": "All robots you own · {p0} total",

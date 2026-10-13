@@ -11,10 +11,8 @@ const CACHE_KEY = 'fde_roles'
 // 内置角色兜底 (与后端 BUILTIN_ROLES 一致)
 const BUILTIN_ROLES = [
   { code: 'ADMIN', name: $t('roles.administrator'), dataScope: 'ALL', builtin: true, status: 1 },
-  { code: 'PLATFORM', name: $t('common.operations'), dataScope: 'ALL', builtin: true, status: 1 },
   { code: 'MANAGER', name: $t('common.project_manager'), dataScope: 'OWN_PROJECTS', builtin: true, status: 1 },
-  { code: 'FDE_ENGINEER', name: $t('common.fde_engineer'), dataScope: 'OWN_RECORDS', builtin: true, status: 1 },
-  { code: 'SALES', name: $t('common.sales'), dataScope: 'OWN_RECORDS', builtin: true, status: 1 }
+  { code: 'FDE_ENGINEER', name: $t('common.fde_engineer'), dataScope: 'OWN_RECORDS', builtin: true, status: 1 }
 ]
 
 function loadCached() {
@@ -64,8 +62,7 @@ export function roleLabel(code) {
 
 // 内置角色沿用既有配色; 自定义角色按 code 哈希取色, 同角色永远同色
 const BUILTIN_TAG_TYPE = {
-  ADMIN: 'danger', PLATFORM: 'warning', MANAGER: 'primary',
-  FDE_ENGINEER: 'success', SALES: 'info'
+  ADMIN: 'danger', MANAGER: 'primary', FDE_ENGINEER: 'success'
 }
 const PALETTE = ['primary', 'success', 'warning', 'danger', 'info']
 export function roleTagType(code) {

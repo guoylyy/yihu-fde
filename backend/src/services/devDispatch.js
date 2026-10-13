@@ -252,7 +252,7 @@ async function loadOwnedRun(runId, { agentProfileId, role }) {
   const run = await prisma.devRun.findUnique({ where: { id: BigInt(runId) }, include: { task: { select: { id: true, title: true, projectId: true, status: true } }, dispatch: { select: { id: true, title: true, createdBy: true } } } })
   if (!run) throw err(2004, '运行不存在')
   const mine = agentProfileId && sid(run.agentProfileId) === String(agentProfileId)
-  const manager = ['ADMIN', 'PLATFORM', 'MANAGER'].includes(role)
+  const manager = ['ADMIN', 'MANAGER'].includes(role)
   if (!mine && !manager) throw err(9003, '只有领取该运行的机器人或经理可以操作')
   if (run.status !== 'RUNNING') throw err(9009, `运行已是 ${run.status}，不能再上报（派工单可能已取消或被释放，请重新 claim）`, { status: run.status })
   return run

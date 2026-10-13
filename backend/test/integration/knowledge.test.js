@@ -4,14 +4,13 @@ import assert from 'node:assert/strict'
 import { login, api, uniqName, TAG } from './helpers.js'
 
 describe('API: /api/fde/knowledge 知识库', () => {
-  let adminToken, managerToken, salesToken, fdeToken
+  let adminToken, managerToken, fdeToken
   let createdIds = []
   let testProjectId
 
   before(async () => {
     adminToken = await login('admin')
     managerToken = await login('manager')
-    salesToken = await login('sales')
     fdeToken = await login('fde001')
 
     const a = api(adminToken)
@@ -33,15 +32,6 @@ describe('API: /api/fde/knowledge 知识库', () => {
     test('未登录 401', async () => {
       const r = await api('').get('/api/fde/knowledge')
       assert.notEqual(r.status, 200)
-    })
-
-    test('SALES 可看不可创建', async () => {
-      const list = await api(salesToken).get('/api/fde/knowledge')
-      assert.equal(list.status, 200)
-      const create = await api(salesToken).post('/api/fde/knowledge', {
-        title: uniqName('销售无权创建'), content: 'test'
-      })
-      assert.notEqual(create.status, 200, 'SALES 不应有 create 权限')
     })
 
     test('FDE_ENGINEER 可创建', async () => {

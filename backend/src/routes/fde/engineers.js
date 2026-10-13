@@ -1,6 +1,6 @@
 // FDE 平台 - 工程师档案 API
 // 方案 B：Engineer 是 User 的"档案扩展"
-// - 工程师列表 = role ∈ {FDE_ENGINEER, MANAGER, PLATFORM, SALES} 的用户（含其档案）
+// - 工程师列表 = role ∈ {FDE_ENGINEER, MANAGER} 的用户（含其档案）
 //   即所有非-ADMIN 角色都可以作为现场工程师参与派工与计费
 // - 工程师档案通过 userId 1:1 关联
 // - 创建/删除工程师请走 /api/fde/users（用户管理）
@@ -17,7 +17,7 @@ export { ENGINEER_ROLES }
 
 const router = express.Router()
 router.use(internalAuth)
-// 工程师档案：仅 ADMIN / PLATFORM / MANAGER
+// 工程师档案：仅 ADMIN / MANAGER
 router.use(requirePermission('engineer.access'))
 
 const PROFILE_FIELDS = ['level', 'skills', 'city', 'dailyRate', 'bio', 'available']
@@ -84,7 +84,7 @@ router.get('/', requirePermission('engineer.view'), async (req, res) => {
         name: u.name,
         phone: u.phone,
         email: u.email,
-        role: u.role,                       // 用户角色（含 MANAGER/PLATFORM 等）
+        role: u.role,                       // 用户角色（含 MANAGER 等）
         status: u.status,                   // 用户状态
         lastLoginAt: u.lastLoginAt,
         // 档案字段（可能为空）

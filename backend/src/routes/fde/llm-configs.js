@@ -4,12 +4,13 @@
 import express from 'express'
 import prisma from '../../lib/prisma.js'
 import { internalAuth, requirePermission } from '../../lib/auth.js'
+import { YIHU_ONE, yihuOneEndpoint, fetchYihuOneModels, syncYihuOneModels } from '../../lib/yihuOneLlm.js'
 
 const router = express.Router()
 router.use(internalAuth)
 router.use(requirePermission('llmConfig.manage'))
 
-const PROVIDERS = ['ANTHROPIC', 'DEEPSEEK', 'QWEN', 'ZHIPU', 'MOONSHOT', 'OPENAI', 'CUSTOM']
+const PROVIDERS = ['ANTHROPIC', 'DEEPSEEK', 'QWEN', 'ZHIPU', 'MOONSHOT', 'OPENAI', 'CUSTOM', YIHU_ONE]
 
 function maskKey(key) {
   if (!key) return null
@@ -81,10 +82,31 @@ router.get('/', async (req, res) => {
       where: { deletedAt: null },
       orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }]
     })
-    res.json({ code: 0, data: { list: list.map(serialize) } })
+    const yh = yihuOneEndpoint()
+    // yihuOne: 已接入以虎 One 时前端显示「从以虎 One 同步」
+    res.json({ code: 0, data: { list: list.map(serialize), yihuOne: yh ? { name: yh.name } : null } })
   } catch (e) {
     console.error('[llm-configs:list]', e)
     res.status(500).json({ code: 9001, message: e.message })
+  }
+})
+
+// 以虎 One 上本应用可用的模型(只读预览)
+router.get('/yihu-one/models', async (req, res) => {
+  try {
+    res.json({ code: 0, data: { list: await fetchYihuOneModels() } })
+  } catch (e) {
+    res.status(502).json({ code: 9002, message: e.message })
+  }
+})
+
+// 从以虎 One 同步模型: 新增/更新/停用 provider=YIHU_ONE 的配置
+router.post('/yihu-one/sync', async (req, res) => {
+  try {
+    res.json({ code: 0, data: await syncYihuOneModels({ userId: req.user.userId }) })
+  } catch (e) {
+    console.error('[llm-configs:yihu-one-sync]', e.message)
+    res.status(502).json({ code: 9002, message: e.message })
   }
 })
 

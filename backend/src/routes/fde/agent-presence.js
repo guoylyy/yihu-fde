@@ -93,7 +93,7 @@ router.post('/', async (req, res) => {
  */
 router.get('/', async (req, res) => {
   try {
-    const MANAGE_ROLES = ['ADMIN', 'PLATFORM', 'MANAGER']
+    const MANAGE_ROLES = ['ADMIN', 'MANAGER']
     const isManager = MANAGE_ROLES.includes(req.user.role)
     const staleMinutes = Math.min(1440, Math.max(1, parseInt(req.query.staleMinutes, 10) || STALE_MINUTES))
     const activeOnly = req.query.activeOnly !== 'false'

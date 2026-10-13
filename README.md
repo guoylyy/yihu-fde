@@ -44,7 +44,7 @@ docker compose up -d --build
 docker compose exec backend node prisma/seed.js   # optional: roles + demo data
 ```
 
-Open http://localhost:8080/admin/login. With the demo seed the accounts are `admin`, `manager`, `fde001` and `sales`, all with password `123456` (change them).
+Open http://localhost:8080/admin/login. With the demo seed the accounts are `admin`, `manager`, `fde001` and `fde002`, all with password `123456` (change them).
 
 Without the demo seed, create the first admin with:
 
@@ -129,6 +129,8 @@ Any OpenID Connect provider works; these steps use Yihu One as the example.
 On first sign-in, an account is matched by the Yihu One user id. If there is no match, it is linked to an existing account with the same verified email. Otherwise a new account is created with `OIDC_DEFAULT_ROLE`. Users whose Yihu One roles include `OIDC_ADMIN_ROLES` become admins. Disabled accounts cannot sign in.
 
 The MCP endpoint (`/api/mcp`) also accepts Yihu One access tokens, so the Yihu One assistant can call the platform as the signed-in user. Register `<PUBLIC_BASE_URL>/api/mcp` as the app's MCP address.
+
+Admins can also use the models configured in Yihu One. Go to **LLM settings → Sync from 以虎 One**. The sync uses the same app credentials, so no API key is stored here. Models removed from the platform are disabled on the next sync. This needs a Yihu One version that provides `GET /api/open/llm/models`.
 
 ## Project structure
 

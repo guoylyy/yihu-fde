@@ -101,7 +101,7 @@ describe('lib/auth.js - 角色/权限', () => {
       assert.equal(hasPermission({ role: 'ADMIN' }, 'user.create'), true)
       assert.equal(hasPermission({ role: 'FDE_ENGINEER' }, 'user.create'), false)
       assert.equal(hasPermission({ role: 'FDE_ENGINEER' }, 'timesheet.create'), true)
-      assert.equal(hasPermission({ role: 'SALES' }, 'timesheet.approve'), false)
+      assert.equal(hasPermission({ role: 'FDE_ENGINEER' }, 'timesheet.approve'), false)
     })
   })
 
@@ -116,7 +116,7 @@ describe('lib/auth.js - 角色/权限', () => {
     })
 
     test('都不匹配返回 false', () => {
-      assert.equal(hasRole({ role: 'SALES' }, 'ADMIN', 'MANAGER'), false)
+      assert.equal(hasRole({ role: 'FDE_ENGINEER' }, 'ADMIN', 'MANAGER'), false)
     })
   })
 
@@ -129,10 +129,6 @@ describe('lib/auth.js - 角色/权限', () => {
 
     test('ADMIN 可访问所有', () => {
       assert.equal(canAccessRecord({ id: 1, role: 'ADMIN' }, 'project', { managerId: 999n }), true)
-    })
-
-    test('PLATFORM 可访问所有', () => {
-      assert.equal(canAccessRecord({ id: 1, role: 'PLATFORM' }, 'project', { managerId: 999n }), true)
     })
 
     test('MANAGER 只能访问自己负责的项目', () => {
@@ -186,8 +182,7 @@ describe('lib/auth.js - 角色/权限', () => {
     })
 
     test('所有角色都是合法角色', () => {
-      // v1.2.5 加入 FINANCE 角色, 此名单当时漏更新, 基线一直红着; v1.5.4 补齐
-      const VALID = ['ADMIN', 'PLATFORM', 'MANAGER', 'FDE_ENGINEER', 'SALES', 'FINANCE']
+      const VALID = ['ADMIN', 'MANAGER', 'FDE_ENGINEER']
       for (const [perm, roles] of Object.entries(PERMISSIONS)) {
         for (const r of roles) {
           assert.ok(VALID.includes(r), `${perm} 含未知角色: ${r}`)

@@ -5,6 +5,10 @@
         <h2 class="page-title">{{ $t('common.llm_settings') }}</h2>
         <p class="hint">{{ $t('llmConfigs.configure_llms_parameters_platform_can_call') }}</p>
       </div>
+      <!-- 已接入以虎 One: 平台托管的模型一键同步, 不用填密钥 -->
+      <el-button v-if="yihuOne" :loading="syncing" @click="syncYihuOne">
+        <el-icon><Refresh /></el-icon>{{ $t('llmConfigs.sync_from', { p0: yihuOne.name }) }}
+      </el-button>
       <el-button type="primary" @click="openCreate"><el-icon><Plus /></el-icon>{{ $t('llmConfigs.new_configuration') }}</el-button>
     </div>
 
@@ -24,7 +28,8 @@
         </el-table-column>
         <el-table-column :label="$t('llmConfigs.api_key')" width="170">
           <template #default="{ row }">
-            <code v-if="row.hasApiKey" class="mono">{{ row.apiKeyMasked }}</code>
+            <span v-if="row.provider === 'YIHU_ONE'" class="param-text">{{ $t('llmConfigs.platform_credentials') }}</span>
+            <code v-else-if="row.hasApiKey" class="mono">{{ row.apiKeyMasked }}</code>
             <el-tag v-else size="small" type="warning" effect="plain">{{ $t('common.not_configured') }}</el-tag>
           </template>
         </el-table-column>
@@ -66,7 +71,7 @@
         </el-form-item>
         <el-form-item :label="$t('llmConfigs.provider')" prop="provider">
           <el-select v-model="form.provider" style="width: 100%;" @change="onProviderChange">
-            <el-option v-for="p in PROVIDERS" :key="p.value" :label="p.label" :value="p.value" />
+            <el-option v-for="p in providerOptions" :key="p.value" :label="p.label" :value="p.value" />
           </el-select>
         </el-form-item>
         <el-form-item :label="$t('common.model')" prop="model">
@@ -75,10 +80,12 @@
             <el-option v-for="m in currentModels" :key="m" :label="m" :value="m" />
           </el-select>
         </el-form-item>
-        <el-form-item :label="$t('llmConfigs.endpoint')">
+        <el-alert v-if="isYihuOne" type="info" :closable="false" show-icon style="margin: 0 0 18px 110px; width: auto;"
+          :title="$t('llmConfigs.yihu_one_hint', { p0: yihuOne?.name || 'Yihu One' })" />
+        <el-form-item v-if="!isYihuOne" :label="$t('llmConfigs.endpoint')">
           <el-input v-model="form.baseUrl" :placeholder="currentProviderDef?.baseUrl ? $t('llmConfigs.leave_empty_for_official_default', { p0: currentProviderDef.baseUrl }) : $t('llmConfigs.custom_gateway_url_openai_compatible')" />
         </el-form-item>
-        <el-form-item :label="$t('llmConfigs.api_key')">
+        <el-form-item v-if="!isYihuOne" :label="$t('llmConfigs.api_key')">
           <el-input v-model="form.apiKey" type="password" show-password
             :placeholder="editing && editingHasKey ? $t('llmConfigs.configured_leave_empty_keep') : $t('llmConfigs.api_key_only_mask_shown_after')" />
         </el-form-item>
@@ -115,7 +122,7 @@
 import { $t } from '@/i18n'
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Plus } from '@element-plus/icons-vue'
+import { Plus, Refresh } from '@element-plus/icons-vue'
 import { fde } from '@/api/index.js'
 
 // 供应商预设: Claude 模型清单以官方为准, 其余为常见型号(可手输覆盖)
@@ -128,10 +135,15 @@ const PROVIDERS = [
   { value: 'OPENAI', label: 'OpenAI', baseUrl: 'https://api.openai.com/v1', models: [] },
   { value: 'CUSTOM', label: $t('llmConfigs.custom_openai_compatible_api'), baseUrl: '', models: [] }
 ]
-function providerLabel(v) { return PROVIDERS.find(p => p.value === v)?.label || v }
 
 const list = ref([])
 const loading = ref(false)
+// 已接入以虎 One 时为 { name }
+const yihuOne = ref(null)
+const syncing = ref(false)
+const yihuOneProvider = computed(() => ({ value: 'YIHU_ONE', label: yihuOne.value?.name || 'Yihu One', baseUrl: '', models: [] }))
+const providerOptions = computed(() => (yihuOne.value || form.provider === 'YIHU_ONE') ? [yihuOneProvider.value, ...PROVIDERS] : PROVIDERS)
+function providerLabel(v) { return providerOptions.value.find(p => p.value === v)?.label || v }
 
 const formVisible = ref(false)
 const editing = ref(false)
@@ -147,7 +159,8 @@ const rules = {
   provider: [{ required: true, message: $t('llmConfigs.choose_provider'), trigger: 'change' }],
   model: [{ required: true, message: $t('llmConfigs.choose_or_enter_model_id_2'), trigger: 'change' }]
 }
-const currentProviderDef = computed(() => PROVIDERS.find(p => p.value === form.provider))
+const currentProviderDef = computed(() => providerOptions.value.find(p => p.value === form.provider))
+const isYihuOne = computed(() => form.provider === 'YIHU_ONE')
 const currentModels = computed(() => currentProviderDef.value?.models || [])
 
 function onProviderChange() {
@@ -160,6 +173,7 @@ async function loadList() {
   try {
     const data = await fde.llmConfigs.list()
     list.value = data.list
+    yihuOne.value = data.yihuOne || null
   } catch (e) { ElMessage.error(e.message) }
   finally { loading.value = false }
 }
@@ -199,7 +213,8 @@ async function handleSubmit() {
       systemPrompt: form.systemPrompt || null,
       remark: form.remark || null
     }
-    if (form.apiKey) payload.apiKey = form.apiKey
+    if (isYihuOne.value) payload.baseUrl = null
+    else if (form.apiKey) payload.apiKey = form.apiKey
     if (editing.value) {
       await fde.llmConfigs.update(form.id, payload)
       ElMessage.success($t('common.updated'))
@@ -211,6 +226,16 @@ async function handleSubmit() {
     loadList()
   } catch (e) { ElMessage.error(e.message || $t('common.save_failed')) }
   finally { submitting.value = false }
+}
+
+async function syncYihuOne() {
+  syncing.value = true
+  try {
+    const r = await fde.llmConfigs.syncYihuOne()
+    ElMessage.success($t('llmConfigs.sync_result', { p0: r.models, p1: r.created, p2: r.updated, p3: r.disabled }))
+    loadList()
+  } catch (e) { ElMessage.error(e.message) }
+  finally { syncing.value = false }
 }
 
 async function toggleEnabled(row, v) {

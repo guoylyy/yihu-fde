@@ -12,7 +12,7 @@ import { buildActiveWorkMap, fallbackActiveWork, redactActiveWork } from '../../
 
 // 内部员工视角可看 agent 身份; 客户/外部角色只给「正在自动开发」一层
 function isInternalView(user) {
-  return ['ADMIN', 'PLATFORM', 'MANAGER', 'FDE_ENGINEER', 'SALES'].includes(user.role)
+  return ['ADMIN', 'MANAGER', 'FDE_ENGINEER'].includes(user.role)
 }
 
 const router = express.Router()
@@ -60,7 +60,7 @@ router.get('/', requirePermission('task.view'), async (req, res) => {
     const { milestone_id, overdue, due_today } = req.query
     // v1.2.9: 默认不含归档; archived=true 只看归档记录
     const where = { deletedAt: null, archivedAt: archived === 'true' ? { not: null } : null }
-    // 1.2.5: 任务范围与项目一致 —— MANAGER/FDE_ENGINEER/SALES 只看自己参与项目的任务, ADMIN/PLATFORM 全量
+    // 1.2.5: 任务范围与项目一致 —— MANAGER/FDE_ENGINEER 只看自己参与项目的任务, ADMIN 全量
     const projectScope = await buildScopeWhere(req.user, 'project')
     if (Object.keys(projectScope).length) where.project = { deletedAt: null, ...projectScope }
     if (projectId) where.projectId = BigInt(projectId)
@@ -587,7 +587,7 @@ router.post('/batch-verify', requirePermission('task.changeStatus'), async (req,
     if (!Array.isArray(raw) || !raw.length) return res.status(400).json({ code: 9002, message: 'taskIds 不能为空' })
     const ids = [...new Set(raw.map(v => { try { return BigInt(v) } catch { return null } }).filter(Boolean))].slice(0, 100)
 
-    const manager = ['ADMIN', 'PLATFORM', 'MANAGER'].includes(req.user.role)
+    const manager = ['ADMIN', 'MANAGER'].includes(req.user.role)
     let myEngineerId = req.user.engineerId
     if (!manager && !myEngineerId && req.user.userId) {
       const me = await prisma.engineer.findUnique({ where: { userId: BigInt(req.user.userId) } })
@@ -634,10 +634,10 @@ router.post('/:id/status', requirePermission('task.changeStatus'), async (req, r
     const existing = await prisma.task.findFirst({ where: { id, deletedAt: null } })
     if (!existing) return res.status(404).json({ code: 9004, message: '任务不存在' })
 
-    // 校验：只有 assignee、或 ADMIN/PLATFORM/MANAGER 才能改
+    // 校验：只有 assignee、或 ADMIN/MANAGER 才能改
     // 1.2.7 修复: Task.assigneeId 存的是 Engineer.id(工程师档案), 此前误与 User.id 对比,
     // 导致被指派的 FDE 点"开始/完成"永远 403。改为按 engineerId 对比(JWT 有则用, 没有则查档案)
-    let can = ['ADMIN', 'PLATFORM', 'MANAGER'].includes(req.user.role)
+    let can = ['ADMIN', 'MANAGER'].includes(req.user.role)
     if (!can && existing.assigneeId) {
       let myEngineerId = req.user.engineerId
       if (!myEngineerId) {

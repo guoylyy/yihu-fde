@@ -30,8 +30,6 @@
           <el-select v-model="filters.role" :placeholder="$t('common.all')" clearable style="width: 150px;">
             <el-option :label="$t('common.fde_engineer')" value="FDE_ENGINEER" />
             <el-option :label="$t('common.project_manager')" value="MANAGER" />
-            <el-option :label="$t('common.operations')" value="PLATFORM" />
-            <el-option :label="$t('common.sales')" value="SALES" />
           </el-select>
         </el-form-item>
         <el-form-item :label="$t('engineers.level')">

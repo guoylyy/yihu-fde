@@ -5,7 +5,7 @@ import { internalAuth, requireRole, requirePermission } from '../../lib/auth.js'
 
 const router = express.Router()
 router.use(internalAuth)
-// FDE 工程师可看自己；ADMIN/PLATFORM/MANAGER 可看全部
+// FDE 工程师可看自己；ADMIN/MANAGER 可看全部
 router.use(requirePermission('engineer_stats.access'))
 
 /**

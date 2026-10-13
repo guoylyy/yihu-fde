@@ -8,7 +8,7 @@ import { pushNotificationToRole } from '../../lib/notify.js'
 
 const router = express.Router()
 router.use(internalAuth)
-// 客户管理：ADMIN / PLATFORM / MANAGER / SALES
+// 客户管理：ADMIN / MANAGER
 router.use(requirePermission('customer.access'))
 
 // 允许编辑的字段白名单
@@ -117,7 +117,7 @@ router.post('/', requirePermission('customer.create'), async (req, res) => {
       return res.status(400).json({ code: 1002, message: 'tags 必须是数组' })
     }
     const customer = await prisma.customer.create({ data })
-    // 活动流 + 通知 MANAGER / SALES
+    // 活动流 + 通知 MANAGER
     await recordActivity({
       actorId: req.user.id,
       entity: 'customer',

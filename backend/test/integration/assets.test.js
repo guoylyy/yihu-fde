@@ -7,7 +7,7 @@ import assert from 'node:assert/strict'
 import { login, api, request, uniqName } from './helpers.js'
 
 describe('v2.7 项目资产库', () => {
-  let admin, fde, sales
+  let admin, fde, fde2
   let customerId, customerName, projectId, taskId
   const slug = `unit-test-asset-${Date.now()}`
   let assetId, draftId
@@ -16,7 +16,7 @@ describe('v2.7 项目资产库', () => {
   before(async () => {
     admin = api(await login('admin'))
     fde = api(await login('fde001'))
-    sales = api(await login('sales'))
+    fde2 = api(await login('fde002'))
     customerName = uniqName('资产测试客户')
     const c = await admin.post('/api/fde/customers', { name: customerName, shortName: customerName.slice(-8) })
     assert.equal(c.code, 0, c.message)
@@ -68,9 +68,9 @@ describe('v2.7 项目资产库', () => {
     assert.equal(r.data.status, 'DRAFT')
     draftId = String(r.data.id); created.push(draftId)
     assert.equal((await fde.put(`/api/fde/assets/${draftId}`, { summary: '改过了' })).code, 0)
-    // 销售看不到别人的草稿
-    assert.equal((await sales.get(`/api/fde/assets/${draftId}`)).status, 404)
-    const list = await sales.get('/api/fde/assets?page_size=100')
+    // 别的工程师看不到他人的草稿
+    assert.equal((await fde2.get(`/api/fde/assets/${draftId}`)).status, 404)
+    const list = await fde2.get('/api/fde/assets?page_size=100')
     assert.ok(!list.data.list.some(a => String(a.id) === draftId))
     // 经理的草稿对工程师不可见(404), 发布后可见但不可改(403, 见发布用例)
     assert.equal((await fde.put(`/api/fde/assets/${assetId}`, { summary: 'x' })).status, 404)
@@ -94,7 +94,7 @@ describe('v2.7 项目资产库', () => {
     await admin.put(`/api/fde/assets/${assetId}`, { readme: '## 解决什么问题\n已脱敏的方案' })
     const ok = await admin.post(`/api/fde/assets/${assetId}/publish`, {})
     assert.equal(ok.code, 0, ok.message)
-    const seen = await sales.get(`/api/fde/assets/${assetId}`)
+    const seen = await fde2.get(`/api/fde/assets/${assetId}`)
     assert.equal(seen.code, 0)
     assert.equal(seen.data.canEdit, false)
     const bySlug = await fde.get(`/api/fde/assets/${slug}`)

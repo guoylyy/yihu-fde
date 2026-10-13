@@ -384,7 +384,7 @@ async function loadOptions() {
     const p = await fde.projects.list({ page_size: 100 })
     projectOptions.value = p.list || []
   } catch (e) { console.warn('loadOptions projects:', e) }
-  // 工程师下拉：仅 ADMIN/PLATFORM/MANAGER 可见（FDE 工程师只能给自己报工）
+  // 工程师下拉：仅 ADMIN/MANAGER 可见（FDE 工程师只能给自己报工）
   if (canViewEngineers.value) {
     try {
       const e = await fde.engineers.list({ page_size: 100 })

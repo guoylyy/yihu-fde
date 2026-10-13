@@ -218,7 +218,7 @@ router.post('/', requirePermission('user.create'), async (req, res) => {
       const { error } = await setUserTeams(user.id, req.body.teamIds)
       if (error) console.warn('[fde/users POST /] setUserTeams:', error)
     }
-    // 方案 B: 创建可派工角色时自动建工程师档案（FDE_ENGINEER / MANAGER / PLATFORM / SALES）
+    // 方案 B: 创建可派工角色时自动建工程师档案（FDE_ENGINEER / MANAGER）
     if (ENGINEER_ROLES.includes(user.role)) {
       await ensureEngineerProfile(user.id)
     }

@@ -4,24 +4,21 @@
 // 用例：
 //   admin  → 看全部
 //   fde001 → FDE_ENGINEER（看自己参与的 + 全部能看到的）
-//   sales  → SALES（只看到自己创建的）
 import { test, describe, before } from 'node:test'
 import assert from 'node:assert/strict'
 import { api, login, uniqName, TAG, ADMIN_PWD } from './helpers.js'
 
-// 本地 seed 账号（admin/fde001/sales）密码统一走 TEST_ADMIN_PASSWORD，缺省 123456
+// 本地 seed 账号（admin/fde001）密码统一走 TEST_ADMIN_PASSWORD，缺省 123456
 const PWD = ADMIN_PWD
 
 describe('数据级权限 - 4 阶段权限模型', () => {
-  let adminT, fdeT, salesT, admin, fde, sales
+  let adminT, fdeT, admin, fde
 
   before(async () => {
     adminT = await login('admin', PWD)
     fdeT = await login('fde001', PWD)
-    salesT = await login('sales', PWD)
     admin = api(adminT)
     fde = api(fdeT)
-    sales = api(salesT)
   })
 
   // ===== 谁能访问 =====
@@ -38,10 +35,6 @@ describe('数据级权限 - 4 阶段权限模型', () => {
         assert.ok([1003, 1004, 9001].includes(r.code), 'fde 应得到鉴权失败 code')
       }
     })
-    test('sales 能访问', async () => {
-      const r = await sales.get('/api/fde/customers')
-      assert.equal(r.code, 0, `sales 应能访问: ${r.message}`)
-    })
   })
 
   // ===== 谁能访问 - users =====
@@ -53,10 +46,6 @@ describe('数据级权限 - 4 阶段权限模型', () => {
     test('fde 不能访问 user.view', async () => {
       const r = await fde.get('/api/fde/users')
       assert.notEqual(r.code, 0, 'fde 不应有 user.view 权限')
-    })
-    test('sales 不能访问 user.view', async () => {
-      const r = await sales.get('/api/fde/users')
-      assert.notEqual(r.code, 0)
     })
   })
 
@@ -78,10 +67,6 @@ describe('数据级权限 - 4 阶段权限模型', () => {
         assert.equal(p.budget, undefined, 'fde 不应看到 budget')
         assert.equal(p.contractTotal, undefined, 'fde 不应看到 contractTotal')
       }
-    })
-    test('sales 能访问', async () => {
-      const r = await sales.get('/api/fde/projects')
-      assert.equal(r.code, 0, `sales 应能访问: ${r.message}`)
     })
   })
 
@@ -106,7 +91,6 @@ describe('数据级权限 - 4 阶段权限模型', () => {
   describe('单条 403 拦截', () => {
     test('访问别人的客户（理论上）', async () => {
       // admin 看自己建的客户 → OK
-      // sales 看这个客户 → OK（销售看全部）
       // fde 看 → 403
       const cr = await admin.post('/api/fde/customers', {
         name: uniqName('perms-check')

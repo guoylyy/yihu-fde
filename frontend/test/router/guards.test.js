@@ -47,20 +47,18 @@ describe('router/guards.js - 路由守卫', () => {
       assert.deepEqual(collectRequiredRoles([]), [])
     })
     test('单层 requiredRoles', () => {
-      const matched = [{ meta: { requiredRoles: ['ADMIN', 'PLATFORM'] } }]
-      assert.deepEqual(collectRequiredRoles(matched), ['ADMIN', 'PLATFORM'])
+      const matched = [{ meta: { requiredRoles: ['ADMIN', 'MANAGER'] } }]
+      assert.deepEqual(collectRequiredRoles(matched), ['ADMIN', 'MANAGER'])
     })
     test('多层嵌套 requiredRoles（父子路由）', () => {
       const matched = [
-        { meta: { requiredRoles: ['ADMIN', 'PLATFORM', 'MANAGER', 'SALES'] } },  // 父
+        { meta: { requiredRoles: ['ADMIN', 'MANAGER'] } },  // 父
         { meta: { requiredRoles: ['ADMIN'] } }                                     // 子
       ]
       // 当前实现是 flat 合并（不去重）
       const r = collectRequiredRoles(matched)
       assert.ok(r.includes('ADMIN'))
-      assert.ok(r.includes('PLATFORM'))
       assert.ok(r.includes('MANAGER'))
-      assert.ok(r.includes('SALES'))
     })
     test('无 requiredRoles', () => {
       const matched = [{ meta: {} }, { meta: { requiresInternalAuth: true } }]
@@ -75,7 +73,7 @@ describe('router/guards.js - 路由守卫', () => {
 
     // 内部鉴权路由
     const internalMatched = [
-      { meta: { requiresInternalAuth: true, requiredRoles: ['ADMIN', 'PLATFORM', 'MANAGER', 'SALES'] } },
+      { meta: { requiresInternalAuth: true, requiredRoles: ['ADMIN', 'MANAGER'] } },
       { meta: { requiredRoles: ['ADMIN'] } }  // 子路由
     ]
     const internalAnyRole = [
@@ -101,8 +99,8 @@ describe('router/guards.js - 路由守卫', () => {
       const r = resolveGuard(internalMatched, { internalToken: 'tok', role: 'ADMIN' })
       assert.equal(r, true)
     })
-    test('内部鉴权 + requiredRoles：PLATFORM 通过', () => {
-      const r = resolveGuard(internalMatched, { internalToken: 'tok', role: 'PLATFORM' })
+    test('内部鉴权 + requiredRoles：MANAGER 通过', () => {
+      const r = resolveGuard(internalMatched, { internalToken: 'tok', role: 'MANAGER' })
       assert.equal(r, true)
     })
     test('内部鉴权 + requiredRoles：FDE_ENGINEER 拒绝', () => {
@@ -130,7 +128,7 @@ describe('router/guards.js - 路由守卫', () => {
       assert.equal(r.name, 'AdminWorkbench')
     })
     test('requiredPerm 但未传 canFn：回退 requiredRoles', () => {
-      const r = resolveGuard(permMatched, { internalToken: 'tok', role: 'SALES' })
+      const r = resolveGuard(permMatched, { internalToken: 'tok', role: 'FDE_ENGINEER' })
       assert.equal(r.name, 'AdminWorkbench')
       const r2 = resolveGuard(permMatched, { internalToken: 'tok', role: 'ADMIN' })
       assert.equal(r2, true)

@@ -137,8 +137,8 @@ router.get('/', async (req, res) => {
       result.todoCount = draftCount
     }
 
-    // PLATFORM/MANAGER/SALES/ADMIN 也给个简单待办数（待审批工时数）
-    if (['ADMIN', 'PLATFORM', 'MANAGER'].includes(user.role)) {
+    // MANAGER/ADMIN 也给个简单待办数（待审批工时数）
+    if (['ADMIN', 'MANAGER'].includes(user.role)) {
       const pending = await prisma.timesheet.count({
         where: { status: 'SUBMITTED', deletedAt: null }
       })
@@ -281,7 +281,7 @@ router.get('/weekly-leaderboard', async (req, res) => {
 // ============================================================
 
 const WEEK_HOURS_TARGET = 40                       // 周工时目标(暂固定, 后续可做成配置)
-const VERIFY_ROLES = ['ADMIN', 'PLATFORM', 'MANAGER']   // 任务验收是经理的动作
+const VERIFY_ROLES = ['ADMIN', 'MANAGER']   // 任务验收是经理的动作
 
 /** 本周一 00:00 (周一为一周起点) */
 function mondayOf(d) {

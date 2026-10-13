@@ -18,7 +18,7 @@ import { buildActiveWorkMap, fallbackActiveWork, redactActiveWork } from '../../
 
 const router = express.Router()
 router.use(internalAuth)
-// 项目管理:ADMIN / PLATFORM / MANAGER / SALES / FDE_ENGINEER
+// 项目管理:ADMIN / MANAGER / FDE_ENGINEER
 // FDE_ENGINEER 通过 buildScopeWhere 只看自己参与的项目(ProjectMember)
 router.use(requirePermission('project.access'))
 
@@ -86,7 +86,7 @@ router.get('/', async (req, res) => {
     // 阶段 4: 按角色过滤数据范围
     const scopeWhere = await buildScopeWhere(req.user, 'project')
     const where = { deletedAt: null, ...scopeWhere }
-    // keyword 放 AND 里, 避免覆盖 scopeWhere 自带的 OR (MANAGER/SALES 范围过滤)
+    // keyword 放 AND 里, 避免覆盖 scopeWhere 自带的 OR (MANAGER 范围过滤)
     if (keyword) where.AND = [{ OR: [{ name: { contains: keyword } }, { code: { contains: keyword } }] }]
     // v2.5.5(#915): 归档态(CLOSED/CANCELLED)默认不进列表; archived=true 只看归档; 明确 status 筛选时原样
     // 已验收项目默认不进首页列表: 前端未选状态时传 exclude_status=ACCEPTED
@@ -248,7 +248,7 @@ router.get('/:id', async (req, res) => {
       const awMap = await buildActiveWorkMap(tIds, {
         taskStartedAt: new Map(project.tasks.map(t => [t.id, { startedAt: t.startedAt }]))
       })
-      const internal = ['ADMIN', 'PLATFORM', 'MANAGER', 'FDE_ENGINEER', 'SALES'].includes(req.user.role)
+      const internal = ['ADMIN', 'MANAGER', 'FDE_ENGINEER'].includes(req.user.role)
       for (const t of project.tasks) {
         const w = fallbackActiveWork(t, awMap.get(String(t.id)))
         t.activeWork = internal ? w : redactActiveWork(w)

@@ -50,10 +50,9 @@ describe('项目详情与子资源的数据范围必须一致', () => {
   // 修复前: 详情 200(canAccessRecord 放行) + 记录 404(buildScopeWhere 挡住) —— 正是员工看到的现象。
   //
   // 注意这条用例必须自己造账号。最初写成"从库里挑一个非成员账号", 结果本地库挑不到就静默跳过,
-  // 把修复前的代码放回去照样绿 —— 那是个假护栏。现在自建 FDE 工程师与销售各一个, 用完删掉。
-  // 主人拍板: 工程师 / 销售 / 项目经理, 都不该看到自己没参与的项目。
-  // ADMIN / PLATFORM / FINANCE 是全局范围, 不在此列。
-  for (const role of ['FDE_ENGINEER', 'SALES', 'MANAGER']) {
+  // 把修复前的代码放回去照样绿 —— 那是个假护栏。现在自建 FDE 工程师与项目经理各一个, 用完删掉。
+  // 工程师 / 项目经理都不该看到自己没参与的项目; ADMIN 是全局范围, 不在此列。
+  for (const role of ['FDE_ENGINEER', 'MANAGER']) {
     test(`非成员的 ${role}: 项目详情与项目记录的放行结论必须一致`, async () => {
       const u = await createThrowawayUser(role)
       try {

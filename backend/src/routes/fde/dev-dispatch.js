@@ -60,7 +60,7 @@ for (const action of ['pause', 'resume', 'cancel']) {
 router.get('/runs/peek', requirePermission('task.view'), async (req, res) => {
   try {
     const a = actor(req)
-    const agentProfileId = a.agentProfileId || (['ADMIN', 'PLATFORM', 'MANAGER'].includes(a.role) ? req.query.agentProfileId : null)
+    const agentProfileId = a.agentProfileId || (['ADMIN', 'MANAGER'].includes(a.role) ? req.query.agentProfileId : null)
     if (!agentProfileId) return res.status(400).json({ code: 1002, message: '当前凭证未绑定机器人档案' })
     res.json({ code: 0, data: await svc.peekRuns({ agentProfileId, projectId: req.query.projectId || null }) })
   } catch (e) { fail(res, e) }
@@ -83,7 +83,7 @@ router.post('/runs/claim', requirePermission('task.edit'), async (req, res) => {
   try {
     const a = actor(req)
     let agentProfileId = a.agentProfileId
-    if (!agentProfileId && req.body?.agentProfileId && ['ADMIN', 'PLATFORM', 'MANAGER'].includes(a.role)) agentProfileId = String(req.body.agentProfileId)
+    if (!agentProfileId && req.body?.agentProfileId && ['ADMIN', 'MANAGER'].includes(a.role)) agentProfileId = String(req.body.agentProfileId)
     const data = await svc.claimRun({ agentProfileId, userId: a.userId, projectId: req.body?.projectId || null })
     res.json({ code: 0, data: data || { run: null, message: '暂无可领取的运行' } })
   } catch (e) { fail(res, e) }

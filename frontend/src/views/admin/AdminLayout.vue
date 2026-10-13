@@ -23,12 +23,6 @@
           <span>{{ $t('common.my_workbench') }}</span>
         </el-menu-item>
 
-        <!-- #1273 文档中心: 使用文档/上手教程的入口, 全员可见 -->
-        <el-menu-item index="/docs">
-          <el-icon><Reading /></el-icon>
-          <span>{{ $t('layout.docs') }}</span>
-        </el-menu-item>
-
         <!-- v2.10.0(#1180) 创意中心: 生产流程最前端, 想法从这里进来再分到项目 -->
         <el-menu-item v-if="can('idea.view')" index="/admin/ideas">
           <el-icon><Opportunity /></el-icon>
@@ -188,6 +182,10 @@
                 <el-dropdown-item command="profile">
                   <el-icon><UserFilled /></el-icon>{{ $t('layout.profile') }}
                 </el-dropdown-item>
+                <!-- 使用文档: 新标签页打开, 不打断手上的页面 -->
+                <el-dropdown-item command="docs">
+                  <el-icon><Reading /></el-icon>{{ $t('layout.docs') }}
+                </el-dropdown-item>
                 <!-- v1.6.4: Agent 协作从侧边栏挪进个人菜单(个人配置属性, 主人拍板) -->
                 <el-dropdown-item command="agents" :divided="true">
                   <el-icon><Connection /></el-icon>{{ $t('common.agents') }}
@@ -227,9 +225,6 @@
           <el-menu-item index="/admin/workbench">
             <BrandMark :size="16" :dark="route.path === '/admin/workbench'" class="menu-claw" />
             <span>{{ $t('common.my_workbench') }}</span>
-          </el-menu-item>
-          <el-menu-item index="/docs">
-            <el-icon><Reading /></el-icon><span>{{ $t('layout.docs') }}</span>
           </el-menu-item>
           <el-menu-item v-if="can('idea.view')" index="/admin/ideas">
             <el-icon><Opportunity /></el-icon><span>{{ $t('common.ideas') }}</span>
@@ -477,6 +472,8 @@ function onCommand(cmd) {
     localStorage.removeItem('fde_internal_user')
     clearMyPermissions()
     router.push({ path: '/admin/login', query: { signed_out: '1' } })
+  } else if (cmd === 'docs') {
+    window.open(router.resolve('/docs').href, '_blank', 'noopener')
   } else if (cmd === 'profile') {
     router.push('/admin/profile')
   } else if (cmd === 'agents') {

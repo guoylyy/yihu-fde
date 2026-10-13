@@ -210,7 +210,7 @@ model AgentActivityLog {
 model LlmConfig {
   id           BigInt    @id @default(autoincrement())
   name         String    @db.VarChar(100) // 配置名, 如 "生产-Claude 主力"
-  provider     String    @db.VarChar(30) // ANTHROPIC / DEEPSEEK / QWEN / ZHIPU / MOONSHOT / OPENAI / CUSTOM
+  provider     String    @db.VarChar(30) // ANTHROPIC / DEEPSEEK / QWEN / ZHIPU / MOONSHOT / OPENAI / CUSTOM / YIHU_ONE(平台托管, 不存密钥)
   model        String    @db.VarChar(100) // 模型 ID, 如 claude-opus-4-8
   baseUrl      String?   @map("base_url") @db.VarChar(300) // 自定义网关/代理地址, 留空用官方默认
   apiKey       String?   @map("api_key") @db.VarChar(300) // 调用密钥, 接口层只出掩码

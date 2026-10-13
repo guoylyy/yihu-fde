@@ -6,6 +6,7 @@
 //   - 其余(DeepSeek/Qwen/Zhipu/Moonshot/OpenAI/Custom): OpenAI 兼容 /chat/completions, 原生 fetch
 import Anthropic from '@anthropic-ai/sdk'
 import prisma from './prisma.js'
+import { YIHU_ONE, yihuOneEndpoint } from './yihuOneLlm.js'
 
 // 各 provider 官方接口地址(配置里 baseUrl 留空时兜底)
 const DEFAULT_BASE_URLS = {
@@ -34,7 +35,8 @@ export async function getActiveLlmConfig() {
     orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }]
   })
   if (!config) throw new LlmNotConfiguredError()
-  if (!config.apiKey) throw new LlmNotConfiguredError(`大模型配置「${config.name}」缺少 API 密钥，请管理员补齐`)
+  // 以虎 One 的模型用平台凭证, 不存密钥
+  if (!config.apiKey && config.provider !== YIHU_ONE) throw new LlmNotConfiguredError(`大模型配置「${config.name}」缺少 API 密钥，请管理员补齐`)
   return config
 }
 
@@ -43,7 +45,12 @@ export async function getActiveLlmConfig() {
  * @param {{ system?: string, user: string, maxTokens?: number, config?: object }} opts
  */
 export async function chatComplete({ system, user, maxTokens, config }) {
-  const cfg = config || await getActiveLlmConfig()
+  let cfg = config || await getActiveLlmConfig()
+  if (cfg.provider === YIHU_ONE) {
+    const ep = yihuOneEndpoint()
+    if (!ep) throw new LlmNotConfiguredError(`大模型配置「${cfg.name}」来自以虎 One，但本系统还没有接入以虎 One（统一登录未配置）`)
+    cfg = { ...cfg, baseUrl: ep.baseUrl, apiKey: ep.apiKey }
+  }
   const max = maxTokens || cfg.maxTokens || 4096
   if (cfg.provider === 'ANTHROPIC') {
     const client = new Anthropic({
