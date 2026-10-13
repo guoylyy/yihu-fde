@@ -21,8 +21,8 @@
           <!-- v1.2.9: 预设卡通头像(男女各半), 也可自行上传(上传走七牛云) -->
           <div class="preset-avatars">
             <span class="preset-label">{{ $t('profile.pick_cartoon_avatar') }}</span>
-            <img v-for="i in 10" :key="i" :src="`/avatars/cartoon-${i}.svg`"
-                 :class="['preset-avatar', { active: form.avatarUrl === `/avatars/cartoon-${i}.svg` }]"
+            <img v-for="i in 10" :key="i" :src="withBase(`/avatars/cartoon-${i}.svg`)"
+                 :class="['preset-avatar', { active: form.avatarUrl === withBase(`/avatars/cartoon-${i}.svg`) }]"
                  @click="pickPreset(i)" />
           </div>
           <el-divider />
@@ -79,6 +79,7 @@
 </template>
 
 <script setup>
+import { withBase } from '@/utils/base.js'
 import { $t } from '@/i18n'
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
@@ -122,7 +123,7 @@ async function onAvatarPick(file) {
 }
 
 async function pickPreset(i) {
-  form.avatarUrl = `/avatars/cartoon-${i}.svg`
+  form.avatarUrl = withBase(`/avatars/cartoon-${i}.svg`)
   await save(true)
 }
 

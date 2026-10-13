@@ -5,6 +5,7 @@ import bcrypt from 'bcrypt'
 import prisma from '../lib/prisma.js'
 import { signToken, verifyToken, internalAuth } from '../lib/auth.js'
 import { oidcConfig, buildAuthorizeRequest, exchangeCode, findOrCreateUser, OidcLoginError } from '../lib/oidc.js'
+import { basePathOf } from '../lib/platform.js'
 
 const router = express.Router()
 
@@ -137,7 +138,7 @@ function redirectUriFor(req, cfg) {
   if (cfg.redirectUri) return cfg.redirectUri
   const proto = String(req.headers['x-forwarded-proto'] || req.protocol).split(',')[0].trim()
   const host = String(req.headers['x-forwarded-host'] || req.headers.host).split(',')[0].trim()
-  return `${proto}://${host}/api/auth/oidc/callback`
+  return `${proto}://${host}${basePathOf(req)}/api/auth/oidc/callback`
 }
 
 /** 只允许站内相对路径, 防开放重定向 */
@@ -146,10 +147,12 @@ function safeNext(next) {
   return n.startsWith('/') && !n.startsWith('//') && !n.startsWith('/\\') ? n.slice(0, 500) : '/admin/workbench'
 }
 
-function loginPageRedirect(res, params) {
+// 装在以虎 One 上时页面地址带前缀(/apps/<code>), 跳转和 cookie 路径都要带上
+function loginPageRedirect(req, res, params) {
   const q = new URLSearchParams(params)
-  res.redirect(302, `/admin/login?${q}`)
+  res.redirect(302, `${basePathOf(req)}/admin/login?${q}`)
 }
+const stateCookiePath = (req) => `${basePathOf(req)}/api/auth/oidc`
 
 /**
  * GET /api/auth/oidc/login?next=/admin/...
@@ -163,11 +166,11 @@ router.get('/oidc/login', async (req, res) => {
     // state/nonce/PKCE 放进签名 cookie(短期, 仅回调路径可见), 服务端不存会话
     const sealed = signToken({ type: 'oidc_state', state, nonce, verifier, redirectUri, next: safeNext(req.query.next) }, `${STATE_TTL_SEC}s`)
     const secure = redirectUri.startsWith('https:') ? '; Secure' : ''
-    res.setHeader('Set-Cookie', `${STATE_COOKIE}=${encodeURIComponent(sealed)}; Path=/api/auth/oidc; HttpOnly; SameSite=Lax; Max-Age=${STATE_TTL_SEC}${secure}`)
+    res.setHeader('Set-Cookie', `${STATE_COOKIE}=${encodeURIComponent(sealed)}; Path=${stateCookiePath(req)}; HttpOnly; SameSite=Lax; Max-Age=${STATE_TTL_SEC}${secure}`)
     res.redirect(302, url)
   } catch (e) {
     console.error('[auth/oidc/login]', e)
-    loginPageRedirect(res, { sso_error: '无法连接统一登录服务' })
+    loginPageRedirect(req, res, { sso_error: '无法连接统一登录服务' })
   }
 })
 
@@ -177,16 +180,16 @@ router.get('/oidc/login', async (req, res) => {
 router.get('/oidc/callback', async (req, res) => {
   const cfg = oidcConfig()
   if (!cfg.enabled) return res.status(404).json({ code: 4041, message: '未配置统一登录' })
-  res.setHeader('Set-Cookie', `${STATE_COOKIE}=; Path=/api/auth/oidc; HttpOnly; SameSite=Lax; Max-Age=0`)
+  res.setHeader('Set-Cookie', `${STATE_COOKIE}=; Path=${stateCookiePath(req)}; HttpOnly; SameSite=Lax; Max-Age=0`)
   const saved = verifyToken(readCookie(req, STATE_COOKIE) || '')
   try {
     if (req.query.error) {
-      return loginPageRedirect(res, { sso_error: req.query.error === 'access_denied' ? '你取消了授权' : String(req.query.error_description || req.query.error) })
+      return loginPageRedirect(req, res, { sso_error: req.query.error === 'access_denied' ? '你取消了授权' : String(req.query.error_description || req.query.error) })
     }
     const state = String(req.query.state || '')
     const ok = saved?.type === 'oidc_state' && state && saved.state.length === state.length &&
       crypto.timingSafeEqual(Buffer.from(saved.state), Buffer.from(state))
-    if (!ok) return loginPageRedirect(res, { sso_error: '登录校验失败或已超时, 请重试' })
+    if (!ok) return loginPageRedirect(req, res, { sso_error: '登录校验失败或已超时, 请重试' })
 
     const { claims } = await exchangeCode(cfg, {
       code: String(req.query.code || ''), redirectUri: saved.redirectUri, verifier: saved.verifier, nonce: saved.nonce
@@ -196,10 +199,10 @@ router.get('/oidc/callback', async (req, res) => {
     const ticket = crypto.randomBytes(24).toString('base64url')
     for (const [k, v] of tickets) if (v.exp < Date.now()) tickets.delete(k)
     tickets.set(ticket, { data, exp: Date.now() + TICKET_TTL })
-    loginPageRedirect(res, { ticket, next: saved.next })
+    loginPageRedirect(req, res, { ticket, next: saved.next })
   } catch (e) {
     if (!(e instanceof OidcLoginError)) console.error('[auth/oidc/callback]', e)
-    loginPageRedirect(res, { sso_error: e instanceof OidcLoginError ? e.message : '统一登录失败, 请重试' })
+    loginPageRedirect(req, res, { sso_error: e instanceof OidcLoginError ? e.message : '统一登录失败, 请重试' })
   }
 })
 

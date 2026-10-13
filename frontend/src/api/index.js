@@ -1,3 +1,4 @@
+import { withBase } from '../utils/base.js'
 import { $t } from '../i18n/index.js'
 // FDE 平台 API helper
 // 自动从 localStorage 读取 token 加 Authorization 头
@@ -569,7 +570,7 @@ export const fde = {
 export function logout() {
   localStorage.removeItem('fde_internal_token')
   localStorage.removeItem('fde_internal_user')
-  if (location.pathname.startsWith('/admin')) location.href = '/admin/login'
+  if (location.pathname.startsWith(withBase('/admin'))) location.href = withBase('/admin/login')
 }
 
 export function formatMoney(v) {

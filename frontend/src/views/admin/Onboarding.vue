@@ -4,8 +4,8 @@
       <div>
         <h2 class="page-title">{{ $t('common.developer_onboarding') }}</h2>
         <p class="hint">{{ $t('onboarding.finish_these_five_steps_youll_deliver') }}
-          <a href="/docs/dev-workflow" target="_blank" class="doc-link">{{ $t('onboarding.full_guide_from_zero_delivery') }}</a> ·
-          <a href="/docs/auto-dev" target="_blank" class="doc-link">{{ $t('onboarding.advanced_connect_project_auto_dev_mode') }}</a>
+          <a :href="withBase('/docs/dev-workflow')" target="_blank" class="doc-link">{{ $t('onboarding.full_guide_from_zero_delivery') }}</a> ·
+          <a :href="withBase('/docs/auto-dev')" target="_blank" class="doc-link">{{ $t('onboarding.advanced_connect_project_auto_dev_mode') }}</a>
         </p>
       </div>
       <el-button @click="load">{{ $t('onboarding.refresh_progress') }}</el-button>
@@ -90,6 +90,7 @@
 </template>
 
 <script setup>
+import { withBase } from '@/utils/base.js'
 import { $t } from '@/i18n'
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'

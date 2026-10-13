@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { BASE } from '@/utils/base.js'
 
 const routes = [
   // 公开页只有使用文档; 其余非 /admin 的地址一律进后台(见下方守卫)
@@ -106,7 +107,7 @@ const routes = [
 ]
 
 const router = createRouter({
-  history: createWebHistory(),
+  history: createWebHistory(BASE + '/'),
   routes,
   scrollBehavior(to, from, savedPosition) {
     if (savedPosition) {

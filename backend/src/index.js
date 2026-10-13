@@ -1,4 +1,8 @@
 import 'dotenv/config'
+// 装在以虎 One 上时把平台注入的环境变量换算成本系统的配置, 必须先于其他模块加载
+import { basePathOf } from './lib/platform.js'
+import fs from 'node:fs'
+import path from 'node:path'
 import express from 'express'
 import cors from 'cors'
 import { startCronJobs } from './lib/cron.js'
@@ -123,6 +127,20 @@ app.use('/api/fde/llm-configs', llmConfigsRouter)
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() })
 })
+
+// 前端页面: 配了 STATIC_DIR(装在以虎 One 上时根目录 Dockerfile 会配)就由后端托管; 独立部署用 frontend/ 的 nginx 镜像。
+// 平台上的地址带前缀(/apps/<code>/), 返回 index.html 时把 <base href> 换成实际前缀, 页面里的资源、路由、接口都跟着走
+const STATIC_DIR = process.env.STATIC_DIR && path.resolve(process.env.STATIC_DIR)
+if (STATIC_DIR && fs.existsSync(path.join(STATIC_DIR, 'index.html'))) {
+  const indexHtml = fs.readFileSync(path.join(STATIC_DIR, 'index.html'), 'utf8')
+  const page = (req, res) => {
+    res.setHeader('Cache-Control', 'no-cache')
+    res.type('html').send(indexHtml.replace('<base href="/">', `<base href="${basePathOf(req)}/">`))
+  }
+  app.get(['/', '/index.html'], page)
+  app.use(express.static(STATIC_DIR, { index: false, maxAge: '1h' }))
+  app.get(/^\/(?!api\/|uploads\/|health$).*/, page)
+}
 
 if (process.env.ENABLE_CRON !== 'false') startCronJobs()
 

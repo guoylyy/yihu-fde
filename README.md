@@ -105,6 +105,19 @@ Everything is configured through environment variables; see [`backend/.env.examp
 
 LLM providers and keys are configured in the admin UI under **LLM settings**.
 
+### Run on Yihu One
+
+[Yihu One](https://github.com/guoylyy/yihu-one) can host this platform as an app: one container, a database it creates, sign-in through Yihu One, and every tool available to the Yihu One AI assistant. On the Yihu One server:
+
+```bash
+./yh add fde --git https://github.com/guoylyy/yihu-fde.git
+./yh up fde                      # → <Yihu One address>/apps/fde/
+```
+
+Or in the Yihu One console: **管理 → 应用 → 从 Git 安装应用**. Nothing to configure: `yh-app.json` declares the port, health check, database and MCP endpoint, and the root `Dockerfile` builds a single image that serves the API and the web UI. Yihu One injects the database URL and its own credentials; the app derives its OIDC settings, public URL and JWT secret from them (`backend/src/lib/platform.js`). Password login is off, so everyone signs in with Yihu One; Yihu One admins become admins here on first sign-in. Uploaded files go to `/data`, which Yihu One backs up.
+
+The app is served under a path prefix (`/apps/fde/`): the backend writes the prefix into the page's `<base href>` and the frontend routes, API calls and stored asset paths follow it (`frontend/src/utils/base.js`). Standalone deployments are unaffected.
+
 ### Sign in with Yihu One
 
 Any OpenID Connect provider works; these steps use Yihu One as the example.

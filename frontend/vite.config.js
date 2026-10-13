@@ -6,6 +6,8 @@ import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
 import { fileURLToPath, URL } from 'node:url'
 
 export default defineConfig({
+  // 资源用相对路径: 配合 index.html 的 <base href>, 同一份构建既能独立部署在 /, 也能装在以虎 One 的 /apps/<code>/ 下
+  base: './',
   plugins: [
     vue(),
     AutoImport({

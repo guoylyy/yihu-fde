@@ -172,6 +172,7 @@
 </template>
 
 <script setup>
+import { withBase } from '@/utils/base.js'
 import { $t } from '@/i18n'
 import { ref, reactive, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -311,7 +312,7 @@ async function copyTask() {
 async function shareTask() {
   const t = task.value
   if (!t) return
-  const url = `${location.origin}/admin/tasks?open=${t.id}`
+  const url = `${location.origin}${withBase('/admin/tasks')}?open=${t.id}`
   try {
     await writeClipboard($t('taskDetailDialog.task', { p0: t.id, p1: t.title, p2: url }))
     ElMessage.success($t('taskDetailDialog.share_link_copied_send_it_teammate'))

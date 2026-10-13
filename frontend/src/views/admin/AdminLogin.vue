@@ -38,6 +38,7 @@
 </template>
 
 <script setup>
+import { withBase } from '@/utils/base.js'
 import { $t } from '@/i18n'
 // v2.7.0 多实例: 登录页品牌跟随实例配置(未登录也要正确, 所以走免登录的 /api/public/edition)
 import { getBrand } from '@/api/edition.js'
@@ -68,7 +69,7 @@ function afterLoginTarget() {
 
 function startSso() {
   ssoBusy.value = true
-  location.href = '/api/auth/oidc/login?next=' + encodeURIComponent(afterLoginTarget())
+  location.href = withBase('/api/auth/oidc/login') + '?next=' + encodeURIComponent(afterLoginTarget())
 }
 
 /** 保存登录结果并进入系统(密码登录与统一登录共用) */

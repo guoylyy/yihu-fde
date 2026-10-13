@@ -323,6 +323,7 @@
 </template>
 
 <script setup>
+import { withBase } from '@/utils/base.js'
 import { $t } from '@/i18n'
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
@@ -411,16 +412,16 @@ const form = reactive({
 
 // 内置抽象油画风预设封面 (frontend/public/covers/, scratchpad gen-covers.mjs 生成)
 const COVER_PRESETS = [
-  { name: $t('projects.molten_gold'), url: '/covers/preset-01.svg' },
-  { name: $t('projects.deep_sea'), url: '/covers/preset-02.svg' },
-  { name: $t('projects.ink_hills'), url: '/covers/preset-03.svg' },
-  { name: $t('projects.violet_night'), url: '/covers/preset-04.svg' },
-  { name: $t('projects.crimson'), url: '/covers/preset-05.svg' },
-  { name: $t('projects.tundra'), url: '/covers/preset-06.svg' },
-  { name: $t('projects.starry_night'), url: '/covers/preset-07.svg' },
-  { name: $t('projects.coral'), url: '/covers/preset-08.svg' },
-  { name: $t('projects.jade'), url: '/covers/preset-09.svg' },
-  { name: $t('projects.mist'), url: '/covers/preset-10.svg' }
+  { name: $t('projects.molten_gold'), url: withBase('/covers/preset-01.svg') },
+  { name: $t('projects.deep_sea'), url: withBase('/covers/preset-02.svg') },
+  { name: $t('projects.ink_hills'), url: withBase('/covers/preset-03.svg') },
+  { name: $t('projects.violet_night'), url: withBase('/covers/preset-04.svg') },
+  { name: $t('projects.crimson'), url: withBase('/covers/preset-05.svg') },
+  { name: $t('projects.tundra'), url: withBase('/covers/preset-06.svg') },
+  { name: $t('projects.starry_night'), url: withBase('/covers/preset-07.svg') },
+  { name: $t('projects.coral'), url: withBase('/covers/preset-08.svg') },
+  { name: $t('projects.jade'), url: withBase('/covers/preset-09.svg') },
+  { name: $t('projects.mist'), url: withBase('/covers/preset-10.svg') }
 ]
 function isPresetCover(url) { return COVER_PRESETS.some(p => p.url === url) }
 

@@ -1,0 +1,19 @@
+{
+  "code": "fde",
+  "name": "FDE 交付管理",
+  "icon": "🧭",
+  "category": "研发协作",
+  "description": "项目、里程碑、任务、工时与知识库；工程师和 AI 智能体一起交付",
+  "port": 3000,
+  "health": "/health",
+  "entry": "/admin/workbench",
+  "callback": "/api/auth/oidc/callback",
+  "mcp": "/api/mcp",
+  "database": true,
+  "memory": "768m",
+  "env": {
+    "PASSWORD_LOGIN": "false",
+    "OIDC_DEFAULT_ROLE": "FDE_ENGINEER"
+  },
+  "deploy": { "branch": "main", "mode": "manual" }
+}

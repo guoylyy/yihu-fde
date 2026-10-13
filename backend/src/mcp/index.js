@@ -118,7 +118,7 @@ function buildServer(user) {
   for (const def of TOOLS) {
     server.registerTool(
       def.name,
-      { description: def.description, inputSchema: def.schema },
+      { description: def.description, inputSchema: def.schema, annotations: annotationsOf(def) },
       async (args) => {
         try {
           const built = def.build(args || {})
@@ -155,6 +155,19 @@ function buildServer(user) {
   )
 
   return server
+}
+
+// MCP 工具注解: 客户端据此决定要不要先让用户确认(以虎 One 的助手对没声明只读的工具一律弹确认卡片)。
+// 工具是 REST 的薄代理, 按 HTTP 方法判断: GET 只读, DELETE 不可逆; 少数只算草稿不落库的 POST 在 READ_ONLY_POST 里单列
+const READ_ONLY_POST = new Set(['validate_decomposition_draft', 'generate_decomposition_draft', 'draft_idea_milestone'])
+export function annotationsOf(def) {
+  let method = 'POST'
+  try {
+    // build 只拼请求, 用占位参数调一次拿到 HTTP 方法
+    method = def.build(new Proxy({}, { get: (_, k) => (k === Symbol.iterator ? undefined : 'x'), ownKeys: () => [], getOwnPropertyDescriptor: () => undefined }))?.method || 'POST'
+  } catch { /* 拼不出来按写操作算 */ }
+  const readOnly = method === 'GET' || READ_ONLY_POST.has(def.name)
+  return { readOnlyHint: readOnly, destructiveHint: method === 'DELETE', idempotentHint: readOnly || method === 'PUT' }
 }
 
 /**
