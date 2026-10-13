@@ -1,0 +1,1370 @@
+// FDE Platform - Prisma Schema
+// 数据库：MySQL 8
+// 生成时间：2026-06-24
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// =====================================================
+// 1. 用户与权限
+// =====================================================
+
+// 内部员工账号（FDE 平台 / 管理人员 / 平台人员）
+model User {
+  id                 BigInt    @id @default(autoincrement())
+  username           String    @unique @db.VarChar(50)
+  passwordHash       String    @map("password_hash") @db.VarChar(255)
+  name               String    @db.VarChar(50)
+  phone              String?   @db.VarChar(20)
+  email              String?   @db.VarChar(100)
+  // v1.3.2 角色入库: ENUM → VARCHAR, 逻辑外键到 roles.code (JWT payload 不变, 仍存 code)
+  role               String    @db.VarChar(32)
+  status             Int       @default(1) // 1=active 0=disabled
+  avatarUrl          String?   @map("avatar_url") @db.VarChar(500) // v1.2.8 个人中心
+  bio                String?   @db.VarChar(500) // 自我介绍
+  lastLoginAt        DateTime? @map("last_login_at")
+  // v1.4.3 使用监控: 最近活跃时间(埋点中间件节流更新, 在线判定依据)
+  lastActiveAt       DateTime? @map("last_active_at")
+  // 2026-07-05: 是否需要强制修改密码（首次登录 / 重置后）
+  mustChangePassword Boolean   @default(false) @map("must_change_password")
+  // 通知偏好（JSON）：{ [eventType]: { site?: bool, feishu?: bool, mail?: bool } }
+  notificationPrefs  Json?     @map("notification_prefs")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+  deletedAt          DateTime? @map("deleted_at")
+
+  engineer          Engineer?
+  managedProjects   Project[]          @relation("ProjectManager")
+  projectMembers    ProjectMember[]
+  notifications     Notification[]
+  activities        Activity[]         @relation("ActivityActor")
+  knowledgeArticles KnowledgeArticle[] @relation("KnowledgeAuthor")
+  apiKeys           ApiKey[]           @relation("ApiKeyUser")
+  teamMemberships   TeamMembership[]
+  ledTeams          Team[]             @relation("TeamLeader")
+  projectPins       UserProjectPin[]   @relation("UserProjectPinUser")
+  ownedMilestones   Milestone[]        @relation("MilestoneOwner")
+  agentProfiles     AgentProfile[]     @relation("AgentProfileUser")
+
+  @@index([role])
+  @@index([phone])
+  @@map("users")
+}
+
+// v1.5.6 团队: 组织维度的人员分组, 一人可属多个团队
+// 动因: 即时消息通知需要按"用户所属团队"定位接收群, 没有团队归属就发不出去
+model Team {
+  id             BigInt    @id @default(autoincrement())
+  name           String    @unique @db.VarChar(50)
+  description    String?   @db.VarChar(500)
+  leaderId       BigInt?   @map("leader_id") // 团队负责人 userId(可选)
+  // 团队群机器人 Webhook(可选): 即时消息通知按团队路由时使用, 留空回退全局群
+  chatWebhookUrl String?   @map("chat_webhook_url") @db.VarChar(300)
+  status         Int       @default(1) // 1=启用 0=停用
+  sortOrder      Int       @default(0) @map("sort_order")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  leader  User?            @relation("TeamLeader", fields: [leaderId], references: [id])
+  members TeamMembership[]
+
+  @@map("teams")
+}
+
+// 用户-团队归属(多对多), 用户可自助设置, 管理员也可在团队管理里调整
+model TeamMembership {
+  id        BigInt   @id @default(autoincrement())
+  teamId    BigInt   @map("team_id")
+  userId    BigInt   @map("user_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  team Team @relation(fields: [teamId], references: [id])
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([teamId, userId])
+  @@index([userId])
+  @@map("team_memberships")
+}
+
+// v2.1.1(#454) 非成员个人置顶: 管理员/平台角色不在项目成员表里, membership 的 pinned_at 兜不住 ——
+// 单独一张个人置顶表(纯 UI 偏好, 有项目可见权即可置顶, 不扩权限面); 成员置顶仍走 project_members.pinned_at
+model UserProjectPin {
+  id        BigInt   @id @default(autoincrement())
+  userId    BigInt   @map("user_id")
+  projectId BigInt   @map("project_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user    User    @relation("UserProjectPinUser", fields: [userId], references: [id])
+  project Project @relation("UserProjectPinProject", fields: [projectId], references: [id])
+
+  @@unique([userId, projectId])
+  @@map("user_project_pins")
+}
+
+// API Key: 智能体/MCP 等程序化客户端以用户身份调用的凭证 (2026-07-14)
+// 明文只在创建时返回一次, 库里只存 sha256 哈希; prefix 为明文前缀, 仅列表辨识用
+// scope: PERSONAL=绑定单个用户身份; AGENT=平台级, 每次请求按手机号解析工程师身份 (仅 ADMIN 可签发)
+model ApiKey {
+  id             BigInt    @id @default(autoincrement())
+  userId         BigInt    @map("user_id")
+  name           String    @db.VarChar(100) // 用途备注, 如 "扣子智能体"
+  keyHash        String    @unique @map("key_hash") @db.VarChar(64) // sha256 hex
+  prefix         String    @db.VarChar(16) // 明文前 12 位
+  scope          String    @default("PERSONAL") @db.VarChar(20) // PERSONAL / AGENT
+  status         Int       @default(1) // 1=active 0=revoked
+  // v1.6.0 Agent 协作: 注册 Agent 专属 Key(一 Agent 一 Key), 经此 Key 的写入归属该 Agent
+  agentProfileId BigInt?   @map("agent_profile_id")
+  lastUsedAt     DateTime? @map("last_used_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  revokedAt      DateTime? @map("revoked_at")
+
+  user         User          @relation("ApiKeyUser", fields: [userId], references: [id])
+  agentProfile AgentProfile? @relation("ApiKeyAgentProfile", fields: [agentProfileId], references: [id])
+
+  @@index([userId])
+  @@index([agentProfileId])
+  @@map("api_keys")
+}
+
+// ============ v1.6.0 Agent 协作: 员工的 Agent 注册身份 ============
+// 每个员工可注册多个 Agent(一体一 Key); Agent 权限=主人权限(代理用户模式, 只加身份不加权限面)
+// 停用/删除 Agent 即其 Key 失效; lastActiveAt 由 Key 每次使用时刷新(自动心跳)
+// v2.13.0(#1277) 生命周期三态: 1 在用 / 0 已禁用(可恢复) / -1 已注销(终态)
+// 僵尸判定: 超过 zombieThresholdDays(app_settings: agent.zombieThresholdDays, 默认30)天无 lastActiveAt
+model AgentProfile {
+  id             BigInt    @id @default(autoincrement())
+  userId         BigInt    @map("user_id") // 主人 User.id
+  name           String    @db.VarChar(100) // 如 "Liam 的调研助手"
+  description    String?   @db.VarChar(500)
+  platform       String    @default("OTHER") @db.VarChar(30) // OPENHEX/CLAUDE_CODE/COZE/CUSTOM/OTHER
+  capabilities   String?   @db.VarChar(500) // 能力标签, 逗号分隔
+  // v2.13.0(#1278) 注册信息(想法#7): 机器/用途/职责范围/模型; 存量为空=未登记
+  machineName    String?   @map("machine_name") @db.VarChar(100) // 跑在哪台机器, 如 "以明的 Mac"
+  purpose        String?   @db.VarChar(10) // PATROL 巡检 / DISPATCH 派工 / BOTH 两用
+  projectIds     Json?     @map("project_ids") // 职责范围 [projectId](字符串数组); null=未指定(全局)
+  model          String?   @db.VarChar(100) // 使用的模型标识, 如 claude-opus-5
+  status         Int       @default(1) // 1 在用 / 0 已禁用 / -1 已注销(见 services/agentProfiles.js AGENT_STATUS)
+  // v2.13.0(#1277) 生命周期留痕: 禁用/注销时间与操作人(启用时清空 disabled*)
+  disabledAt     DateTime? @map("disabled_at")
+  disabledBy     BigInt?   @map("disabled_by")
+  deregisteredAt DateTime? @map("deregistered_at")
+  lastActiveAt   DateTime? @map("last_active_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  user       User               @relation("AgentProfileUser", fields: [userId], references: [id])
+  apiKeys    ApiKey[]           @relation("ApiKeyAgentProfile")
+  activities AgentActivityLog[]
+  presences  AgentPresence[]
+
+  @@index([userId])
+  @@index([lastActiveAt])
+  @@index([status])
+  @@map("agent_profiles")
+}
+
+// v2.13.0(#1280) 档案生命周期审计: 谁/何时/对哪个档案/做了什么/为什么 —— 清理动作全留痕
+model AgentProfileAudit {
+  id             BigInt   @id @default(autoincrement())
+  agentProfileId BigInt   @map("agent_profile_id")
+  profileName    String   @map("profile_name") @db.VarChar(100) // 名字快照(注销后仍可读)
+  action         String   @db.VarChar(20) // DISABLE / ENABLE / DEREGISTER / BATCH_DISABLE
+  operatorId     BigInt   @map("operator_id") // 操作人 userId
+  operatorName   String   @map("operator_name") @db.VarChar(50) // 操作人名字快照
+  reason         String?  @db.VarChar(500) // 原因(选填)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([agentProfileId, createdAt])
+  @@index([operatorId, createdAt])
+  @@map("agent_profile_audits")
+}
+
+// Agent 活动审计: 经 Agent 专属 Key 的 MCP 工具调用逐条留痕(一张表通吃, 不在业务表逐个加列)
+// 目录页活跃度/贡献计数的数据源; 资源归属另见业务表的 createdByAgentId/agentProfileId
+model AgentActivityLog {
+  id             BigInt   @id @default(autoincrement())
+  agentProfileId BigInt   @map("agent_profile_id")
+  action         String   @db.VarChar(100) // MCP 工具名
+  entityType     String?  @map("entity_type") @db.VarChar(50) // 尽力从工具/响应推断
+  entityId       BigInt?  @map("entity_id")
+  ts             DateTime @default(now())
+
+  agentProfile AgentProfile @relation(fields: [agentProfileId], references: [id])
+
+  @@index([agentProfileId, ts])
+  @@map("agent_activity_logs")
+}
+
+// 2026-07-31 大模型配置(基础模块): 平台可调用的大模型及参数, 仅存配置, 调用逻辑待具体功能接入时实现
+// apiKey 写后不回显(列表只返回掩码); isDefault 全局唯一默认配置
+model LlmConfig {
+  id           BigInt    @id @default(autoincrement())
+  name         String    @db.VarChar(100) // 配置名, 如 "生产-Claude 主力"
+  provider     String    @db.VarChar(30) // ANTHROPIC / DEEPSEEK / QWEN / ZHIPU / MOONSHOT / OPENAI / CUSTOM
+  model        String    @db.VarChar(100) // 模型 ID, 如 claude-opus-4-8
+  baseUrl      String?   @map("base_url") @db.VarChar(300) // 自定义网关/代理地址, 留空用官方默认
+  apiKey       String?   @map("api_key") @db.VarChar(300) // 调用密钥, 接口层只出掩码
+  temperature  Decimal?  @db.Decimal(3, 2) // 0-2, 留空用模型默认(部分新模型已不支持)
+  maxTokens    Int?      @map("max_tokens") // 单次输出上限, 留空用调用方默认
+  systemPrompt String?   @map("system_prompt") @db.Text // 默认系统提示词(可选)
+  enabled      Boolean   @default(true)
+  isDefault    Boolean   @default(false) @map("is_default")
+  remark       String?   @db.VarChar(500)
+  createdBy    BigInt?   @map("created_by")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
+
+  @@map("llm_configs")
+}
+
+// 站内通知
+model Notification {
+  id        BigInt    @id @default(autoincrement())
+  userId    BigInt?   @map("user_id")
+  type      String    @db.VarChar(50) // TASK_ASSIGNED / BILL_ISSUED / VOUCHER_APPROVED / ...
+  title     String    @db.VarChar(200)
+  body      String?   @db.Text
+  link      String?   @db.VarChar(500)
+  data      String?   @db.Text // JSON 字符串
+  readAt    DateTime? @map("read_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([userId, readAt])
+  @@index([userId, createdAt])
+  @@map("notifications")
+}
+
+// v2.5.5(#912) 噪音档通知不逐条推, 先入本表, 由 cron 每天合并成一条 DAILY_DIGEST 站内通知后标记 digested_at
+model NotificationDigestItem {
+  id         BigInt    @id @default(autoincrement())
+  userId     BigInt    @map("user_id")
+  type       String    @db.VarChar(50)
+  title      String    @db.VarChar(200)
+  body       String?   @db.Text
+  link       String?   @db.VarChar(500)
+  createdAt  DateTime  @default(now()) @map("created_at")
+  digestedAt DateTime? @map("digested_at")
+
+  @@index([userId, digestedAt])
+  @@index([createdAt])
+  @@map("notification_digest_items")
+}
+
+// v1.3.2 角色定义入库(动态角色): 原 UserRole 枚举退役, 角色清单/名称/数据范围后台可配
+// dataScope: ALL(全量) / OWN_PROJECTS(自己负责或参与的项目) / OWN_RECORDS(仅本人相关记录)
+// builtin=true 的六个内置角色不可删除, 仅允许改名/描述; ADMIN 不可停用
+model Role {
+  id          BigInt   @id @default(autoincrement())
+  code        String   @unique @db.VarChar(32) // 大写字母/数字/下划线, JWT 与 users.role 存的值
+  name        String   @db.VarChar(50)
+  description String?  @db.VarChar(200)
+  dataScope   String   @default("OWN_RECORDS") @map("data_scope") @db.VarChar(20)
+  builtin     Boolean  @default(false)
+  status      Int      @default(1) // 1=启用 0=停用(停用后不可再分配, 存量用户保留)
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("roles")
+}
+
+// 角色权限配置 (2026-07-20): 覆盖 lib/auth.js PERMISSIONS 里某个权限点的默认角色列表
+// 有记录 = 后台配置过, roles 为生效角色数组(JSON); 无记录 = 用代码默认值
+model RolePermission {
+  id         BigInt   @id @default(autoincrement())
+  permission String   @unique @db.VarChar(100) // 权限点 key, 如 timesheet.approve
+  roles      Json // 生效角色数组, 如 ["ADMIN","MANAGER"]
+  updatedBy  BigInt?  @map("updated_by") // 最后修改人 userId
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@map("role_permissions")
+}
+
+// 操作审计日志
+model AuditLog {
+  id           BigInt   @id @default(autoincrement())
+  userId       BigInt?  @map("user_id")
+  userType     String   @map("user_type") @db.VarChar(20) // INTERNAL/CUSTOMER
+  action       String   @db.VarChar(100)
+  resourceType String?  @map("resource_type") @db.VarChar(50)
+  resourceId   BigInt?  @map("resource_id")
+  details      Json?
+  ip           String?  @db.VarChar(45)
+  userAgent    String?  @map("user_agent") @db.VarChar(500)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([userId, userType])
+  @@index([resourceType, resourceId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// =====================================================
+// 2. 客户与联系人
+// =====================================================
+
+model Customer {
+  id        BigInt    @id @default(autoincrement())
+  name      String    @db.VarChar(200)
+  shortName String?   @map("short_name") @db.VarChar(50)
+  industry  String?   @db.VarChar(50)
+  scale     String?   @db.VarChar(20) // SMALL/MEDIUM/LARGE/GIANT
+  address   String?   @db.VarChar(500)
+  tags      Json?
+  status    Int       @default(1)
+  notes     String?   @db.Text
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  sourceChannel String? @map("source_channel") @db.VarChar(20)
+
+  contacts Contact[]
+  projects Project[]
+
+  @@index([name])
+  @@index([industry])
+  @@map("customers")
+}
+
+model Contact {
+  id         BigInt    @id @default(autoincrement())
+  customerId BigInt    @map("customer_id")
+  name       String    @db.VarChar(50)
+  title      String?   @db.VarChar(50)
+  phone      String?   @db.VarChar(20)
+  email      String?   @db.VarChar(100)
+  isPrimary  Int       @default(0) @map("is_primary")
+  notes      String?   @db.Text
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+  deletedAt  DateTime? @map("deleted_at")
+
+  customer Customer @relation(fields: [customerId], references: [id])
+
+  @@index([customerId])
+  @@map("contacts")
+}
+
+// =====================================================
+// 3. 工程师（内部 FDE 资源池）
+// =====================================================
+
+model Engineer {
+  id        BigInt    @id @default(autoincrement())
+  userId    BigInt    @unique @map("user_id")
+  level     String?   @db.VarChar(20) // JUNIOR/MIDDLE/SENIOR/EXPERT
+  skills    Json? // 保留为冗余字段（快速读取），主数据在 engineer_skills 表
+  city      String?   @db.VarChar(50)
+  dailyRate Decimal?  @map("daily_rate") @db.Decimal(10, 2)
+  bio       String?   @db.Text
+  available Int       @default(1)
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  user           User                    @relation(fields: [userId], references: [id])
+  certifications EngineerCertification[]
+  projectMembers ProjectMember[]
+  timesheets     Timesheet[]
+  engineerSkills EngineerSkill[]
+
+  @@index([level])
+  @@index([city])
+  @@map("engineers")
+}
+
+model EngineerCertification {
+  id         BigInt    @id @default(autoincrement())
+  engineerId BigInt    @map("engineer_id")
+  name       String    @db.VarChar(100)
+  issuer     String?   @db.VarChar(100)
+  issuedAt   DateTime? @map("issued_at") @db.Date
+  expiresAt  DateTime? @map("expires_at") @db.Date
+  certNo     String?   @map("cert_no") @db.VarChar(100)
+  createdAt  DateTime  @default(now()) @map("created_at")
+  deletedAt  DateTime? @map("deleted_at")
+
+  engineer Engineer @relation(fields: [engineerId], references: [id])
+
+  @@index([engineerId])
+  @@map("engineer_certifications")
+}
+
+model Skill {
+  id          BigInt    @id @default(autoincrement())
+  name        String    @unique @db.VarChar(50)
+  category    String?   @db.VarChar(30) // FRONTEND/BACKEND/DEVOPS/DATA/PM/MOBILE/...
+  description String?   @db.VarChar(200)
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  engineers EngineerSkill[]
+
+  @@index([category])
+  @@map("skills")
+}
+
+// 工程师 - 技能 多对多中间表
+model EngineerSkill {
+  id         BigInt   @id @default(autoincrement())
+  engineerId BigInt   @map("engineer_id")
+  skillId    BigInt   @map("skill_id")
+  level      Int      @default(3) // 1-5 掌握程度
+  yearsExp   Int?     @map("years_exp") // 使用年数
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  engineer Engineer @relation(fields: [engineerId], references: [id])
+  skill    Skill    @relation(fields: [skillId], references: [id])
+
+  @@unique([engineerId, skillId])
+  @@index([engineerId])
+  @@index([skillId])
+  @@map("engineer_skills")
+}
+
+// =====================================================
+// 4. 项目（核心）
+// =====================================================
+
+model Project {
+  id                BigInt        @id @default(autoincrement())
+  code              String        @unique @db.VarChar(50)
+  name              String        @db.VarChar(200)
+  customerId        BigInt        @map("customer_id")
+  type              String?       @db.VarChar(20) // NEW/UPGRADE/MAINTENANCE/TRAINING
+  status            ProjectStatus @default(PROPOSAL) // v2.1.3(#474): 新建项目不再走草稿, 直接进方案中
+  managerId         BigInt?       @map("manager_id")
+  // v1.8.0 小组维度: 项目归属小组(可选, 存量项目不强制); 小组独立接项目/独立统计的锚点
+  startDate         DateTime?     @map("start_date") @db.Date
+  endDate           DateTime?     @map("end_date") @db.Date
+  budget            Decimal?      @db.Decimal(12, 2)
+  actualCost        Decimal?      @default(0) @map("actual_cost") @db.Decimal(12, 2)
+  health            String?       @default("GREEN") @db.VarChar(10)
+  progress          Int           @default(0)
+  // v2.2.0(#520): 项目级验收上下文
+  acceptanceConfig  Json?         @map("acceptance_config")
+  // 2026-07-31: 项目卡片封面图(列表卡片视图背景, 提升项目辨识度), 七牛 URL
+  coverImage        String?       @map("cover_image") @db.VarChar(500)
+  // v1.4.x 项目活跃度: 按 Repo 数量/提交频率自动评分(0-100), cron 定期重算, 列表默认按此排序
+  activityScore     Int           @default(0) @map("activity_score")
+  activityMeta      Json?         @map("activity_meta") // { repoCount, commits7, commits30, lastCommitAt }
+  // v2.5.5(#915) 关闭/归档: status=CLOSED 时记录; 恢复回 statusBeforeClose 并清空这几列
+  closedAt          DateTime?     @map("closed_at")
+  closedBy          BigInt?       @map("closed_by")
+  closeReason       String?       @map("close_reason") @db.VarChar(500)
+  statusBeforeClose String?       @map("status_before_close") @db.VarChar(20)
+  description       String?       @db.Text
+  createdBy         BigInt        @map("created_by")
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+  deletedAt         DateTime?     @map("deleted_at")
+
+  customer          Customer             @relation(fields: [customerId], references: [id])
+  manager           User?                @relation("ProjectManager", fields: [managerId], references: [id])
+  members           ProjectMember[]
+  userPins          UserProjectPin[]     @relation("UserProjectPinProject")
+  milestones        Milestone[]
+  tasks             Task[]
+  timesheets        Timesheet[]
+  issues            Issue[]
+  risks             Risk[]
+  review            ProjectReview?
+  knowledgeArticles KnowledgeArticle[]
+  skillPackages     SkillPackage[]
+  repositories      ProjectRepository[]
+  repoActivities    RepoActivity[]
+  assetUsages       AssetUsage[]
+  requirements      ProjectRequirement[] // v1.9.8 会议驱动需求
+  records           ProjectRecord[]
+  sourceAssets      Asset[]              @relation("AssetSourceProject")
+
+  @@index([customerId])
+  @@index([status])
+  @@index([managerId])
+  @@map("projects")
+}
+
+// 项目代码仓库 (2026-07-09) —— 一个项目可关联多个 Gitee/GitHub 仓库
+model ProjectRepository {
+  id            BigInt    @id @default(autoincrement())
+  projectId     BigInt    @map("project_id")
+  name          String    @db.VarChar(200) // 仓库显示名 (如 后端服务 / 移动端)
+  url           String    @db.VarChar(500) // 仓库地址 (Gitee URL)
+  provider      String    @default("GITEE") @db.VarChar(20) // GITEE/GITHUB/GITLAB/OTHER
+  description   String?   @db.Text
+  defaultBranch String?   @map("default_branch") @db.VarChar(100)
+  sortOrder     Int       @default(0) @map("sort_order")
+  createdBy     BigInt?   @map("created_by")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  deletedAt     DateTime? @map("deleted_at")
+
+  // 增量同步游标 (2026-07-20) —— 只同步已配置到项目里的仓库
+  lastSyncedAt  DateTime? @map("last_synced_at") // 上次同步时间, 作为下次拉取的 since
+  lastCommitSha String?   @map("last_commit_sha") @db.VarChar(64) // 最新已同步的提交 sha
+  syncError     String?   @map("sync_error") @db.Text // 最近一次同步的错误 (脏 URL / API 失败), 成功则清空
+
+  project    Project        @relation(fields: [projectId], references: [id])
+  activities RepoActivity[]
+
+  @@index([projectId])
+  @@map("project_repositories")
+}
+
+// 仓库动态 (2026-07-20) —— 从 Gitee 拉取的提交/流水线记录, 展示在项目主页时间线
+// 目前只落 COMMIT, 后续可扩展 PIPELINE / DEPLOY / PR
+model RepoActivity {
+  id                  BigInt   @id @default(autoincrement())
+  projectId           BigInt   @map("project_id")
+  projectRepositoryId BigInt   @map("project_repository_id")
+  type                String   @default("COMMIT") @db.VarChar(20) // COMMIT | PIPELINE | DEPLOY | PR
+  refName             String?  @map("ref_name") @db.VarChar(200) // 分支 / tag
+  sha                 String?  @db.VarChar(64)
+  title               String   @db.VarChar(500) // commit message 首行 / 流水线名
+  author              String?  @db.VarChar(200)
+  status              String?  @db.VarChar(40) // 部署 success/failed (COMMIT 留空)
+  url                 String?  @db.VarChar(500)
+  happenedAt          DateTime @map("happened_at")
+  raw                 Json?
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  project    Project           @relation(fields: [projectId], references: [id])
+  repository ProjectRepository @relation(fields: [projectRepositoryId], references: [id])
+
+  @@unique([projectRepositoryId, type, sha]) // 幂等去重: 同一绑定下同类型同 sha 只存一条
+  @@index([projectId, happenedAt])
+  @@map("repo_activities")
+}
+
+enum ProjectStatus {
+  DRAFT // 草稿
+  PROPOSAL // 方案中
+  APPROVED // 已批准
+  IN_PROGRESS // 进行中
+  ACCEPTED // 已验收
+  CLOSED // 已关闭
+  CANCELLED // 已取消
+}
+
+model ProjectMember {
+  id            BigInt    @id @default(autoincrement())
+  projectId     BigInt    @map("project_id")
+  // 2026-07-03 改造: 加 userId, 项目成员可以是任何角色 (不只是工程师)
+  // 老数据迁移: engineer.userId → ProjectMember.userId
+  // engineerId 保留为 nullable deprecated 字段, 保证已有查询/关联不断
+  engineerId    BigInt?   @map("engineer_id")
+  userId        BigInt?   @map("user_id")
+  roleInProject String    @default("MEMBER") @map("role_in_project") @db.VarChar(20)
+  joinDate      DateTime? @map("join_date") @db.Date
+  leaveDate     DateTime? @map("leave_date") @db.Date
+  // v2.0.8(#422): 成员个人置顶时间(null=未置顶), 项目列表按它分区置顶
+  pinnedAt      DateTime? @map("pinned_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime? @updatedAt @map("updated_at")
+
+  project  Project   @relation(fields: [projectId], references: [id])
+  engineer Engineer? @relation(fields: [engineerId], references: [id])
+  user     User?     @relation(fields: [userId], references: [id])
+
+  // 唯一约束改为 (projectId, userId), 允许老数据 userId 为 null (兼容期)
+  @@unique([projectId, userId])
+  @@index([projectId])
+  @@index([userId])
+  @@index([engineerId])
+  @@map("project_members")
+}
+
+model Milestone {
+  id          BigInt    @id @default(autoincrement())
+  projectId   BigInt    @map("project_id")
+  name        String    @db.VarChar(200)
+  description String?   @db.Text
+  // v1.9.3 里程碑负责人(userId, 可选): 详情页显示名字+头像, 让里程碑责任到人
+  ownerId     BigInt?   @map("owner_id")
+  plannedDate DateTime? @map("planned_date") @db.Date
+  actualDate  DateTime? @map("actual_date") @db.Date
+  status      String    @default("PENDING") @db.VarChar(20)
+  sortOrder   Int       @default(0) @map("sort_order")
+  // v2.8.0(#1143) 路径图: 里程碑完成定义(一句话 DoD), 路径图终点节点上展示
+  goal        String?   @db.Text
+  // v2.1.0 小组制: 可选挂小组(挂组不拆, 不挂不影响现有流程)
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  project    Project     @relation(fields: [projectId], references: [id])
+  owner      User?       @relation("MilestoneOwner", fields: [ownerId], references: [id])
+  tasks      Task[]
+  timesheets Timesheet[] @relation("TimesheetMilestone")
+
+  @@index([projectId])
+  @@map("milestones")
+}
+
+// =====================================================
+// 5. 任务与工时
+// =====================================================
+
+// v1.4.x 任务附件: 任务详情/创建编辑/评论均可挂文件(七牛云), commentId 非空=评论附件
+model TaskAttachment {
+  id         BigInt    @id @default(autoincrement())
+  taskId     BigInt    @map("task_id")
+  commentId  BigInt?   @map("comment_id")
+  filename   String    @db.VarChar(200)
+  fileUrl    String    @map("file_url") @db.VarChar(500)
+  fileSize   BigInt?   @map("file_size")
+  uploadedBy BigInt    @map("uploaded_by")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  deletedAt  DateTime? @map("deleted_at")
+
+  task Task @relation(fields: [taskId], references: [id])
+
+  @@index([taskId])
+  @@index([commentId])
+  @@map("task_attachments")
+}
+
+model Task {
+  id             BigInt    @id @default(autoincrement())
+  projectId      BigInt    @map("project_id")
+  milestoneId    BigInt?   @map("milestone_id")
+  title          String    @db.VarChar(200)
+  description    String?   @db.Text
+  assigneeId     BigInt?   @map("assignee_id")
+  status         String    @default("TODO") @db.VarChar(20)
+  priority       String    @default("MEDIUM") @db.VarChar(20)
+  dueDate        DateTime? @map("due_date") @db.Date
+  // v1.9.7(#353) 状态流重构: 收件箱(TODO)→等候生产(QUEUED)→生产中(IN_PROGRESS)→生产完成(DONE)→已验收(VERIFIED)
+  // 转 QUEUED 必须有计划起止; 各段流转时间留痕(completedAt 已有)
+  plannedStartAt DateTime? @map("planned_start_at") @db.Date
+  plannedEndAt   DateTime? @map("planned_end_at") @db.Date
+  queuedAt       DateTime? @map("queued_at")
+  startedAt      DateTime? @map("started_at")
+  archivedAt     DateTime? @map("archived_at") // v1.2.9 一键归档已验收任务
+  completedAt    DateTime? @map("completed_at")
+  // v2.1.0 小组制: 可选挂小组(挂组不拆, 不挂不影响现有流程); 组维度任务/逾期视图按此过滤
+  // v2.1.13(#563) 任务来源: CUSTOMER客户需求/REVIEW评审/PATROL巡检/SELF自主发起; 存量为空=未标注
+  // createdBy=创建人userId; 「识别增量需求」口径 = source=CUSTOMER 且创建人=负责人本人(工程师自主录入客户需求)
+  source         String?   @db.VarChar(20)
+  createdBy      BigInt?   @map("created_by")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  project     Project          @relation(fields: [projectId], references: [id])
+  milestone   Milestone?       @relation(fields: [milestoneId], references: [id])
+  attachments TaskAttachment[]
+
+  // v2.1.8(#510) 验收自动化地基: AC checklist [{acNo,text,level}] + 验收级别(L1_API接口/L2_UI浏览器/L3_STATIC静态检查)
+  acceptanceCriteria Json?   @map("acceptance_criteria")
+  reviewLevel        String? @default("L1_API") @map("review_level") @db.VarChar(20)
+  // v2.1.8(#511/#512) 验收流转: acceptanceRuns=验收执行次数(报告rev); revision=打回次数(FAIL→REWORK +1, 满3次升级人工)
+  acceptanceRuns     Int     @default(0) @map("acceptance_runs")
+  revision           Int     @default(0)
+
+  timesheets Timesheet[] @relation("TimesheetTask") // v2.1.7(#492) 报工关联
+
+  // v2.8.0(#1143) 路径图: 我作为前置的边 / 我作为后继的边
+  successorEdges   TaskDependency[] @relation("DepPredecessor")
+  predecessorEdges TaskDependency[] @relation("DepSuccessor")
+  // v2.9.0(#1162) 看板派工: 机器人运行记录
+  devRuns          DevRun[]         @relation("DevRunTask")
+
+  @@index([projectId])
+  @@index([assigneeId])
+  @@index([status])
+  @@index([source])
+  @@map("tasks")
+}
+
+// =====================================================
+// v2.9.0(#1162) 看板派工自动开发: 派工单 → 运行(每任务) → 事件流
+// 人在路径图上点「启动」生成派工单; 机器人(AgentProfile+专属Key)claim 领取运行, 分阶段回报进度, 完成/失败回写
+// =====================================================
+model DevDispatch {
+  id             BigInt    @id @default(autoincrement())
+  projectId      BigInt    @map("project_id")
+  milestoneId    BigInt?   @map("milestone_id")
+  title          String    @db.VarChar(200)
+  note           String?   @db.Text // 给机器人的补充说明/约束
+  agentProfileId BigInt?   @map("agent_profile_id") // 指定机器人; null=任意空闲机器人可领
+  status         String    @default("RUNNING") @db.VarChar(20) // RUNNING/PAUSED/DONE/CANCELLED
+  createdBy      BigInt    @map("created_by")
+  startedAt      DateTime  @default(now()) @map("started_at")
+  finishedAt     DateTime? @map("finished_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  runs DevRun[]
+
+  @@index([projectId, status])
+  @@index([milestoneId])
+  @@map("dev_dispatches")
+}
+
+model DevRun {
+  id             BigInt    @id @default(autoincrement())
+  dispatchId     BigInt    @map("dispatch_id")
+  taskId         BigInt    @map("task_id")
+  seq            Int       @default(0) // 派工单内拓扑序
+  agentProfileId BigInt?   @map("agent_profile_id") // 领取的机器人
+  agentName      String?   @map("agent_name") @db.VarChar(100)
+  status         String    @default("PENDING") @db.VarChar(20) // PENDING/RUNNING/SUCCEEDED/FAILED/CANCELLED
+  progress       Int       @default(0) // 0-100
+  phase          String?   @db.VarChar(40) // 取任务/拆分/开发/测试/提交/回写 等自由文本
+  message        String?   @db.VarChar(500) // 最近一句进展
+  result         Json? // {summary, commits:[{sha,url,message}], branch, prUrl, testResult}
+  error          String?   @db.Text
+  attempts       Int       @default(0)
+  claimedAt      DateTime? @map("claimed_at")
+  startedAt      DateTime? @map("started_at")
+  finishedAt     DateTime? @map("finished_at")
+  heartbeatAt    DateTime? @map("heartbeat_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  dispatch DevDispatch   @relation(fields: [dispatchId], references: [id])
+  task     Task          @relation("DevRunTask", fields: [taskId], references: [id])
+  events   DevRunEvent[]
+
+  @@index([dispatchId, seq])
+  @@index([taskId])
+  @@index([status])
+  @@index([agentProfileId])
+  @@map("dev_runs")
+}
+
+model DevRunEvent {
+  id        BigInt   @id @default(autoincrement())
+  runId     BigInt   @map("run_id")
+  level     String   @default("INFO") @db.VarChar(10) // INFO/WARN/ERROR
+  phase     String?  @db.VarChar(40)
+  progress  Int?
+  message   String   @db.VarChar(1000)
+  data      Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  run DevRun @relation(fields: [runId], references: [id])
+
+  @@index([runId, id])
+  @@map("dev_run_events")
+}
+
+// v2.8.0(#1143) 里程碑路径图: 任务之间的有向边
+// type=BLOCKS 硬依赖(前置未 DONE/VERIFIED 则后继为阻塞态; BLOCKS 边构成的图必须无环)
+// type=FEEDBACK 回环软边(表达"做完 B 可能回到 A 再迭代", 不参与环检测/阻塞/关键路径, 画成虚线)
+model TaskDependency {
+  id            BigInt    @id @default(autoincrement())
+  predecessorId BigInt    @map("predecessor_id")
+  successorId   BigInt    @map("successor_id")
+  type          String    @default("BLOCKS") @db.VarChar(20)
+  note          String?   @db.VarChar(200)
+  createdBy     BigInt?   @map("created_by")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  deletedAt     DateTime? @map("deleted_at")
+
+  predecessor Task @relation("DepPredecessor", fields: [predecessorId], references: [id])
+  successor   Task @relation("DepSuccessor", fields: [successorId], references: [id])
+
+  @@index([predecessorId])
+  @@index([successorId])
+  @@map("task_dependencies")
+}
+
+model Timesheet {
+  id           BigInt    @id @default(autoincrement())
+  projectId    BigInt    @map("project_id")
+  engineerId   BigInt    @map("engineer_id")
+  workDate     DateTime  @map("work_date") @db.Date
+  // v1.9.3 工时可选关联里程碑: 工时板块按里程碑筛选统计用; 存量工时为空
+  milestoneId  BigInt?   @map("milestone_id")
+  // v2.1.7(#492) 报工关联任务: 强引导期可空, 与 workCategory 互斥(无任务时填分类作原因); 存量不回填
+  taskId       BigInt?   @map("task_id")
+  workCategory String?   @map("work_category") @db.VarChar(20) // ROUTINE日常事务/MEETING会议沟通/OPS_SUPPORT运维支持/TRAINING学习培训
+  hours        Decimal   @db.Decimal(4, 2)
+  workContent  String    @map("work_content") @db.Text
+  location     String?   @db.VarChar(100)
+  status       String    @default("DRAFT") @db.VarChar(20)
+  approvedBy   BigInt?   @map("approved_by")
+  approvedAt   DateTime? @map("approved_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
+
+  project   Project    @relation(fields: [projectId], references: [id])
+  engineer  Engineer   @relation(fields: [engineerId], references: [id])
+  milestone Milestone? @relation("TimesheetMilestone", fields: [milestoneId], references: [id])
+  task      Task?      @relation("TimesheetTask", fields: [taskId], references: [id])
+
+  @@index([projectId, workDate])
+  @@index([engineerId, workDate])
+  @@index([milestoneId])
+  @@index([taskId])
+  @@map("timesheets")
+}
+
+// =====================================================
+// 6. 问题、风险
+// =====================================================
+
+model Issue {
+  id          BigInt    @id @default(autoincrement())
+  projectId   BigInt    @map("project_id")
+  title       String    @db.VarChar(200)
+  description String?   @db.Text
+  severity    String    @default("MEDIUM") @db.VarChar(20)
+  status      String    @default("OPEN") @db.VarChar(20)
+  reporterId  BigInt    @map("reporter_id")
+  assigneeId  BigInt?   @map("assignee_id")
+  resolvedAt  DateTime? @map("resolved_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  project Project @relation(fields: [projectId], references: [id])
+
+  @@index([projectId])
+  @@index([status])
+  @@map("issues")
+}
+
+model Risk {
+  id          BigInt    @id @default(autoincrement())
+  projectId   BigInt    @map("project_id")
+  title       String    @db.VarChar(200)
+  description String?   @db.Text
+  probability String    @default("MEDIUM") @db.VarChar(20)
+  impact      String    @default("MEDIUM") @db.VarChar(20)
+  status      String    @default("IDENTIFIED") @db.VarChar(20)
+  mitigation  String?   @db.Text
+  ownerId     BigInt?   @map("owner_id")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  project Project @relation(fields: [projectId], references: [id])
+
+  @@index([projectId])
+  @@map("risks")
+}
+
+// =====================================================
+// 8. 复盘、知识库
+// =====================================================
+
+// v1.4.x 项目记录: 过程资料时间线(主人拍板)——会议纪要/对接沟通/现场照片视频/资料归档
+// 与交付物(正式产物)、知识库(公司级沉淀)的边界: 这里是项目执行过程的原始记录
+model ProjectRecord {
+  id               BigInt    @id @default(autoincrement())
+  projectId        BigInt    @map("project_id")
+  type             String    @default("MEETING") @db.VarChar(20) // MEETING/COMM/SITE/FILE/OTHER + v1.6.0: CHAT 聊天记录/RESEARCH 研究记录
+  title            String    @db.VarChar(200)
+  content          String?   @db.Text // Markdown 正文(纪要内容/沟通要点)
+  occurredAt       DateTime  @map("occurred_at") // 发生时间(会议时间/沟通时间)
+  attendees        String?   @db.VarChar(500) // 参与人(自由文本, 如"我方: 张工; 客户: 李经理")
+  createdBy        BigInt    @map("created_by")
+  // v1.6.0: 经 Agent 专属 Key 写入时记 Agent 身份(展示"来源: 某某的某 Agent")
+  createdByAgentId BigInt?   @map("created_by_agent_id")
+  // v2.0.5(#412) 说话人分离: 转写句级分段 JSON([{speaker,begin,end,text}]) + 说话人命名映射({"0":"郭老师"})
+  transcriptJson   String?   @map("transcript_json") @db.Text
+  speakerNames     String?   @map("speaker_names") @db.VarChar(500)
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  deletedAt        DateTime? @map("deleted_at")
+
+  project      Project                   @relation(fields: [projectId], references: [id])
+  attachments  ProjectRecordAttachment[]
+  requirements ProjectRequirement[] // v1.9.8
+
+  @@index([projectId, occurredAt])
+  @@map("project_records")
+}
+
+// v1.9.8(#350) 会议驱动需求: 纪要经 LLM 梳理出的结构化需求条目
+// 状态: DRAFT=待确认(LLM 生成或手工添加) CONFIRMED=已确认 REJECTED=已驳回; 确认后可生成任务(#351, taskId 回填)
+model ProjectRequirement {
+  id          BigInt    @id @default(autoincrement())
+  projectId   BigInt    @map("project_id")
+  recordId    BigInt?   @map("record_id") // 来源会议记录(手工添加可空)
+  title       String    @db.VarChar(200)
+  detail      String?   @db.Text
+  priority    String    @default("MEDIUM") @db.VarChar(10) // LOW/MEDIUM/HIGH/URGENT
+  status      String    @default("DRAFT") @db.VarChar(15)
+  // v2.0.8(#424): 需求来源(MEETING=会议梳理默认null, VOICE=语音速录) + 语音原文留痕
+  source      String?   @db.VarChar(15)
+  sourceText  String?   @map("source_text") @db.Text
+  confirmedBy BigInt?   @map("confirmed_by") // 确认/驳回操作人 userId
+  confirmedAt DateTime? @map("confirmed_at")
+  // v2.1.13(#560) 待办归属: ownerId=责任人 userId(确认时必填, 无责任人拦截);
+  // ownerName=LLM 从纪要提取的姓名提示(未匹配到项目成员时保留, 供人工指认)
+  ownerId     BigInt?   @map("owner_id")
+  ownerName   String?   @map("owner_name") @db.VarChar(50)
+  taskId      BigInt?   @map("task_id") // #351: 确认后生成的任务(v2.1.13 #560 亦可经 linkTaskId 关联已有任务)
+  milestoneId BigInt?   @map("milestone_id") // #351: 确认后生成的里程碑
+  createdBy   BigInt?   @map("created_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  project Project        @relation(fields: [projectId], references: [id])
+  record  ProjectRecord? @relation(fields: [recordId], references: [id])
+
+  @@index([projectId, status])
+  @@index([recordId])
+  @@map("project_requirements")
+}
+
+model ProjectRecordAttachment {
+  id        BigInt   @id @default(autoincrement())
+  recordId  BigInt   @map("record_id")
+  filename  String   @db.VarChar(200)
+  fileUrl   String   @map("file_url") @db.VarChar(500)
+  fileSize  BigInt?  @map("file_size")
+  kind      String   @default("FILE") @db.VarChar(10) // IMAGE/VIDEO/FILE (前端展示方式)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  record ProjectRecord @relation(fields: [recordId], references: [id])
+
+  @@index([recordId])
+  @@map("project_record_attachments")
+}
+
+model ProjectReview {
+  id           BigInt    @id @default(autoincrement())
+  projectId    BigInt    @unique @map("project_id")
+  summary      String?   @db.Text
+  achievements String?   @db.Text
+  issues       String?   @db.Text
+  lessons      String?   @db.Text
+  satisfaction Int?
+  createdBy    BigInt    @map("created_by")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
+
+  project Project @relation(fields: [projectId], references: [id])
+
+  @@map("project_reviews")
+}
+
+model KnowledgeArticle {
+  id        BigInt    @id @default(autoincrement())
+  title     String    @db.VarChar(200)
+  category  String?   @db.VarChar(50)
+  content   String    @db.LongText
+  tags      Json?
+  projectId BigInt?   @map("project_id")
+  viewCount Int       @default(0) @map("view_count")
+  createdBy BigInt    @map("created_by")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  project           Project?                     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  author            User                         @relation("KnowledgeAuthor", fields: [createdBy], references: [id])
+  checklistProgress KnowledgeChecklistProgress[]
+
+  @@index([category])
+  @@map("knowledge_articles")
+}
+
+// 知识文章 ↔ 交付物 多对多关联
+model KnowledgeChecklistProgress {
+  id        BigInt           @id @default(autoincrement())
+  userId    BigInt           @map("user_id")
+  articleId BigInt           @map("article_id")
+  itemKey   String           @map("item_key") @db.VarChar(64)
+  checked   Boolean          @default(false)
+  createdAt DateTime         @default(now()) @map("created_at")
+  updatedAt DateTime         @updatedAt @map("updated_at")
+  article   KnowledgeArticle @relation(fields: [articleId], references: [id])
+
+  @@unique([userId, articleId, itemKey])
+  @@index([userId, articleId])
+  @@map("knowledge_checklist_progress")
+}
+
+// ==================== v2.0.9 Skills 框架 (#427) ====================
+// 注意: model Skill / skills 表已被「工程师技能主数据」占用(engineer_skills 外键), 新模型改名 SkillPackage。
+// SkillPackage = 平台沉淀的可复用能力包(元数据 + Markdown 正文), 供人工维护与 Agent 经 MCP 调用。
+// content 即 SKILL.md 原文(含 frontmatter), 元数据列用于检索与权限。
+model SkillPackage {
+  id          BigInt    @id @default(autoincrement())
+  name        String    @unique @db.VarChar(80) // 唯一名(kebab-case), Agent 按名加载
+  displayName String?   @map("display_name") @db.VarChar(100)
+  description String?   @db.VarChar(500) // 一句话说明(检索/触发的主要依据)
+  category    String?   @db.VarChar(50) // 分类/领域, 如 dev-workflow / ops / sales
+  keywords    Json? // 触发关键词数组 ["开工","巡检"]
+  content     String    @db.LongText // Markdown 正文(SKILL.md 原文, 含 frontmatter)
+  version     Int       @default(1) // 每次编辑 +1
+  status      String    @default("DISABLED") @db.VarChar(10) // ENABLED启用/DISABLED停用; v2.1.1(#455) 移除草稿态, 新增默认停用
+  attachments Json? // 可选附件 [{filename,fileUrl}] (脚本/模板)
+  projectId   BigInt?   @map("project_id") // 可选挂项目(通用 skill 为空)
+  createdBy   BigInt?   @map("created_by")
+  updatedBy   BigInt?   @map("updated_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  project   Project?        @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  usageLogs SkillUsageLog[]
+
+  @@index([category])
+  @@index([status])
+  @@map("skill_packages")
+}
+
+// 调用日志: 哪个 Agent/用户 在什么时候加载了哪个 skill (#431 验收: 调用日志可在平台查询)
+model SkillUsageLog {
+  id             BigInt   @id @default(autoincrement())
+  skillPackageId BigInt   @map("skill_package_id")
+  skillName      String   @map("skill_name") @db.VarChar(80) // 冗余存名, 删除后日志仍可读
+  actorType      String   @default("USER") @db.VarChar(10) // USER用户 / AGENT(经MCP)
+  actorId        BigInt?  @map("actor_id") // userId 或 agentProfileId
+  actorName      String?  @map("actor_name") @db.VarChar(100)
+  action         String   @default("LOAD") @db.VarChar(20) // LOAD加载 / SEARCH检索
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  skillPackage SkillPackage @relation(fields: [skillPackageId], references: [id], onDelete: Cascade)
+
+  @@index([skillPackageId])
+  @@index([createdAt])
+  @@map("skill_usage_logs")
+}
+
+// v2.0.9(#435): Agent 巡检心跳 —— 协作 agent 经 MCP report_presence 周期上报, 平台据此展示"谁在巡检"(#434)
+// 每 (agentProfileId, projectId) 一行, 重复上报刷新 lastBeatAt(幂等心跳); 超过 STALE_MINUTES 无心跳视为离线
+model AgentPresence {
+  id             BigInt   @id @default(autoincrement())
+  agentProfileId BigInt   @unique @map("agent_profile_id") // 上报主体的 Agent 档案(配置包自动注册的那个)
+  agentName      String   @db.VarChar(100) // 名字快照
+  projectId      BigInt?  @map("project_id") // 当前巡检的项目(可空=全局巡检)
+  projectName    String?  @map("project_name") @db.VarChar(200)
+  status         String   @default("PATROLLING") @db.VarChar(20) // PATROLLING巡检中 / IDLE空闲 / OFFLINE下线(主动报备)
+  activity       String?  @db.VarChar(300) // 一句话在干嘛, 如"巡检项目64: 无任务"
+  // v2.12.0(#1252): 巡检任务颗粒度 —— 当前正在开发的任务; 老数据/无任务时为空
+  taskId         BigInt?  @map("task_id")
+  taskTitle      String?  @map("task_title") @db.VarChar(200)
+  phase          String?  @db.VarChar(30) // 读代码/改代码/自测/写文档; 空=纯巡检态
+  progress       Int? // 0-99; 空=巡检不报告进度(前端按「巡检中」渲染, 不假装有进度)
+  lastBeatAt     DateTime @default(now()) @map("last_beat_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  agentProfile AgentProfile @relation(fields: [agentProfileId], references: [id], onDelete: Cascade)
+
+  @@index([lastBeatAt])
+  @@index([projectId])
+  @@index([taskId])
+  @@map("agent_presences")
+}
+
+// 活动流（B2）
+model Activity {
+  id        BigInt   @id @default(autoincrement())
+  actorId   BigInt?  @map("actor_id")
+  entity    String   @db.VarChar(30) // project / task / timesheet / quotation / comment / customer
+  entityId  BigInt   @map("entity_id")
+  action    String   @db.VarChar(40) // created / updated / status_changed / completed / approved / assigned / commented
+  summary   String   @db.VarChar(500) // 人类可读的一句话
+  data      String?  @db.Text // JSON
+  createdAt DateTime @default(now()) @map("created_at")
+
+  actor User? @relation("ActivityActor", fields: [actorId], references: [id])
+
+  @@index([entity, entityId, createdAt])
+  @@index([createdAt])
+  @@map("activities")
+}
+
+// 评论（B3）
+model Comment {
+  id        BigInt    @id @default(autoincrement())
+  entity    String    @db.VarChar(30)
+  entityId  BigInt    @map("entity_id")
+  authorId  BigInt    @map("author_id")
+  content   String    @db.Text
+  mentions  String?   @db.Text // JSON 数组 [userId, userId]
+  parentId  BigInt?   @map("parent_id")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([entity, entityId, createdAt])
+  @@index([authorId])
+  @@map("comments")
+}
+
+// 子任务/检查清单（B4）
+model Subtask {
+  id          BigInt    @id @default(autoincrement())
+  taskId      BigInt    @map("task_id")
+  title       String    @db.VarChar(200)
+  done        Int       @default(0)
+  order       Int       @default(0)
+  completedAt DateTime? @map("completed_at")
+  completedBy BigInt?   @map("completed_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  @@index([taskId, order])
+  @@map("subtasks")
+}
+
+// ============ 智能助手对话（2026-07-20）============
+// 历史按"文本"落库: OpenHex 侧 conversationId 存 openhexId 用于续聊
+// v1.6.0 Agent 协作: 会话可挂项目/客户; 第三方 Agent 经 /log 回传的会话 source=EXTERNAL(不走 OpenHex 续聊)
+model AgentConversation {
+  id             BigInt    @id @default(autoincrement())
+  userId         BigInt    @map("user_id") // User.id, 会话归属人
+  title          String?   @db.Text // 首条用户消息前 30 字
+  openhexId      String?   @map("openhex_id") @db.VarChar(64) // OpenHex conversationId(续聊用, 仅 INTERNAL)
+  source         String    @default("INTERNAL") @db.VarChar(20) // INTERNAL 站内助手 / EXTERNAL 第三方 Agent 回传
+  projectId      BigInt?   @map("project_id") // 关联项目(过程资源时间线用)
+  customerId     BigInt?   @map("customer_id") // 关联客户
+  agentProfileId BigInt?   @map("agent_profile_id") // 回传方 Agent 身份
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  messages AgentMessage[]
+
+  @@index([userId])
+  @@index([projectId])
+  @@index([agentProfileId])
+  @@map("agent_conversations")
+}
+
+model AgentMessage {
+  id             BigInt   @id @default(autoincrement())
+  conversationId BigInt   @map("conversation_id")
+  role           String   @db.VarChar(16) // USER / ASSISTANT
+  text           String   @db.Text
+  ts             DateTime @default(now())
+
+  conversation AgentConversation @relation(fields: [conversationId], references: [id])
+
+  @@index([conversationId])
+  @@map("agent_messages")
+}
+
+// 访客对话会话: 留资后整段对话挂到线索上, 销售能看到客户问过什么
+
+// =====================================================
+// v1.7.5 FDE 工程师招募: 邀请链接 + 官网申请
+// =====================================================
+
+// v2.1.7(#495): 轻量系统级 KV 开关(首个使用方: 报工必须关联任务 timesheet.requireTask)
+model AppSetting {
+  key       String   @id @db.VarChar(50)
+  value     String   @db.VarChar(200)
+  updatedBy BigInt?  @map("updated_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("app_settings")
+}
+
+// v2.1.9(#514): 验收记录独立表 —— 评论区留报告快照, 统计/回归/对比看板走这里; shadow 为 #513 影子运行标记
+model AcceptanceRecord {
+  id         BigInt   @id @default(autoincrement())
+  taskId     BigInt   @map("task_id")
+  projectId  BigInt   @map("project_id")
+  rev        Int // 第几次验收(报告号)
+  revision   Int // 验收时的打回计数
+  conclusion String   @db.VarChar(20) // PASS / FAIL / NEED_HUMAN
+  shadow     Boolean  @default(false) // v2.1.9(#513) 影子运行: 只出报告不动状态
+  results    Json // AC 明细(含 evidence)
+  durationMs Int?     @map("duration_ms")
+  executedBy BigInt   @map("executed_by") // 执行者 userId(agent 以绑定身份执行)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([taskId])
+  @@index([createdAt])
+  @@map("acceptance_records")
+}
+
+// ==================== v2.7 项目资产库 (#1140) ====================
+// 资产 = 另一个项目可以直接拿走用、且省 ≥1 人天的能力单元。三层(FRAMEWORK/ARCH/BIZ) × 三类产物(数据/方案/界面)。
+// 方案见 docs/01-产品与需求/项目资产沉淀方案-任务1140.md。
+// 分工: 平台存元数据/检索/复用记录; L2+ 代码与 ontology 以 资产仓库为准(同步脚本回填), 平台不存代码。
+model Asset {
+  id              BigInt    @id @default(autoincrement())
+  slug            String    @unique @db.VarChar(80) // kebab-case, 如 express-quote
+  name            String    @db.VarChar(100)
+  summary         String    @db.VarChar(300) // 一句话: 解决什么问题
+  layer           String    @db.VarChar(20) // FRAMEWORK 项目框架 / ARCH 架构能力 / BIZ 业务能力
+  // 成熟度: L0 线索(一句话+出处) / L1 可参考(+脱敏方案) / L2 可复制(代码已抽离进 资产仓库) / L3 可安装(独立包/服务)
+  // 规则(主人拍板): 先登记, 第二个项目要用时才升 L2
+  maturity        String    @default("L0") @db.VarChar(4)
+  status          String    @default("PUBLISHED") @db.VarChar(20) // DRAFT(AI 起草待审) / PUBLISHED / DEPRECATED
+  // 授权: INTERNAL 自研 / CLIENT_CLEARED 客户已确认可复用 / RESTRICTED 只能参考, 不得把代码抽离进 资产仓库
+  authorization   String    @default("RESTRICTED") @db.VarChar(20)
+  techStack       Json?     @map("tech_stack") // ["vue3","express"]
+  industries      Json? // ["制造","教育"]
+  tags            Json?
+  keywords        Json? // 触发词(含同义词), 匹配推荐用
+  sourceProjectId BigInt?   @map("source_project_id")
+  sourceRepo      String?   @map("source_repo") @db.VarChar(300) // 源仓库(本机路径或远程地址)
+  sourcePaths     Json?     @map("source_paths") // 关键文件清单(L0/L1 靠它复用)
+  assetRepoPath   String?   @map("asset_repo_path") @db.VarChar(200) // L2+: 资产仓库 里的目录, 如 biz/express-quote
+  readme          String?   @db.LongText // 方案 Markdown
+  ontology        Json? // 数据产物: {objects, links, actions, shared} (ontology.yaml 的 JSON 形态)
+  demoUrl         String?   @map("demo_url") @db.VarChar(500)
+  screenshots     Json? // [{url, caption}]
+  ownerId         BigInt?   @map("owner_id") // 负责人 userId
+  estSavedDays    Decimal?  @map("est_saved_days") @db.Decimal(5, 1) // 复用一次预计省几人天
+  currentVersion  String?   @map("current_version") @db.VarChar(40)
+  usageCount      Int       @default(0) @map("usage_count") // 复用登记次数(冗余, 列表排序用)
+  aiGenerated     Boolean   @default(false) @map("ai_generated") // AI 起草, 必须人工审核后发布
+  createdBy       BigInt?   @map("created_by")
+  updatedBy       BigInt?   @map("updated_by")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  deletedAt       DateTime? @map("deleted_at")
+
+  sourceProject Project?       @relation("AssetSourceProject", fields: [sourceProjectId], references: [id], onDelete: SetNull)
+  versions      AssetVersion[]
+  usages        AssetUsage[]
+  links         AssetLink[]
+
+  @@index([layer, status])
+  @@index([maturity])
+  @@index([sourceProjectId])
+  @@map("assets")
+}
+
+model AssetVersion {
+  id        BigInt   @id @default(autoincrement())
+  assetId   BigInt   @map("asset_id")
+  version   String   @db.VarChar(40)
+  changelog String?  @db.Text
+  commitSha String?  @map("commit_sha") @db.VarChar(64)
+  createdBy BigInt?  @map("created_by")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@unique([assetId, version])
+  @@map("asset_versions")
+}
+
+// 复用登记: 资产库的生命线 —— 没有它就回答不了「到底省了多少」, 也无法校准商城模块报价
+model AssetUsage {
+  id        BigInt    @id @default(autoincrement())
+  assetId   BigInt    @map("asset_id")
+  projectId BigInt    @map("project_id")
+  taskId    BigInt?   @map("task_id")
+  mode      String    @default("REFERENCE") @db.VarChar(20) // REFERENCE 照着改 / COPY 拷目录 / INSTALL 安装
+  savedDays Decimal?  @map("saved_days") @db.Decimal(5, 1) // 实际节省人天
+  feedback  String?   @db.Text
+  createdBy BigInt?   @map("created_by")
+  createdAt DateTime  @default(now()) @map("created_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  asset   Asset   @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  project Project @relation(fields: [projectId], references: [id])
+
+  @@index([assetId])
+  @@index([projectId])
+  @@map("asset_usages")
+}
+
+// 多态关联: 资产 → 能力包(接入做法) / 商城模块(交付实现) / 知识文章 / 案例 / 其他资产(依赖)
+model AssetLink {
+  id         BigInt   @id @default(autoincrement())
+  assetId    BigInt   @map("asset_id")
+  targetType String   @map("target_type") @db.VarChar(20) // SKILL_PACKAGE / KNOWLEDGE / ASSET
+  targetId   BigInt   @map("target_id")
+  note       String?  @db.VarChar(200)
+  createdBy  BigInt?  @map("created_by")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@unique([assetId, targetType, targetId])
+  @@index([targetType, targetId])
+  @@map("asset_links")
+}
+
+// =====================================================
+// v2.10.0(#1180) 创意中心 —— 面向全公司的想法与需求广场
+// 生产流程最前端: idea → 立项/里程碑 → 任务 → 分配到人或机器
+// 评论复用通用 comments 表(entity='idea')
+// =====================================================
+
+model IdeaTopic {
+  id          BigInt    @id @default(autoincrement())
+  name        String    @db.VarChar(60)
+  description String?   @db.VarChar(500)
+  icon        String?   @db.VarChar(20) // emoji
+  sortOrder   Int       @default(0) @map("sort_order")
+  createdBy   BigInt    @map("created_by")
+  archivedAt  DateTime? @map("archived_at") // 归档后不能再发新想法, 旧想法照常可看
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  ideas Idea[]
+
+  @@map("idea_topics")
+}
+
+model Idea {
+  id             BigInt    @id @default(autoincrement())
+  topicId        BigInt    @map("topic_id")
+  title          String    @db.VarChar(200)
+  content        String    @db.Text // Markdown
+  authorId       BigInt    @map("author_id") // userId
+  agentProfileId BigInt?   @map("agent_profile_id") // 经 Agent 代发时留痕
+  status         String    @default("OPEN") @db.VarChar(20) // OPEN 讨论中 / ADOPTED 已转里程碑 / PARKED 搁置
+  pinned         Int       @default(0)
+  attachments    Json? // [{ filename, fileUrl, fileSize }]
+  likeCount      Int       @default(0) @map("like_count")
+  commentCount   Int       @default(0) @map("comment_count")
+  lastActivityAt DateTime  @default(now()) @map("last_activity_at")
+  aiSummary      String?   @map("ai_summary") @db.Text
+  aiSummaryAt    DateTime? @map("ai_summary_at")
+  // 转化去向: 分配到哪个项目的哪个里程碑
+  projectId      BigInt?   @map("project_id")
+  milestoneId    BigInt?   @map("milestone_id")
+  adoptedBy      BigInt?   @map("adopted_by")
+  adoptedAt      DateTime? @map("adopted_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  topic IdeaTopic  @relation(fields: [topicId], references: [id])
+  likes IdeaLike[]
+
+  @@index([topicId, lastActivityAt])
+  @@index([status])
+  @@index([authorId])
+  @@index([projectId])
+  @@map("ideas")
+}
+
+model IdeaLike {
+  id        BigInt   @id @default(autoincrement())
+  ideaId    BigInt   @map("idea_id")
+  userId    BigInt   @map("user_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  idea Idea @relation(fields: [ideaId], references: [id])
+
+  @@unique([ideaId, userId])
+  @@map("idea_likes")
+}

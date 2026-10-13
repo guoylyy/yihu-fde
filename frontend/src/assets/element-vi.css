@@ -1,0 +1,99 @@
+/* ============================================================
+   Element Plus 主题覆盖
+   主色 = 墨 #1C1917 (VI: 主按钮墨底) · 功能色按 VI 规范
+   虎橙 #D2521E 仅用于: 激活态 / 重要文字链 / 关键数据
+   ============================================================ */
+html:root {
+  --el-color-primary: #1c1917;
+  --el-color-primary-light-3: #3b3833;
+  --el-color-primary-light-5: #5c574f;
+  --el-color-primary-light-7: #a8a29a;
+  --el-color-primary-light-8: #d6d2ca;
+  --el-color-primary-light-9: #f0eee9;
+  --el-color-primary-dark-2: #000000;
+
+  --el-color-success: #2e7d4f;
+  --el-color-success-light-3: #5a9d77;
+  --el-color-success-light-5: #8bbda0;
+  --el-color-success-light-7: #bcdfca;
+  --el-color-success-light-8: #d3e7db;
+  --el-color-success-light-9: #eaf3ed;
+  --el-color-warning: #b3450f;
+  --el-color-warning-light-3: #c9713f;
+  --el-color-warning-light-5: #d99d77;
+  --el-color-warning-light-8: #f0dbcd;
+  --el-color-warning-light-9: #f7ede6;
+  --el-color-danger: #c2362b;
+  --el-color-danger-light-3: #d16860;
+  --el-color-danger-light-5: #e09a94;
+  --el-color-danger-light-8: #f3d7d5;
+  --el-color-danger-light-9: #f9ebea;
+  --el-color-error: #c2362b;
+
+  --el-border-radius-base: 8px;
+  --el-border-radius-small: 6px;
+  --el-border-color: #ddd9d2;
+  --el-border-color-light: #eae7e2;
+  --el-border-color-lighter: #f2f0eb;
+  --el-border-color-extra-light: #f7f5f2;
+  --el-text-color-primary: #1c1917;
+  --el-text-color-regular: #5c574f;
+  --el-text-color-secondary: #8f8a82;
+  --el-text-color-placeholder: #a8a29a;
+  --el-fill-color-light: #faf9f7;
+  --el-fill-color-lighter: #faf9f7;
+  --el-fill-color-blank: #ffffff;
+  --el-bg-color-page: #faf9f7;
+  --el-font-family: 'Noto Sans SC', system-ui, -apple-system, sans-serif;
+  --el-box-shadow-light: 0 2px 12px 0 rgba(28, 25, 23, 0.06);
+}
+
+/* VI: 重要文字链虎橙 —— link 型主按钮用橙而不是墨 */
+.el-button.is-link.el-button--primary {
+  --el-button-text-color: #d2521e;
+  --el-button-hover-link-text-color: #b3450f;
+}
+
+/* 表格: 表头米白底 + 弱文本 (对照控制台版式) */
+.el-table th.el-table__cell {
+  background: #faf9f7;
+  color: #8f8a82;
+  font-weight: 600;
+}
+.el-table {
+  --el-table-border-color: #f2f0eb;
+  --el-table-header-bg-color: #faf9f7;
+  --el-table-row-hover-bg-color: #fdf8f6;  /* 虎橙 4% 的不透明等效色, 半透明会让固定列透视 */
+}
+
+/* 卡片: 细描边无重阴影 */
+.el-card {
+  --el-card-border-color: #eae7e2;
+  --el-card-border-radius: 12px;
+  box-shadow: none !important;
+}
+
+/* 分页/单选激活等保持墨色系, tag plain 描边化 */
+.el-tag--plain {
+  --el-tag-border-color: #ddd9d2;
+}
+
+/* 数字用 Manrope (统计/金额等常用类) */
+.num, .el-statistic__number {
+  font-family: 'Manrope', 'Noto Sans SC', sans-serif;
+}
+
+/* v1.2.8: fixed 列防透视修复 ——
+   页面里半透明 hover 覆盖 + EP 固定列 background:inherit 会把被盖住的列透出来。
+   方案: 固定列背景绑定行级 CSS 变量, hover/斑马纹只改变量, 天然同步不打优先级架 */
+.el-table tr { --yh-row-bg: #fff; }
+.el-table .el-table__row--striped { --yh-row-bg: var(--el-table-striped-row-bg-color, #fafafa); }
+.el-table .el-table__row:hover, .el-table tr.hover-row { --yh-row-bg: var(--el-table-row-hover-bg-color, #fdf8f6); }
+.el-table thead tr { --yh-row-bg: var(--el-table-header-bg-color, #faf9f7); }
+.el-table td.el-table-fixed-column--right,
+.el-table td.el-table-fixed-column--left,
+.el-table th.el-table-fixed-column--right,
+.el-table th.el-table-fixed-column--left {
+  background-color: var(--yh-row-bg, #fff) !important;
+  z-index: 5 !important;
+}

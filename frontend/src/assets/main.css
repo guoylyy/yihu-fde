@@ -1,0 +1,154 @@
+/* ============================================================
+   设计令牌 (颜色/字体/圆角)
+   墨 #1C1917 主色 60% · 米白 #FAF9F7 底色 30% · 虎橙 #D2521E <5%
+   虎橙仅用于: 标志首纹 / 关键数据 / 当前激活态 / 重要链接
+   ============================================================ */
+:root {
+  --bg: #faf9f7;            /* 米白底色 */
+  --surface: #ffffff;       /* 卡片面 */
+  --text: #1c1917;          /* 墨 */
+  --text-secondary: #5c574f;/* 次级文本 */
+  --text-muted: #8f8a82;    /* 弱文本 */
+  --accent: #d2521e;        /* 虎橙 */
+  --hover: #3b3833;         /* 墨底按钮 hover */
+  --border: #eae7e2;        /* 描边/分隔 */
+  --border-strong: #ddd9d2; /* 次按钮描边 */
+  --success: #2e7d4f;
+  --warning: #b3450f;
+  --danger: #c2362b;
+  --card-radius: 8px;
+  --pill-radius: 999px;
+  --font-cn: 'Noto Sans SC', system-ui, -apple-system, sans-serif;
+  --font-num: 'Manrope', 'Noto Sans SC', sans-serif;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: var(--font-cn);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--accent);
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+input, textarea {
+  font-family: inherit;
+}
+
+/* 通用按钮 — VI: 主按钮墨底, 次按钮细描边白底, 圆角 8px */
+.btn-primary {
+  background: var(--text);
+  color: #faf9f7;
+  border: none;
+  padding: 12px 28px;
+  border-radius: var(--card-radius);
+  font-size: 15px;
+  font-weight: 500;
+  transition: background 0.2s;
+}
+
+.btn-primary:hover {
+  background: var(--hover);
+  color: #faf9f7;
+}
+
+.btn-secondary {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  padding: 12px 28px;
+  border-radius: var(--card-radius);
+  font-size: 15px;
+  font-weight: 500;
+  transition: border-color 0.2s;
+}
+
+.btn-secondary:hover {
+  border-color: var(--text);
+  color: var(--text);
+}
+
+/* 容器 */
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+/* 标签/小标 — VI: 虎橙文字, 无底无边框 (对照版式 kicker) */
+.tag {
+  display: inline-block;
+  padding: 0;
+  font-size: 13px;
+  font-weight: 700;
+  background: none;
+  border: none;
+  color: var(--accent);
+  letter-spacing: 0.08em;
+}
+
+/* 段落小标 (kicker) — VI: 虎橙 Manrope 大字距 */
+.kicker {
+  display: block;
+  font-family: var(--font-num);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+/* 数字 — VI: 数字一律 Manrope */
+.num {
+  font-family: var(--font-num);
+}
+
+/* 卡片 — VI: 圆角 8px · 描边 #EAE7E2 · 无阴影 */
+.card {
+  background: var(--surface);
+  border-radius: var(--card-radius);
+  border: 1px solid var(--border);
+  padding: 24px;
+}
+
+/* 2026-07-07 P1-5: 表格横向滚动避免 fixed=right 操作列与内容列视觉重叠 */
+.table-card { overflow-x: auto; }
+.table-card .el-table { min-width: 100%; }
+.table-card .el-table .el-table__fixed-right {
+  box-shadow: -2px 0 6px rgba(0, 0, 0, 0.08);
+}
+
+/* ===== 响应式显示工具 (H5 适配 #1250; 断点与 composables/useResponsive.js 一致) ===== */
+/* mobile-only: 只在手机(<768)显示; mobile-hidden: 手机上隐藏 */
+.mobile-only { display: none !important; }
+@media (max-width: 767px) {
+  .mobile-only { display: block !important; }
+  .mobile-hidden { display: none !important; }
+}
+/* 手机上弹层宽度不撑出屏幕 */
+@media (max-width: 767px) {
+  .el-message-box { max-width: calc(100vw - 32px) !important; }
+}
+/* 固定宽度弹窗/卡片在手机上收进屏幕 */
+@media (max-width: 767px) {
+  .el-dialog { max-width: calc(100vw - 20px) !important; margin: 8vh auto !important; }
+  .el-drawer.rtl, .el-drawer.ltr, .el-drawer.ttb, .el-drawer.btt { max-width: 100vw; }
+}

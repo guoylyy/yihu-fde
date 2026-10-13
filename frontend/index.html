@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FDE Platform</title>
+  <!-- 内置标志: 实心节点(工程师)与空心节点(智能体)相连 -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231C1917'/%3E%3Cline x1='11' y1='21' x2='21' y2='11' stroke='%23FAF9F7' stroke-width='2.5' stroke-linecap='round'/%3E%3Ccircle cx='10' cy='22' r='5.5' fill='%23F54E00'/%3E%3Ccircle cx='22' cy='10' r='4.5' fill='none' stroke='%23FAF9F7' stroke-width='2.5'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700;900&family=Manrope:wght@400;500;600;700;800&display=swap">
+  <script>
+    // 静态标题是默认品牌, 自定义品牌的实例在 JS 接管前会闪一下,
+    // 这里先用上次缓存的品牌把标题顶掉; 首次访问仍以 main.js 取到的为准。
+    try {
+      var b = JSON.parse(localStorage.getItem('fde_edition') || 'null');
+      if (b && b.brand && b.brand.name) {
+        document.title = b.brand.tagline ? b.brand.name + ' - ' + b.brand.tagline : b.brand.name;
+      }
+    } catch (e) { /* 隐私模式/禁用存储: 忽略, 用静态标题 */ }
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
