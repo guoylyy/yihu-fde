@@ -138,6 +138,8 @@ The MCP endpoint (`/api/mcp`) also accepts Yihu One access tokens, so the Yihu O
 
 Admins can also use the models configured in Yihu One. Go to **LLM settings → Sync from 以虎 One**. The sync uses the same app credentials, so no API key is stored here. Models removed from the platform are disabled on the next sync. This needs a Yihu One version that provides `GET /api/open/llm/models`.
 
+To publish a new version to Yihu One, run `./release.sh` on `main`. It checks the branch, runs the tests that don't need a database (backend unit, frontend, build), then pushes `main` to `release`. Yihu One tracks `release` (`deploy` in `yh-app.json`). In `manual` mode an admin then clicks **发布** in the console. Run the integration tests (`cd backend && npm test`, which needs a database and a running backend) before releasing.
+
 ## Project structure
 
 ```
