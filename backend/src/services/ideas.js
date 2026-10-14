@@ -20,14 +20,7 @@ function err(message, code) {
 }
 
 /** 解析评论里的 @姓名 / @username, 返回命中的用户(口径同 routes/fde/comments.js) */
-export async function resolveMentions(content) {
-  const names = [...new Set([...String(content).matchAll(/@([\w一-龥]+)/g)].map(m => m[1]))]
-  if (!names.length) return []
-  return prisma.user.findMany({
-    where: { deletedAt: null, OR: [{ username: { in: names } }, { name: { in: names } }] },
-    select: { id: true, name: true, username: true }
-  })
-}
+export { resolveMentions } from '../lib/mentions.js'
 
 /** 想法 + 讨论拼成给大模型看的文本; 讨论太长只留最近的 */
 export function renderIdeaForLlm(idea, comments = [], authorNames = new Map()) {

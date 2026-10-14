@@ -18,10 +18,10 @@ async function attachTeams(users) {
 
 const router = express.Router()
 router.use(internalAuth)
-// 可指派用户接口 (assignable) 对所有有 lead.assign 权限的角色开放
+// :id 只能是数字(否则 BigInt 报 500, 如访问不存在的 /assignable)
+router.param('id', (req, res, next, id) => (/^\d+$/.test(id) ? next() : res.status(404).json({ code: 2004, message: '用户不存在' })))
 // 其他用户管理接口仅 ADMIN
 router.use((req, res, next) => {
-  if (req.path === '/assignable') return next()
   if (req.path === '/mentionable') return next()
   return requireRole('ADMIN')(req, res, next)
 })

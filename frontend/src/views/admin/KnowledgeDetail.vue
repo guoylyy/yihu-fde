@@ -84,6 +84,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, Edit, Folder } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { marked } from 'marked'
+import { sanitizeHtml } from '@/utils/safeMarkdown.js'
 import hljs from 'highlight.js/lib/common'
 import 'highlight.js/styles/github.css'
 import { fde, formatDate } from '@/api/index.js'
@@ -124,7 +125,7 @@ function initial(name) { return (name || '?').trim().slice(0, 1) }
  * 用 DOMParser 而非 marked renderer, 与 marked 版本无关
  */
 function renderMarkdown(md) {
-  const html = marked(md || '')
+  const html = sanitizeHtml(marked(md || ''))
   const doc = new DOMParser().parseFromString(`<div id="root">${html}</div>`, 'text/html')
   const root = doc.getElementById('root')
   const headings = []

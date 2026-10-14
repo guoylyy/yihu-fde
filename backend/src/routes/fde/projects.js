@@ -13,7 +13,7 @@ import { nextProjectCode } from '../../services/projectCode.js'
 import { getTeamsByUserIds } from '../../lib/teams.js'
 import { applyProjectVisibility, isArchivedStatus, buildCloseData, buildReopenData, ARCHIVED_STATUSES } from '../../services/projectArchive.js'
 import { loadProjectRoadmap } from '../../services/roadmap.js'   // v2.8.0(#1143) 里程碑路径图
-import { runsForProject } from '../../services/devDispatch.js'   // v2.9.0(#1162) 派工运行态
+import { runsForProject, cancelOpenWork } from '../../services/devDispatch.js'   // v2.9.0(#1162) 派工运行态
 import { buildActiveWorkMap, fallbackActiveWork, redactActiveWork } from '../../services/activeWork.js'   // v2.12.0(#1254)
 
 const router = express.Router()
@@ -469,7 +469,11 @@ router.post('/:id/close', requirePermission('project.edit'), async (req, res) =>
         title: '📦 项目已关闭归档', body: `${project.name}${data.closeReason ? `：${data.closeReason}` : ''}`, link: `/admin/projects/${project.id}`
       }).catch(e => console.error('[notify]', e.message))
     }
-    res.json({ code: 0, message: 'ok', data: project })
+    // 关了的项目机器人不该再领活
+    const cancelledRuns = await cancelOpenWork({ projectId: project.id, reason: '项目已关闭', userId: req.user.id })
+    const openTasks = await prisma.task.count({ where: { projectId: project.id, deletedAt: null, archivedAt: null, status: { in: ['TODO', 'QUEUED', 'IN_PROGRESS'] } } })
+    const warn = [openTasks && `还有 ${openTasks} 个任务没做完`, cancelledRuns && `已作废 ${cancelledRuns} 条机器人运行`].filter(Boolean).join('，')
+    res.json({ code: 0, message: 'ok', data: project, ...(warn ? { _warn: warn } : {}) })
   } catch (e) {
     console.error('[fde/projects POST /:id/close]', e)
     res.status(500).json({ code: 9001, message: e.message })
@@ -913,6 +917,7 @@ router.post('/:projectId/milestones', requirePermission('milestone.manage'), asy
     const projectId = BigInt(req.params.projectId)
     const project = await prisma.project.findFirst({ where: { id: projectId, deletedAt: null } })
     if (!project) return res.status(404).json({ code: 2004, message: '项目不存在' })
+    if (isArchivedStatus(project.status)) return res.status(400).json({ code: 1002, message: '项目已关闭，不能再加里程碑' })
 
     const { name, description, plannedDate, actualDate, status, ownerId, goal } = req.body || {}
     if (!name || !name.trim()) return res.status(400).json({ code: 1001, message: '里程碑名称不能为空' })
@@ -947,12 +952,24 @@ router.post('/:projectId/milestones', requirePermission('milestone.manage'), asy
       actorId: BigInt(req.user.id), entity: 'milestone', entityId: m.id,
       action: 'created', summary: `新增里程碑 "${m.name}"`
     })
-    res.json({ code: 0, data: m })
+    const dateWarn = milestoneDateWarning(project, m.plannedDate)
+    res.json({ code: 0, data: m, ...(dateWarn ? { _warn: dateWarn } : {}) })
   } catch (e) {
     console.error('[fde/projects POST /:projectId/milestones]', e)
     res.status(500).json({ code: 9001, message: e.message })
   }
 })
+
+/** 里程碑计划日在项目起止之外时给个提醒(不拦, 项目周期有时会调整) */
+function milestoneDateWarning(project, plannedDate) {
+  if (!plannedDate) return null
+  const d = new Date(plannedDate)
+  if (Number.isNaN(d.getTime())) return null
+  const ymd = (x) => new Date(x).toISOString().slice(0, 10)
+  if (project.startDate && ymd(d) < ymd(project.startDate)) return `计划完成日 ${ymd(d)} 早于项目开始日 ${ymd(project.startDate)}`
+  if (project.endDate && ymd(d) > ymd(project.endDate)) return `计划完成日 ${ymd(d)} 晚于项目结束日 ${ymd(project.endDate)}`
+  return null
+}
 
 /**
  * PUT /api/fde/projects/:projectId/milestones/:id
@@ -986,11 +1003,22 @@ router.put('/:projectId/milestones/:id', requirePermission('milestone.manage'), 
       }
     }
     const updated = await prisma.milestone.update({ where: { id }, data })
+    // 里程碑完成: 机器人不再领它的任务; 还有没做完的任务要提醒(不拦, 有时是有意结项)
+    let warn = null
+    if (data.status === 'COMPLETED' && existing.status !== 'COMPLETED') {
+      const cancelledRuns = await cancelOpenWork({ projectId: existing.projectId, milestoneId: id, reason: `里程碑「${updated.name}」已完成`, userId: req.user.id })
+      const openTasks = await prisma.task.count({ where: { milestoneId: id, deletedAt: null, archivedAt: null, status: { in: ['TODO', 'QUEUED', 'IN_PROGRESS'] } } })
+      warn = [openTasks && `还有 ${openTasks} 个任务没做完`, cancelledRuns && `已作废 ${cancelledRuns} 条机器人运行`].filter(Boolean).join('，') || null
+    }
+    if (plannedDate !== undefined) {
+      const project = await prisma.project.findUnique({ where: { id: existing.projectId }, select: { startDate: true, endDate: true } })
+      warn = [warn, milestoneDateWarning(project, updated.plannedDate)].filter(Boolean).join('；') || null
+    }
     recordActivity({
       actorId: BigInt(req.user.id), entity: 'milestone', entityId: id,
       action: 'updated', summary: `编辑里程碑 "${updated.name}"`
     })
-    res.json({ code: 0, data: updated })
+    res.json({ code: 0, data: updated, ...(warn ? { _warn: warn } : {}) })
   } catch (e) {
     if (e.code === 'P2025') return res.status(404).json({ code: 2004, message: '里程碑不存在' })
     console.error('[fde/projects PUT /:projectId/milestones/:id]', e)

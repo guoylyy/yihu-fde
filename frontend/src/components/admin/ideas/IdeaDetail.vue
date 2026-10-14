@@ -86,7 +86,7 @@
               <strong>{{ c.author?.name || '—' }}</strong>
               <span class="muted">{{ relTime(c.createdAt) }}</span>
             </div>
-            <div class="comment-text" v-html="renderComment(c.content)"></div>
+            <div class="comment-text" v-html="renderComment(c.content, mentionNames)"></div>
             <div class="comment-ops">
               <el-button v-if="canWrite" link size="small" @click="startReply(c)">{{ $t('common.reply') }}</el-button>
               <el-popconfirm v-if="c.canDelete" :title="$t('ideaDetail.delete_this_comment')" @confirm="removeComment(c)">
@@ -100,7 +100,7 @@
                   <strong>{{ r.author?.name || '—' }}</strong>
                   <span class="muted">{{ relTime(r.createdAt) }}</span>
                 </div>
-                <div class="comment-text" v-html="renderComment(r.content)"></div>
+                <div class="comment-text" v-html="renderComment(r.content, mentionNames)"></div>
                 <div class="comment-ops">
                   <el-button v-if="canWrite" link size="small" @click="startReply(c, r)">{{ $t('common.reply') }}</el-button>
                   <el-popconfirm v-if="r.canDelete" :title="$t('ideaDetail.delete_this_reply')" @confirm="removeComment(r)">
@@ -190,6 +190,7 @@ const replyTo = ref(null)        // { parentId, name }
 const sending = ref(false)
 const composerRef = ref(null)
 const mentionOptions = ref([])
+const mentionNames = computed(() => mentionOptions.value.map(o => o.value))
 
 function startReply(top, reply) {
   const target = reply || top

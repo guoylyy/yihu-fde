@@ -9,6 +9,7 @@ import { suggestAssets, taskContextText } from '../../services/assets.js'
 import { isModuleEnabled } from '../../config/edition.js'
 import { validateNewEdge, detachTaskEdges, loadTaskNeighbors } from '../../services/roadmap.js'   // v2.8.0(#1143) 路径图
 import { buildActiveWorkMap, fallbackActiveWork, redactActiveWork } from '../../services/activeWork.js'   // v2.12.0(#1254)
+import { isArchivedStatus } from '../../services/projectArchive.js'
 
 // 内部员工视角可看 agent 身份; 客户/外部角色只给「正在自动开发」一层
 function isInternalView(user) {
@@ -20,6 +21,33 @@ router.use(internalAuth)
 
 // v1.9.7(#353) 状态流: 收件箱(TODO)→等候生产(QUEUED)→生产中(IN_PROGRESS)→生产完成(DONE)→已验收(VERIFIED)
 const TASK_STATUS = ['TODO', 'QUEUED', 'IN_PROGRESS', 'DONE', 'VERIFIED', 'REWORK']   // REWORK 仅存量兼容(v2.8.5 验收下线后不再产生)
+
+/** 通知被指派的人(assigneeId 是 engineer.id); 返回被指派人的姓名, 给活动流用 */
+async function notifyAssigned({ taskId, projectId, title, assigneeId, actorId }) {
+  const [proj, eng] = await Promise.all([
+    prisma.project.findUnique({ where: { id: BigInt(projectId) }, select: { name: true } }),
+    prisma.engineer.findUnique({ where: { id: BigInt(assigneeId) }, select: { user: { select: { id: true, name: true } } } })
+  ])
+  if (eng?.user) {
+    await pushNotification({
+      userId: eng.user.id,
+      actorId,   // v2.5.5(#912) 自己建的任务派给自己不发
+      type: 'TASK_ASSIGNED',
+      title: '📋 新任务分配',
+      body: `${proj?.name || '项目'}：${title}`,
+      link: `/admin/tasks?open=${taskId}`,
+      data: { taskId: String(taskId), projectId: String(projectId) }
+    })
+  }
+  return eng?.user?.name || null
+}
+
+/** 验收(VERIFIED)是经理的动作: 只有管理员 / 经理, 且任务已生产完成(DONE); 返回错误文案或 null */
+export function verifyBlocked(user, task) {
+  if (!['ADMIN', 'MANAGER'].includes(user?.role)) return '验收是经理的动作：只有项目经理或管理员能把任务置为已验收'
+  if (task.status !== 'DONE') return `只有生产完成(DONE)的任务才能验收，当前是 ${task.status}`
+  return null
+}
 const TASK_PRIORITY = ['LOW', 'MEDIUM', 'HIGH', 'URGENT']
 // v2.1.13(#563) 任务来源: 客户需求/评审/巡检/自主发起; 存量为空=未标注
 const TASK_SOURCES = ['CUSTOMER', 'REVIEW', 'PATROL', 'SELF', 'AI']   // v2.8.0(#1145) AI=路径图 AI 生成面板落库
@@ -316,6 +344,11 @@ router.post('/', requirePermission('task.create'), async (req, res) => {
     let { assigneeId } = req.body
     if (!projectId || !title) return res.status(400).json({ code: 9002, message: '项目ID和标题必填' })
     if (status && !TASK_STATUS.includes(status)) return res.status(400).json({ code: 9002, message: '无效状态' })
+    // 新建只能是待办 / 进行中这几种, 不能直接建成已验收(验收是经理对完成任务的动作)
+    if (status === 'VERIFIED') return res.status(400).json({ code: 9002, message: '新建任务不能直接是已验收，请先完成再由经理验收' })
+    const proj = await prisma.project.findFirst({ where: { id: BigInt(projectId), deletedAt: null }, select: { status: true } })
+    if (!proj) return res.status(404).json({ code: 2004, message: '项目不存在' })
+    if (isArchivedStatus(proj.status)) return res.status(400).json({ code: 9002, message: '项目已关闭，不能再建任务' })
     if (priority && !TASK_PRIORITY.includes(priority)) return res.status(400).json({ code: 9002, message: '无效优先级' })
     // v2.1.13(#563): 来源可选; 传了必须是四值之一
     if (req.body.source && !TASK_SOURCES.includes(req.body.source)) {
@@ -391,24 +424,8 @@ router.post('/', requirePermission('task.create'), async (req, res) => {
       data: { projectId: String(projectId), priority }
     })
 
-    // 通知被指派的人（assigneeId 是 engineer.id，要查 user.id）
-    if (assigneeId) {
-      const [proj, eng] = await Promise.all([
-        prisma.project.findUnique({ where: { id: BigInt(projectId) }, select: { name: true } }),
-        prisma.engineer.findUnique({ where: { id: BigInt(assigneeId) }, select: { user: { select: { id: true } } } })
-      ])
-      if (eng?.user) {
-        await pushNotification({
-          userId: eng.user.id,
-          actorId: req.user.id,   // v2.5.5(#912) 自己建的任务派给自己不发
-          type: 'TASK_ASSIGNED',
-          title: '📋 新任务分配',
-          body: `${proj?.name || '项目'}：${title}`,
-          link: `/admin/tasks?open=${task.id}`,
-          data: { taskId: String(task.id), projectId: String(projectId) }
-        })
-      }
-    }
+    // 通知被指派的人
+    if (assigneeId) await notifyAssigned({ taskId: task.id, projectId, title, assigneeId, actorId: req.user.id })
 
     res.json({ code: 0, data: { ...task, ...(dependsOn.length ? { dependsOn, dependencyErrors } : {}) } })
   } catch (e) {
@@ -454,6 +471,10 @@ router.put('/:id', requirePermission('task.edit'), async (req, res) => {
     if (assigneeId !== undefined) data.assigneeId = assigneeId ? BigInt(assigneeId) : null
     if (status !== undefined) {
       if (!TASK_STATUS.includes(status)) return res.status(400).json({ code: 9002, message: '无效状态' })
+      if (status === 'VERIFIED' && existing.status !== 'VERIFIED') {
+        const why = verifyBlocked(req.user, existing)
+        if (why) return res.status(403).json({ code: 9003, message: why })
+      }
       data.status = status
       if (status === 'DONE' && !existing.completedAt) data.completedAt = new Date()
       if (status !== 'DONE') data.completedAt = null
@@ -510,6 +531,17 @@ router.put('/:id', requirePermission('task.edit'), async (req, res) => {
         entityId: id,
         action: status === 'DONE' ? 'completed' : status === 'VERIFIED' ? 'verified' : 'status_changed',
         summary: `任务 "${existing.title}" 状态：${existing.status} → ${status}`
+      })
+    }
+
+    // 换了负责人: 通知新负责人, 活动流留痕(MCP 的 assign_task 和编辑弹窗都走这里)
+    if (data.assigneeId !== undefined && String(data.assigneeId ?? '') !== String(existing.assigneeId ?? '')) {
+      const who = data.assigneeId
+        ? await notifyAssigned({ taskId: id, projectId: existing.projectId, title: task.title, assigneeId: data.assigneeId, actorId: req.user.id })
+        : null
+      await recordActivity({
+        actorId: req.user.id, entity: 'task', entityId: id, action: 'assigned',
+        summary: data.assigneeId ? `任务 "${task.title}" 指派给 ${who || '工程师'}` : `任务 "${task.title}" 取消了负责人`
       })
     }
 
@@ -587,20 +619,14 @@ router.post('/batch-verify', requirePermission('task.changeStatus'), async (req,
     if (!Array.isArray(raw) || !raw.length) return res.status(400).json({ code: 9002, message: 'taskIds 不能为空' })
     const ids = [...new Set(raw.map(v => { try { return BigInt(v) } catch { return null } }).filter(Boolean))].slice(0, 100)
 
-    const manager = ['ADMIN', 'MANAGER'].includes(req.user.role)
-    let myEngineerId = req.user.engineerId
-    if (!manager && !myEngineerId && req.user.userId) {
-      const me = await prisma.engineer.findUnique({ where: { userId: BigInt(req.user.userId) } })
-      myEngineerId = me?.id
-    }
 
     let verified = 0
     const failed = []
     for (const id of ids) {
       const task = await prisma.task.findFirst({ where: { id, deletedAt: null } })
       if (!task) { failed.push({ id: String(id), reason: '任务不存在' }); continue }
-      if (task.status !== 'DONE') { failed.push({ id: String(id), reason: `仅生产完成(DONE)可验收, 当前 ${task.status}` }); continue }
-      if (!manager && String(task.assigneeId) !== String(myEngineerId)) { failed.push({ id: String(id), reason: '无权验收(仅任务负责人或经理/管理员)' }); continue }
+      const why = verifyBlocked(req.user, task)
+      if (why) { failed.push({ id: String(id), reason: why }); continue }
       await prisma.task.update({ where: { id }, data: { status: 'VERIFIED' } })
       await recordActivity({
         actorId: req.user.id, entity: 'task', entityId: id,
@@ -647,6 +673,10 @@ router.post('/:id/status', requirePermission('task.changeStatus'), async (req, r
       can = myEngineerId != null && String(existing.assigneeId) === String(myEngineerId)
     }
     if (!can) return res.status(403).json({ code: 9003, message: '无权修改此任务（仅任务负责人或经理/管理员可操作）' })
+    if (status === 'VERIFIED' && existing.status !== 'VERIFIED') {
+      const why = verifyBlocked(req.user, existing)
+      if (why) return res.status(403).json({ code: 9003, message: why })
+    }
 
     const data = {
       status,

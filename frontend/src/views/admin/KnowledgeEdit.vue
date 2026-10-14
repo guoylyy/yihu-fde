@@ -91,6 +91,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, View } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { marked } from 'marked'
+import { renderSafeMarkdown } from '@/utils/safeMarkdown.js'
 import hljs from 'highlight.js/lib/common'
 import 'highlight.js/styles/github.css'
 import { fde, formatDate } from '@/api/index.js'
@@ -125,7 +126,7 @@ const rules = {
   content: [{ required: true, message: $t('knowledgeEdit.content_required'), trigger: 'blur' }]
 }
 
-const renderedPreview = computed(() => marked(form.content || ''))
+const renderedPreview = computed(() => renderSafeMarkdown(form.content || ''))
 
 const projectName = computed(() => {
   if (!form.projectId) return ''

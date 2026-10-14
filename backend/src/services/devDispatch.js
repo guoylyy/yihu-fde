@@ -10,6 +10,7 @@ import prisma from '../lib/prisma.js'
 import { recordActivity } from '../lib/activity.js'
 import { pushNotification } from '../lib/notify.js'
 import { loadProjectRoadmap, DONE_STATUSES } from './roadmap.js'
+import { isArchivedStatus } from './projectArchive.js'
 
 export const DISPATCH_STATUSES = ['RUNNING', 'PAUSED', 'DONE', 'CANCELLED']
 export const RUN_STATUSES = ['PENDING', 'RUNNING', 'SUCCEEDED', 'FAILED', 'CANCELLED']
@@ -154,6 +155,44 @@ export async function setDispatchStatus({ id, action, userId }) {
   return getDispatch(d.id)
 }
 
+/**
+ * 项目关闭 / 里程碑完成时, 把还没跑完的机器人运行作废(机器人下一次上报收到 409 自行停手)。
+ * milestoneId 不传 = 整个项目; 传了只作废这个里程碑里任务的运行。返回作废了几条
+ */
+export async function cancelOpenWork({ projectId, milestoneId = null, reason, userId }) {
+  const runs = await prisma.devRun.findMany({
+    where: {
+      status: { in: ['PENDING', 'RUNNING'] },
+      dispatch: { projectId: BigInt(projectId), status: { in: ['RUNNING', 'PAUSED'] } },
+      ...(milestoneId ? { task: { milestoneId: BigInt(milestoneId) } } : {})
+    },
+    select: { id: true, dispatchId: true, status: true }
+  })
+  if (!runs.length) return 0
+  const now = new Date()
+  await prisma.$transaction(async (tx) => {
+    for (const r of runs) {
+      await tx.devRun.update({ where: { id: r.id }, data: { status: 'CANCELLED', finishedAt: now } })
+      await addEvent(r.id, { level: 'WARN', message: `${reason}，${r.status === 'RUNNING' ? '运行中止（任务保持生产中，请人工确认）' : '未开始的运行作废'}` }, tx)
+    }
+    for (const dispatchId of new Set(runs.map(r => String(r.dispatchId)))) {
+      const open = await tx.devRun.count({ where: { dispatchId: BigInt(dispatchId), status: { in: ['PENDING', 'RUNNING'] } } })
+      if (!open) await tx.devDispatch.update({ where: { id: BigInt(dispatchId) }, data: { status: 'CANCELLED', finishedAt: now } })
+    }
+  })
+  recordActivity({ actorId: userId, entity: 'project', entityId: BigInt(projectId), action: 'dev_dispatch_cancel', summary: `${reason}：作废 ${runs.length} 条机器人运行` })
+  return runs.length
+}
+
+/** 这条运行还该不该跑: 任务已完成 / 删除、项目已关闭、里程碑已完成的不该(纯函数, 便于测试) */
+export function runObsolete(task) {
+  if (!task || task.deletedAt) return '任务已删除'
+  if (DONE_STATUSES.includes(task.status)) return '任务已经完成'
+  if (task.project && (task.project.deletedAt || isArchivedStatus(task.project.status))) return '项目已关闭'
+  if (task.milestone && task.milestone.status === 'COMPLETED') return '里程碑已完成'
+  return null
+}
+
 // ===================== 机器人侧 =====================
 
 /** 任务的 BLOCKS 前置是否都完成(跨里程碑也算) */
@@ -200,7 +239,7 @@ export async function claimRun({ agentProfileId, userId, projectId = null }) {
       throw err(9030, `机器人档案「${p.name}」${what}，不能领取新任务。请立即停止本轮工作并退出，不要重试（恢复需主人或管理员在平台上重新启用）。`, { httpStatus: 403 })
     }
   }
-  const profile = await prisma.agentProfile.findFirst({ where: { id: apid, deletedAt: null, status: 1 }, select: { id: true, name: true } })
+  const profile = await prisma.agentProfile.findFirst({ where: { id: apid, deletedAt: null, status: 1 }, select: { id: true, name: true, userId: true } })
   if (!profile) throw err(2004, '机器人档案不存在或已停用')
   // 手上还有没跑完的, 先把它还回去(一台机器一次只干一件)
   const inHand = await prisma.devRun.findFirst({ where: { agentProfileId: apid, status: 'RUNNING' }, orderBy: { id: 'asc' } })
@@ -215,14 +254,33 @@ export async function claimRun({ agentProfileId, userId, projectId = null }) {
     take: 50, include: { dispatch: { select: { projectId: true, title: true } } }
   })
   for (const c of candidates) {
+    // 已经不该跑的(任务做完了、项目关了、里程碑完成了): 顺手作废, 不领
+    const target = await prisma.task.findUnique({
+      where: { id: c.taskId },
+      select: { status: true, deletedAt: true, project: { select: { status: true, deletedAt: true } }, milestone: { select: { status: true } } }
+    })
+    const obsolete = runObsolete(target)
+    if (obsolete) {
+      await prisma.devRun.updateMany({ where: { id: c.id, status: 'PENDING' }, data: { status: 'CANCELLED', finishedAt: new Date() } })
+      await addEvent(c.id, { level: 'WARN', message: `${obsolete}，运行作废` })
+      await finishDispatchIfDone(c.dispatchId)
+      continue
+    }
     if (!(await prerequisitesDone(c.taskId))) continue
     const now = new Date()
     const claimed = await prisma.devRun.updateMany({ where: { id: c.id, status: 'PENDING' }, data: { status: 'RUNNING', agentProfileId: apid, agentName: profile.name, claimedAt: now, startedAt: now, heartbeatAt: now, attempts: { increment: 1 }, progress: 0, phase: '领取', message: `${profile.name} 已领取` } })
     if (claimed.count !== 1) continue   // 被别的机器人抢先了, 看下一条
     const run = await prisma.devRun.findUnique({ where: { id: c.id } })
-    const task = await prisma.task.findUnique({ where: { id: run.taskId }, select: { id: true, title: true, status: true, projectId: true } })
+    const task = await prisma.task.findUnique({ where: { id: run.taskId }, select: { id: true, title: true, status: true, projectId: true, assigneeId: true } })
     if (task && !['IN_PROGRESS', ...DONE_STATUSES].includes(task.status)) {
       await prisma.task.update({ where: { id: task.id }, data: { status: 'IN_PROGRESS', startedAt: task.status === 'IN_PROGRESS' ? undefined : now } })
+    }
+    // 没有负责人的任务: 记到机器人主人名下, 否则在谁的「我的任务」里都看不到
+    if (task && !task.assigneeId && profile.userId) {
+      let owner = await prisma.engineer.findUnique({ where: { userId: profile.userId }, select: { id: true } })
+      if (!owner) owner = await prisma.engineer.create({ data: { userId: profile.userId }, select: { id: true } })
+      await prisma.task.update({ where: { id: task.id }, data: { assigneeId: owner.id } })
+      recordActivity({ actorId: userId, entity: 'task', entityId: task.id, action: 'assigned', summary: `任务 "${task.title}" 由机器人「${profile.name}」领取，记到它的主人名下` })
     }
     await addEvent(run.id, { phase: '领取', progress: 0, message: `🤖 ${profile.name} 领取了任务 #${task.id} ${task.title}` })
     await prisma.comment.create({ data: { entity: 'task', entityId: task.id, authorId: BigInt(userId), content: `🤖 机器人「${profile.name}」已领取本任务（派工单「${c.dispatch.title}」，第 ${run.attempts} 次尝试），开始自动开发。` } }).catch(() => {})

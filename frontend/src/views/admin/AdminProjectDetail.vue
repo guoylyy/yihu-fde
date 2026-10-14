@@ -1326,7 +1326,7 @@ import { ArrowLeft, DataBoard, TrendCharts, Flag, User, Plus, UploadFilled, Fold
 import { useIsMobile } from '@/composables/useResponsive.js'
 import ActiveWorkBadge from '@/components/common/ActiveWorkBadge.vue'   // v2.12.0(#1255)
 import ProjectOverviewBar from '@/components/admin/ProjectOverviewBar.vue'   // v2.12.0(#1259)
-import { marked } from 'marked'
+import { renderSafeMarkdown } from '@/utils/safeMarkdown.js'
 import { fde, formatDate } from '@/api/index.js'
 import { can } from '@/api/permissions.js'
 import TaskDetailDialog from '@/components/admin/TaskDetailDialog.vue'
@@ -1611,7 +1611,7 @@ function kbTags(row) {
 }
 // 2026-07-31 主人反馈: 关联的文章在项目主页直接读, 不用跳知识库
 const kbReader = reactive({ visible: false, loading: false, article: null })
-const kbReaderHtml = computed(() => kbReader.article ? marked(kbReader.article.content || '') : '')
+const kbReaderHtml = computed(() => kbReader.article ? renderSafeMarkdown(kbReader.article.content || '') : '')
 async function viewKb(row) {
   kbReader.visible = true
   kbReader.loading = true
@@ -2124,7 +2124,7 @@ async function removeRecord(r) {
 }
 
 // v1.7.5+ 下线: 项目周报逻辑(v1.3.0)摘除, renderMd 保留(Agent 会话/过程记录仍在用)
-function renderMd(md) { try { return marked.parse(md || '') } catch { return md || '' } }
+function renderMd(md) { return renderSafeMarkdown(md || '') }
 
 // v2.5.5(#915) 关闭归档 / 恢复
 const isArchived = computed(() => ['CLOSED', 'CANCELLED'].includes(project.value?.status))

@@ -1,3 +1,4 @@
+import { renderMentionText } from '../../../utils/safeMarkdown.js'
 import { $t } from '../../../i18n/index.js'
 // v2.10.0(#1180) 创意中心 —— 页面与组件共用的小工具
 
@@ -21,14 +22,11 @@ export function plainExcerpt(md, max = 160) {
   return text.length > max ? text.slice(0, max) + '…' : text
 }
 
-const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }
 
 /** 评论是纯文本: 先转义再高亮 @提及、保留换行(不走 Markdown, 也不让 HTML 进来) */
-export function renderComment(text) {
-  return String(text || '')
-    .replace(/[&<>"']/g, ch => ESCAPES[ch])
-    .replace(/@([\w一-龥]+)/g, '<span class="at-mention">@$1</span>')
-    .replace(/\n/g, '<br>')
+/** 评论纯文本 → 安全 HTML: 转义、高亮 @提及(names: 已知姓名, 可带空格)、换行 */
+export function renderComment(text, names = []) {
+  return renderMentionText(text, names).replace(/\n/g, '<br>')
 }
 
 export function isImage(att) {

@@ -1,5 +1,6 @@
 // FDE 平台 - 评论 API（B3）
 import express from 'express'
+import { resolveMentions } from '../../lib/mentions.js'
 import prisma from '../../lib/prisma.js'
 import { internalAuth } from '../../lib/auth.js'
 import { pushNotification } from '../../lib/notify.js'
@@ -49,24 +50,8 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ code: 9002, message: 'entity / entityId / content 必填' })
     }
 
-    // 解析 @username 或 @姓名
-    const mentionRegex = /@([\w\u4e00-\u9fa5]+)/g
-    const mentionNames = [...new Set([...content.matchAll(mentionRegex)].map(m => m[1]))]
-    let mentionedUsers = []
-    if (mentionNames.length) {
-      // 优先精确匹配 username，否则匹配 name
-      const users = await prisma.user.findMany({
-        where: {
-          deletedAt: null,
-          OR: [
-            { username: { in: mentionNames } },
-            { name: { in: mentionNames } }
-          ]
-        },
-        select: { id: true, name: true, username: true, role: true }
-      })
-      mentionedUsers = users
-    }
+    // 解析 @姓名 / @用户名(姓名可以带空格, 见 lib/mentions.js)
+    const mentionedUsers = await resolveMentions(content)
 
     const comment = await prisma.comment.create({
       data: {

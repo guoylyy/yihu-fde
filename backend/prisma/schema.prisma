@@ -814,6 +814,8 @@ model Timesheet {
   status       String    @default("DRAFT") @db.VarChar(20)
   approvedBy   BigInt?   @map("approved_by")
   approvedAt   DateTime? @map("approved_at")
+  // 驳回原因(驳回时填, 通知给工程师; 重新提交后清空)
+  rejectReason String?   @map("reject_reason") @db.VarChar(500)
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
   deletedAt    DateTime? @map("deleted_at")

@@ -1,5 +1,6 @@
 import { withBase } from '../utils/base.js'
 import { $t } from '../i18n/index.js'
+import { ElMessage } from 'element-plus'
 // FDE 平台 API helper
 // 自动从 localStorage 读取 token 加 Authorization 头
 
@@ -52,12 +53,17 @@ async function request(url, options = {}) {
       9003: $t('common.you_dont_have_permission_for_this'),
       9004: $t('common.resource_doesnt_exist_or_was_deleted')
     }[data.code]
-    const isAuthFail = res.status === 401 || res.status === 403
-    const err = new Error(isAuthFail ? (friendly || data.message || $t('index.session_expired_please_sign_in_again')) : (data.message || friendly || `HTTP ${res.status}`))
+    // 401 是登录态问题, 用统一文案; 403 后端会说清楚缺什么权限、该找谁, 优先用后端的话
+    const message = res.status === 401
+      ? (friendly || data.message || $t('index.session_expired_please_sign_in_again'))
+      : res.status === 403 ? (data.message || friendly) : (data.message || friendly || `HTTP ${res.status}`)
+    const err = new Error(message)
     err.code = data.code
     err.data = data
     throw err
   }
+  // 操作成功但有需要知道的事(如关闭里程碑时还有任务没做完)
+  if (data._warn) ElMessage.warning({ message: data._warn, duration: 6000 })
   return data.data
 }
 
@@ -328,7 +334,6 @@ export const fde = {
       const q = new URLSearchParams(params).toString()
       return request('/api/fde/users' + (q ? '?' + q : ''))
     },
-    assignable: () => request('/api/fde/users/assignable'),
     mentionable: () => request('/api/fde/users/mentionable'),
     detail: (id) => request(`/api/fde/users/${id}`),
     // 从以虎 One 通讯录选人提前开通: { platformUserId, role }

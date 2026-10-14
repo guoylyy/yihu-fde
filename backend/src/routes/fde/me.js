@@ -75,7 +75,7 @@ router.get('/', async (req, res) => {
         where: {
           engineerId: engineer.id,
           deletedAt: null,
-          workDate: { gte: monthStart, lte: monthEnd }
+          workDate: { gte: asDay(monthStart), lte: asDay(monthEnd) }
         },
         orderBy: { workDate: 'desc' }
       }) : []
@@ -193,7 +193,7 @@ router.get('/weekly-leaderboard', async (req, res) => {
     const [hoursAgg, tasksAgg, weekCommits, weekTasksDone] = await Promise.all([
       prisma.timesheet.groupBy({
         by: ['engineerId'],
-        where: { deletedAt: null, workDate: { gte: weekStart } },
+        where: { deletedAt: null, workDate: { gte: asDay(weekStart) } },
         _sum: { hours: true },
         orderBy: { _sum: { hours: 'desc' } },
         take: 10
@@ -294,6 +294,17 @@ function ymd(d) {
   const t = new Date(d)
   return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`
 }
+/**
+ * 只有日期的字段(工时日期、截止日、里程碑计划日)存的是那天的 UTC 0 点:
+ * 取它的日期要按 UTC, 查询边界也要用 UTC 0 点, 否则服务器在西半球(如美国)时会差一天
+ */
+function dayKey(d) {
+  return new Date(d).toISOString().slice(0, 10)
+}
+/** 本地某天 → 同一个日历日的 UTC 0 点(和只有日期的字段比较用) */
+function asDay(d) {
+  return new Date(`${ymd(d)}T00:00:00.000Z`)
+}
 function addDays(d, n) {
   const t = new Date(d)
   t.setDate(t.getDate() + n)
@@ -342,7 +353,7 @@ async function loadTeamPulse(req, projectIds, weekStart) {
   const [hoursAgg, doneAgg] = await Promise.all([
     prisma.timesheet.groupBy({
       by: ['engineerId'],
-      where: { engineerId: { in: engIds }, deletedAt: null, workDate: { gte: weekStart } },
+      where: { engineerId: { in: engIds }, deletedAt: null, workDate: { gte: asDay(weekStart) } },
       _sum: { hours: true }
     }),
     prisma.task.groupBy({
@@ -417,7 +428,7 @@ router.get('/workbench', async (req, res) => {
     ] = await Promise.all([
       // 工时(本周∪本月)
       engineer ? prisma.timesheet.findMany({
-        where: { engineerId: engineer.id, deletedAt: null, workDate: { gte: hoursSince } },
+        where: { engineerId: engineer.id, deletedAt: null, workDate: { gte: asDay(hoursSince) } },
         select: { id: true, workDate: true, hours: true, status: true }
       }) : [],
       // 我的未完结任务(限在手项目内)
@@ -461,7 +472,7 @@ router.get('/workbench', async (req, res) => {
         where: {
           projectId: { in: projectIds }, deletedAt: null,
           status: { in: ['TODO', 'QUEUED', 'IN_PROGRESS', 'REWORK'] },
-          dueDate: { lt: today }
+          dueDate: { lt: asDay(today) }
         },
         _count: { _all: true }
       }) : [],
@@ -481,7 +492,7 @@ router.get('/workbench', async (req, res) => {
     const todayKey = ymd(today)
     const days = Array.from({ length: 7 }, (_, i) => {
       const date = ymd(addDays(weekStart, i))
-      const rows = inWeek.filter(t => ymd(t.workDate) === date)
+      const rows = inWeek.filter(t => dayKey(t.workDate) === date)
       return {
         date,
         hours: sum(rows),
@@ -494,9 +505,9 @@ router.get('/workbench', async (req, res) => {
 
     // ---- 任务切分 ----
     const taskCount = st => taskCounts.find(c => c.status === st)?._count._all || 0
-    const isOverdue = t => t.dueDate && ymd(t.dueDate) < todayKey
+    const isOverdue = t => t.dueDate && dayKey(t.dueDate) < todayKey
     const overdue = myTasks.filter(isOverdue).length
-    const dueToday = myTasks.filter(t => t.dueDate && ymd(t.dueDate) === todayKey).length
+    const dueToday = myTasks.filter(t => t.dueDate && dayKey(t.dueDate) === todayKey).length
 
     res.json({
       code: 0,
@@ -509,7 +520,7 @@ router.get('/workbench', async (req, res) => {
           date: todayKey,
           tasksDueToday: dueToday,
           tasksOverdue: overdue,
-          hoursLogged: sum(inWeek.filter(t => ymd(t.workDate) === todayKey)),
+          hoursLogged: sum(inWeek.filter(t => dayKey(t.workDate) === todayKey)),
           unreadNotifications
         },
         hours: {
@@ -548,7 +559,7 @@ router.get('/workbench', async (req, res) => {
           name: ms.name,
           status: ms.status,
           plannedDate: ms.plannedDate,
-          overdue: ms.plannedDate ? ymd(ms.plannedDate) < todayKey : false,
+          overdue: ms.plannedDate ? dayKey(ms.plannedDate) < todayKey : false,
           project: ms.project
         })),
         openIssueCount,
@@ -592,7 +603,7 @@ router.get('/todos', async (req, res) => {
         include: { project: { select: { id: true, code: true, name: true } } }
       }) : [],
       wantMine && engineer ? prisma.timesheet.findMany({
-        where: { engineerId: engineer.id, deletedAt: null, status: 'DRAFT', workDate: { gte: weekStart, lte: weekEnd } },
+        where: { engineerId: engineer.id, deletedAt: null, status: 'DRAFT', workDate: { gte: asDay(weekStart), lte: asDay(weekEnd) } },
         select: { id: true, workDate: true, hours: true }
       }) : [],
       wantApprove ? loadApprovals(req, projectIds) : null
@@ -609,8 +620,8 @@ router.get('/todos', async (req, res) => {
       REWORK: { key: 'task.start', label: '返工处理', next: 'IN_PROGRESS' }
     }
     for (const t of myTasks) {
-      const overdue = t.dueDate && ymd(t.dueDate) < todayKey
-      const dueToday = t.dueDate && ymd(t.dueDate) === todayKey
+      const overdue = t.dueDate && dayKey(t.dueDate) < todayKey
+      const dueToday = t.dueDate && dayKey(t.dueDate) === todayKey
       // 收件箱里不急的任务不刷屏: 只有逾期/今日到期/高优/返工才进待办
       if (t.status === 'TODO' && !overdue && !dueToday && !['HIGH', 'URGENT'].includes(t.priority)) continue
       const act = TASK_ACTION[t.status]
@@ -622,7 +633,7 @@ router.get('/todos', async (req, res) => {
         title: t.title,
         sub: t.status === 'REWORK' ? '验收打回，需返工' : (overdue ? '已逾期' : dueToday ? '今天到期' : ''),
         project: t.project,
-        dueDate: t.dueDate ? ymd(t.dueDate) : null,
+        dueDate: t.dueDate ? dayKey(t.dueDate) : null,
         refId: String(t.id),
         link: '/admin/tasks',
         action: act ? { ...act, taskId: String(t.id) } : null

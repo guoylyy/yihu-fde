@@ -218,8 +218,8 @@ function openEdit(row) {
 async function handleSubmit() {
   submitting.value = true
   try {
-    const r = await fde.users.update(form.id, { role: form.role })
-    ElMessage.success(r?._warn || $t('common.updated'))
+    await fde.users.update(form.id, { role: form.role })
+    ElMessage.success($t('common.updated'))
     dialogVisible.value = false
     loadList()
   } catch (e) {

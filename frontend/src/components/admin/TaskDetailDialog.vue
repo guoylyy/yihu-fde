@@ -176,7 +176,7 @@ import { withBase } from '@/utils/base.js'
 import { $t } from '@/i18n'
 import { ref, reactive, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { marked } from 'marked'
+import { renderSafeMarkdown, renderMentionText } from '@/utils/safeMarkdown.js'
 import { fde } from '@/api/index.js'
 import { can } from '@/api/permissions.js'
 import ActiveWorkBadge from '@/components/common/ActiveWorkBadge.vue'   // v2.12.0(#1255)
@@ -261,7 +261,7 @@ const plannedRange = computed(() => {
 const renderedDescription = computed(() => {
   const desc = task.value?.description
   if (!desc) return ''
-  try { return marked.parse(desc) } catch { return desc }
+  return renderSafeMarkdown(desc)
 })
 
 // v1.9.13(#365): 剪贴板统一入口 —— http 访问(生产 80 不跳 https)时 navigator.clipboard 不存在,
@@ -524,8 +524,9 @@ async function removeComment(c) {
     loadComments()
   } catch (e) { ElMessage.error(e.message) }
 }
+// 评论是纯文本: 先转义再高亮 @提及(姓名可能带空格, 拿候选人名单来对)
 function renderContent(text) {
-  return text.replace(/@([\w一-龥]+)/g, '<span class="at-mention">@$1</span>')
+  return renderMentionText(text, mentionOptions.value.map(o => o.value))
 }
 </script>
 

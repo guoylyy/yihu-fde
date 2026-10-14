@@ -6,6 +6,12 @@ import { internalAuth, requireRole, requirePermission, buildScopeWhere } from '.
 import { notifyChat } from '../../lib/chatNotify.js'
 import { pushNotification } from '../../lib/notify.js'
 import { recordActivity } from '../../lib/activity.js'
+import { checkEntry, checkDayTotal, projectOpenForHours, canManageTimesheet, approvalBlocked, notifyPending, parseWorkDate } from '../../services/timesheetRules.js'
+
+const userName = async (id) => (await prisma.user.findUnique({ where: { id: BigInt(id) }, select: { name: true } }))?.name || ''
+// 录入 / 修改时只能存草稿或提交审批; 批准 / 驳回只走审批接口
+const writableStatus = (s) => (['DRAFT', 'SUBMITTED'].includes(s) ? s : undefined)
+const isManagerRole = (u) => ['ADMIN', 'MANAGER'].includes(u?.role)
 
 const router = express.Router()
 router.use(internalAuth)
@@ -330,6 +336,18 @@ router.post('/', requirePermission('timesheet.create'), async (req, res) => {
     if (!data.hours) return res.status(400).json({ code: 1004, message: '工时不能为空' })
     if (!data.workContent) return res.status(400).json({ code: 1005, message: '工作内容不能为空' })
 
+    const bad = checkEntry({ workDate: data.workDate, hours: data.hours })
+    if (bad) return res.status(400).json({ code: 1004, message: bad })
+    const closed = await projectOpenForHours(data.projectId)
+    if (closed) return res.status(400).json({ code: 1009, message: closed })
+    // 给别人报工只有经理 / 管理员可以
+    if ((data.engineerId || req.body.engineerUserId) && !isManagerRole(req.user)) {
+      const mine = await prisma.engineer.findUnique({ where: { userId: BigInt(req.user.id) }, select: { id: true } })
+      const target = data.engineerId ? String(data.engineerId) : null
+      if (req.body.engineerUserId && String(req.body.engineerUserId) !== String(req.user.id)) return res.status(403).json({ code: 1003, message: '只能给自己报工时' })
+      if (target && String(mine?.id) !== target) return res.status(403).json({ code: 1003, message: '只能给自己报工时' })
+    }
+
     data.projectId = BigInt(data.projectId)
     // engineerUserId: 按用户给项目成员报工(成员可能没有工程师档案, 如项目经理/销售), 懒建档后转 engineer.id
     if (!data.engineerId && req.body.engineerUserId) {
@@ -348,7 +366,9 @@ router.post('/', requirePermission('timesheet.create'), async (req, res) => {
     } else {
       data.engineerId = BigInt(data.engineerId)
     }
-    data.workDate = toDateOrNull(data.workDate)
+    data.workDate = parseWorkDate(data.workDate)
+    const over = await checkDayTotal(data.engineerId, data.workDate, data.hours)
+    if (over) return res.status(400).json({ code: 1004, message: over })
     // v1.9.3: 可选关联里程碑(须属同一项目, 防跨项目挂错)
     if (data.milestoneId) {
       const ms = await prisma.milestone.findFirst({
@@ -369,11 +389,13 @@ router.post('/', requirePermission('timesheet.create'), async (req, res) => {
       logInternalAction(req, 'TIMESHEET_REQUIRE_TASK_EXEMPT', { resourceType: 'timesheet', details: { workCategory: data.workCategory || null } })
     }
 
-    // 2026-07-11: 新建工时默认直接进入待审批(SUBMITTED), 不再落草稿
-    data.status = data.status || 'SUBMITTED'
+    // 2026-07-11: 新建工时默认直接进入待审批(SUBMITTED), 不再落草稿; 不能直接建成已批准 / 已驳回
+    data.status = writableStatus(data.status) || 'SUBMITTED'
 
-    const timesheet = await prisma.timesheet.create({ data })
-    res.json({ code: 0, message: 'ok', data: timesheet })
+    const timesheet = await prisma.timesheet.create({ data, include: { project: { select: { name: true } } } })
+    if (timesheet.status === 'SUBMITTED') notifyPending([timesheet], req.user.id, await userName(req.user.id)).catch(() => {})
+    const { project, ...plain } = timesheet
+    res.json({ code: 0, message: 'ok', data: plain })
   } catch (e) {
     if (e.code === 'P2003') return res.status(400).json({ code: 1006, message: '项目/工程师不存在' })
     console.error('[fde/timesheets POST /]', e)
@@ -387,7 +409,23 @@ router.post('/', requirePermission('timesheet.create'), async (req, res) => {
  */
 router.put('/:id', requirePermission('timesheet.edit'), async (req, res) => {
   try {
+    const existing = await prisma.timesheet.findFirst({ where: { id: BigInt(req.params.id), deletedAt: null } })
+    if (!existing) return res.status(404).json({ code: 2004, message: '工时不存在' })
+    if (!(await canManageTimesheet(req.user, existing))) return res.status(403).json({ code: 1003, message: '只能修改自己的工时' })
+    // 已批准的工时不能再改(要改先让经理驳回), 否则审批形同虚设
+    if (existing.status === 'APPROVED') return res.status(400).json({ code: 1007, message: '已批准的工时不能修改，请联系经理驳回后再改' })
     const data = pick(req.body, TIMESHEET_FIELDS)
+    data.status = writableStatus(data.status)
+    if (data.status === undefined) delete data.status
+    // 被驳回的改完自动重新提交审批
+    if (existing.status === 'REJECTED') Object.assign(data, { status: data.status || 'SUBMITTED', approvedBy: null, approvedAt: null, rejectReason: null })
+    if ((data.engineerId || req.body.engineerUserId) && !isManagerRole(req.user)) return res.status(403).json({ code: 1003, message: '不能把工时改到别人名下' })
+    const bad = checkEntry({ workDate: data.workDate, hours: data.hours })
+    if (bad) return res.status(400).json({ code: 1004, message: bad })
+    if (data.projectId && String(data.projectId) !== String(existing.projectId)) {
+      const closed = await projectOpenForHours(data.projectId)
+      if (closed) return res.status(400).json({ code: 1009, message: closed })
+    }
     if (data.projectId) data.projectId = BigInt(data.projectId)
     if (data.milestoneId !== undefined) data.milestoneId = data.milestoneId ? BigInt(data.milestoneId) : null   // v1.9.3
     // 与创建一致: engineerUserId 按用户改记录人, 懒建档
@@ -397,7 +435,11 @@ router.put('/:id', requirePermission('timesheet.edit'), async (req, res) => {
       data.engineerId = eng.id
     }
     if (data.engineerId) data.engineerId = BigInt(data.engineerId)
-    if (data.workDate) data.workDate = toDateOrNull(data.workDate)
+    if (data.workDate) data.workDate = parseWorkDate(data.workDate)
+    if (data.hours !== undefined || data.workDate || data.engineerId) {
+      const over = await checkDayTotal(data.engineerId || existing.engineerId, data.workDate || existing.workDate, data.hours ?? existing.hours, existing.id)
+      if (over) return res.status(400).json({ code: 1004, message: over })
+    }
     // v2.1.7(#492): 关联任务/分类校验 —— 未传 projectId 时按原记录的项目校验
     if (data.taskId !== undefined || data.workCategory !== undefined) {
       let pidForCheck = data.projectId
@@ -410,9 +452,12 @@ router.put('/:id', requirePermission('timesheet.edit'), async (req, res) => {
     }
     const timesheet = await prisma.timesheet.update({
       where: { id: BigInt(req.params.id) },
-      data
+      data,
+      include: { project: { select: { name: true } } }
     })
-    res.json({ code: 0, message: 'ok', data: timesheet })
+    if (existing.status !== 'SUBMITTED' && timesheet.status === 'SUBMITTED') notifyPending([timesheet], req.user.id, await userName(req.user.id)).catch(() => {})
+    const { project, ...plain } = timesheet
+    res.json({ code: 0, message: 'ok', data: plain })
   } catch (e) {
     if (e.code === 'P2025') return res.status(404).json({ code: 2004, message: '工时不存在' })
     if (e.code === 'P2003') return res.status(400).json({ code: 1006, message: '项目/工程师不存在' })
@@ -426,6 +471,10 @@ router.put('/:id', requirePermission('timesheet.edit'), async (req, res) => {
  */
 router.delete('/:id', requirePermission('timesheet.delete'), async (req, res) => {
   try {
+    const existing = await prisma.timesheet.findFirst({ where: { id: BigInt(req.params.id), deletedAt: null } })
+    if (!existing) return res.status(404).json({ code: 2004, message: '工时不存在' })
+    if (!(await canManageTimesheet(req.user, existing))) return res.status(403).json({ code: 1003, message: '只能删除自己的工时' })
+    if (existing.status === 'APPROVED' && req.user.role !== 'ADMIN') return res.status(400).json({ code: 1007, message: '已批准的工时不能删除，请联系管理员' })
     await prisma.timesheet.update({
       where: { id: BigInt(req.params.id) },
       data: { deletedAt: new Date() }
@@ -441,9 +490,9 @@ router.delete('/:id', requirePermission('timesheet.delete'), async (req, res) =>
 /**
  * POST /api/fde/timesheets/:id/approve
  * 审批工时
- * body: { approved: true/false, approvedBy?: number }
+ * body: { approved: true/false, reason?: string }
  *
- * approvedBy 可选；不传则自动用项目 manager（project.managerId）
+ * 审批人就是当前操作人(不收 approvedBy, 防冒名); 只能审批自己范围内项目的工时, 不能审批自己的(管理员除外)
  * 状态必须是 SUBMITTED 或 DRAFT（向后兼容）；APPROVED/REJECTED 不可重复审批
  */
 router.post('/:id/approve', requirePermission('timesheet.approve'), async (req, res) => {
@@ -452,24 +501,19 @@ router.post('/:id/approve', requirePermission('timesheet.approve'), async (req, 
     const id = BigInt(req.params.id)
 
     // 查出工时 + 项目 manager
-    const ts = await prisma.timesheet.findUnique({
-      where: { id },
-      include: { project: { select: { managerId: true } } }
-    })
+    const ts = await prisma.timesheet.findFirst({ where: { id, deletedAt: null } })
     if (!ts) return res.status(404).json({ code: 2004, message: '工时不存在' })
-
-    // 决定审批人
-    let approverId = req.body.approvedBy ? BigInt(req.body.approvedBy) : null
-    if (!approverId) {
-      approverId = ts.project?.managerId || (req.user?.id ? BigInt(req.user.id) : null)
-    }
+    const blocked = await approvalBlocked(req.user, ts)
+    if (blocked) return res.status(blocked.status).json({ code: blocked.status === 400 ? 1007 : blocked.status === 403 ? 1003 : 2004, message: blocked.message })
+    const reason = approved ? null : (String(req.body.reason || '').trim().slice(0, 500) || null)
 
     const timesheet = await prisma.timesheet.update({
       where: { id },
       data: {
         status: approved ? 'APPROVED' : 'REJECTED',
-        approvedBy: approverId,
-        approvedAt: new Date()
+        approvedBy: BigInt(req.user.id),
+        approvedAt: new Date(),
+        rejectReason: reason
       }
     })
 
@@ -478,7 +522,7 @@ router.post('/:id/approve', requirePermission('timesheet.approve'), async (req, 
       where: { id },
       include: {
         project: { select: { name: true } },
-        engineer: { include: { user: { select: { name: true } } } }
+        engineer: { include: { user: { select: { id: true, name: true } } } }
       }
     })
     notifyChat({
@@ -500,7 +544,7 @@ router.post('/:id/approve', requirePermission('timesheet.approve'), async (req, 
         // v2.5.5(#912): 批准进每日摘要(噪音档), 驳回必看即时 —— 两种类型早在通道矩阵里, 不算新增
         type: approved ? 'TIMESHEET_APPROVED' : 'TIMESHEET_REJECTED',
         title: approved ? '✅ 工时已批准' : '❌ 工时被驳回',
-        body: `${full.project?.name || ''} · ${new Date(full.workDate).toISOString().slice(0,10)} · ${full.hours}h`,
+        body: `${full.project?.name || ''} · ${new Date(full.workDate).toISOString().slice(0,10)} · ${full.hours}h${reason ? `\n驳回原因：${reason}` : ''}`,
         link: '/admin/timesheets?status=' + (approved ? 'APPROVED' : 'REJECTED'),
         data: {
           engineerName: full.engineer.user.name,
@@ -570,7 +614,8 @@ router.post('/submit-batch', requirePermission('timesheet.submit'), async (req, 
     })
 
     const hours = Number(rows.reduce((s, r) => s + Number(r.hours || 0), 0).toFixed(1))
-    const name = req.user.name || ''
+    const name = await userName(req.user.id)
+    notifyPending(rows, req.user.id, name).catch(() => {})
     // 批量只发一条汇总, 不一条一条刷屏(v1.6.2 通知疲劳教训)
     notifyChat({
       event: 'timesheet.pending',
@@ -595,7 +640,8 @@ router.post('/:id/submit', requirePermission('timesheet.submit'), async (req, re
   try {
     const id = BigInt(req.params.id)
     const ts = await prisma.timesheet.findUnique({ where: { id } })
-    if (!ts) return res.status(404).json({ code: 2004, message: '工时不存在' })
+    if (!ts || ts.deletedAt) return res.status(404).json({ code: 2004, message: '工时不存在' })
+    if (!(await canManageTimesheet(req.user, ts))) return res.status(403).json({ code: 1003, message: '只能提交自己的工时' })
     if (ts.status !== 'DRAFT') {
       return res.status(400).json({ code: 1007, message: `当前状态为 ${ts.status}，只有草稿可以提交` })
     }
@@ -621,6 +667,8 @@ router.post('/:id/submit', requirePermission('timesheet.submit'), async (req, re
         hours: Number(full.hours)
       }
     }).catch(e => console.error('[chat]', e.message))
+
+    notifyPending([{ ...full, projectId: ts.projectId }], req.user.id, await userName(req.user.id)).catch(() => {})
 
     // 活动
     recordActivity({

@@ -4,11 +4,11 @@
 // 根因: 后端只认 snake_case, 驼峰传参被静默忽略(不报错) —— 最阴的失败模式, 用测试钉死两种命名等价。
 import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { login, api, uniqName } from './helpers.js'
+import { login, api, uniqName, createTestUser } from './helpers.js'
 import prisma from '../../src/lib/prisma.js'
 
 describe('v1.6.3 工时列表过滤参数别名', () => {
-  let a, projectId, engineerId
+  let a, projectId, engineerId, tester
   const created = []
 
   before(async () => {
@@ -17,10 +17,9 @@ describe('v1.6.3 工时列表过滤参数别名', () => {
     const p = await a.post('/api/fde/projects', { name: uniqName('过滤别名项目'), customerId: customers.data.list[0].id })
     assert.equal(p.code, 0, p.message)
     projectId = p.data.id
-    // 取一个有工程师档案的人(engineerId/userId 双轨: 列表里可能混着无档案用户 id=null)
-    const engineers = await a.get('/api/fde/engineers?page=1&page_size=50')
-    engineerId = engineers.data.list.find(e => e.id != null)?.id
-    assert.ok(engineerId, '库里至少要有一个建了档案的工程师')
+    // 用自己建的工程师: 列表里的「第一个」可能是别的并行测试的临时账号, 且每人每天工时合计有上限
+    tester = await createTestUser('FDE_ENGINEER')
+    engineerId = String((await prisma.engineer.findUnique({ where: { userId: BigInt(tester.id) } })).id)
     for (const d of ['2026-08-11', '2026-08-12', '2026-08-13']) {
       const t = await a.post('/api/fde/timesheets', {
         projectId, engineerId, workDate: d, hours: 8, workContent: uniqName('联调')
@@ -33,6 +32,7 @@ describe('v1.6.3 工时列表过滤参数别名', () => {
   after(async () => {
     if (created.length) await prisma.timesheet.deleteMany({ where: { id: { in: created.map(BigInt) } } })
     if (projectId) await a.del(`/api/fde/projects/${projectId}`).catch(() => {})
+    await tester?.cleanup()
   })
 
   test('驼峰 projectId 过滤生效(与 snake 结果一致)', async () => {

@@ -21,12 +21,22 @@ async function myEngineerId(req) {
   return e?.id ?? null
 }
 
-/** 本周一 00:00(本地时间) */
+/**
+ * 本周一(服务器所在日历日), 表示成 UTC 0 点 —— 工时日期 / 截止日这类只有日期的字段都存成那天的 UTC 0 点,
+ * 用同一口径比较才不会在西半球的服务器上差一天
+ */
 function weekStart(d = new Date()) {
-  const m = new Date(d.getFullYear(), d.getMonth(), d.getDate())
-  m.setDate(m.getDate() - ((m.getDay() + 6) % 7))
+  const m = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()))
+  m.setUTCDate(m.getUTCDate() - ((m.getUTCDay() + 6) % 7))
   return m
 }
+/** 只有日期的字段所在那周的周一(UTC 0 点) */
+function weekStartOfDay(d) {
+  const m = new Date(d)
+  m.setUTCDate(m.getUTCDate() - ((m.getUTCDay() + 6) % 7))
+  return m
+}
+const todayAsDay = () => { const n = new Date(); return new Date(Date.UTC(n.getFullYear(), n.getMonth(), n.getDate())) }
 
 const wrap = (fn) => async (req, res) => {
   try {
@@ -82,7 +92,7 @@ router.get('/my-hours-trend', wrap(async (req) => {
     select: { workDate: true, hours: true }
   })
   for (const r of rows) {
-    const i = Math.floor((weekStart(r.workDate).getTime() - start.getTime()) / (7 * DAY))
+    const i = Math.round((weekStartOfDay(r.workDate).getTime() - start.getTime()) / (7 * DAY))
     if (buckets[i]) buckets[i].hours += Number(r.hours)
   }
   return { list: buckets.map(b => ({ ...b, hours: Math.round(b.hours * 10) / 10 })) }
@@ -125,7 +135,7 @@ router.get('/project-health', wrap(async (req) => {
 // 逾期没完成的任务(范围 = 我能看到的项目; 逾期最久的在前)
 router.get('/overdue-tasks', wrap(async (req) => {
   const scope = await buildScopeWhere(req.user, 'project')
-  const today = new Date(new Date().toDateString())
+  const today = todayAsDay()
   const rows = await prisma.task.findMany({
     where: {
       deletedAt: null, archivedAt: null, status: { in: OPEN }, dueDate: { lt: today },
