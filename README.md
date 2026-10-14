@@ -5,7 +5,7 @@
 **Open-source delivery management for engineering teams and the AI agents that work with them, built as an app for [Yihu One](https://github.com/guoylyy/yihu-one).**
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.1.1%20beta-orange.svg)](https://github.com/guoylyy/yihu-fde/releases)
+[![Version](https://img.shields.io/badge/version-0.2.0%20beta-orange.svg)](https://github.com/guoylyy/yihu-fde/releases)
 ![Node](https://img.shields.io/badge/node-20%2B-brightgreen.svg)
 ![MCP](https://img.shields.io/badge/MCP-111%20tools-8a2be2.svg)
 ![Yihu One](https://img.shields.io/badge/runs%20on-Yihu%20One-d2521e.svg)
@@ -77,7 +77,7 @@ Or use the console: **管理 → 应用 → 从 Git 安装应用**. There is not
 
 Then decide who can open the app with Yihu One's app visibility setting (by department, person or role).
 
-FDE needs a Yihu One version newer than `0.1.2`, with `GET /api/open/app` (space and brand), `POST /api/open/notify` (personal messages) and `GET /api/open/llm/models` (model list). To send DingTalk work notifications, fill in **AgentId** under the platform's DingTalk sign-in settings.
+FDE needs [Yihu One 0.2.0](https://github.com/guoylyy/yihu-one/releases/tag/v0.2.0) or later, for `GET /api/open/app` (space and brand), `POST /api/open/notify` (personal messages) and `GET /api/open/llm/models` (model list). To send DingTalk work notifications, fill in **AgentId** under the platform's DingTalk sign-in settings.
 
 ## Accounts and roles
 
