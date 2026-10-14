@@ -1,7 +1,7 @@
 {
   "code": "fde",
   "name": "FDE 交付管理",
-  "icon": "🧭",
+  "icon": "icon.svg",
   "category": "研发协作",
   "description": "项目、里程碑、任务、工时与知识库；工程师和 AI 智能体一起交付",
   "port": 3000,
