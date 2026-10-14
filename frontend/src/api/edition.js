@@ -26,6 +26,14 @@ export function getBrand() {
   return getEdition()?.brand || DEFAULT_BRAND
 }
 
+/** 本系统版本号(后端 package.json); 没取到返回空串 */
+export function getVersion() {
+  return getEdition()?.version || ''
+}
+
+/** 这个版本的更新说明 */
+export const releaseNotesUrl = (v) => `https://github.com/guoylyy/yihu-fde/releases/tag/v${v}`
+
 export function moduleEnabled(code) {
   const e = getEdition()
   if (!e || !Array.isArray(e.enabledModules)) return true

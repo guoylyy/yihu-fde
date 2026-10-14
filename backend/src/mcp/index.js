@@ -12,6 +12,7 @@ import { signToken } from '../lib/auth.js'
 import { mcpAuth } from '../lib/apiKey.js'
 import { TOOLS } from './tools.js'
 import prisma from '../lib/prisma.js'
+import { APP_VERSION } from '../lib/version.js'
 
 const SELF_BASE = () => `http://127.0.0.1:${process.env.PORT || 3005}`
 
@@ -108,7 +109,7 @@ function toToolResult(data, { card = false } = {}) {
 /** 为一次请求构建 McpServer（无状态: 每请求新实例, 工具闭包携带用户身份） */
 function buildServer(user) {
   const server = new McpServer(
-    { name: 'fde-platform', version: '1.0.0' },
+    { name: 'fde-platform', version: APP_VERSION },
     { instructions: [
       'FDE 平台工具集。当前已绑定用户身份（经以虎 One、Agent 专属 Key 或用户 Token），所有操作以该用户身份执行，数据范围与权限完全按其角色收敛（工程师只看得到自己/自己参与的项目，经理能看到名下项目全量）。',
       '使用约定:',

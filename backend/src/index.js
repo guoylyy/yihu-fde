@@ -54,6 +54,7 @@ import llmConfigsRouter from './routes/fde/llm-configs.js'
 import systemSettingsRouter from './routes/fde/system-settings.js'
 import cardsRouter from './routes/fde/cards.js'
 import { loadSettings } from './lib/settings.js'
+import { APP_VERSION } from './lib/version.js'
 import { usageMiddleware } from './lib/usage.js'
 
 // Prisma 的 BigInt 主键默认无法 JSON.stringify
@@ -132,7 +133,7 @@ app.use('/api/fde/system-settings', systemSettingsRouter)
 app.use('/api/fde/cards', cardsRouter)
 
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() })
+  res.json({ status: 'ok', version: APP_VERSION, timestamp: new Date().toISOString() })
 })
 
 // 前端页面: 配了 STATIC_DIR(装在以虎 One 上时根目录 Dockerfile 会配)就由后端托管; 独立部署用 frontend/ 的 nginx 镜像。

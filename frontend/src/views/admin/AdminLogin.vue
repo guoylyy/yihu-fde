@@ -9,6 +9,7 @@
           <span class="logo-badge">{{ $t('common.console') }}</span>
         </div>
         <div class="subtitle">{{ brand.tagline || $t('common.default_tagline') }}</div>
+        <div v-if="appVersion" class="version">v{{ appVersion }}</div>
       </div>
       <!-- 只用以虎 One 账号登录 -->
       <el-button v-if="providers.platform" type="primary" size="large" class="sso-btn" :loading="ssoBusy || loading" @click="startSso">
@@ -34,8 +35,9 @@
 import { withBase } from '@/utils/base.js'
 import { $t } from '@/i18n'
 // v2.7.0 多实例: 登录页品牌跟随实例配置(未登录也要正确, 所以走免登录的 /api/public/edition)
-import { getBrand } from '@/api/edition.js'
+import { getBrand, getVersion } from '@/api/edition.js'
 const brand = getBrand()
+const appVersion = getVersion()
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import BrandMark from '@/components/common/BrandMark.vue'
@@ -223,4 +225,5 @@ async function onDevLogin() {
 .sso-btn { width: 100%; margin-bottom: 4px; }
 .divider { display: flex; align-items: center; gap: 10px; margin: 18px 0 6px; color: var(--el-text-color-secondary); font-size: 12px; }
 .divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: var(--el-border-color-lighter); }
+.version { margin-top: 6px; font-size: 12px; color: var(--el-text-color-placeholder); }
 </style>

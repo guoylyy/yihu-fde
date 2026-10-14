@@ -192,6 +192,10 @@
                   <el-icon><List /></el-icon>{{ $t('common.audit_log') }}
                 </el-dropdown-item>
                 <el-dropdown-item command="logout" :divided="true">{{ $t('common.sign_out') }}</el-dropdown-item>
+                <!-- 版本号: 点开看这个版本的更新说明 -->
+                <el-dropdown-item v-if="appVersion" command="version" :divided="true" class="version-item">
+                  {{ $t('layout.version', { p0: appVersion }) }}
+                </el-dropdown-item>
               </el-dropdown-menu>
             </template>
           </el-dropdown>
@@ -291,8 +295,9 @@ import { fde } from '@/api/index.js'
 import LangSwitch from '@/components/common/LangSwitch.vue'
 import { can as permCan, refreshMyPermissions, clearMyPermissions } from '@/api/permissions.js'
 // v2.7.0 多实例: 顶栏与页面标题跟随实例品牌
-import { getBrand } from '@/api/edition.js'
+import { getBrand, getVersion, releaseNotesUrl } from '@/api/edition.js'
 const brand = getBrand()
+const appVersion = getVersion()
 import BrandMark from '@/components/common/BrandMark.vue'
 import { openLink } from '@/utils/links.js'
 import { ElMessage } from 'element-plus'
@@ -464,6 +469,8 @@ function onCommand(cmd) {
     localStorage.removeItem('fde_internal_user')
     clearMyPermissions()
     router.push({ path: '/admin/login', query: { signed_out: '1' } })
+  } else if (cmd === 'version') {
+    window.open(releaseNotesUrl(appVersion), '_blank', 'noopener')
   } else if (cmd === 'docs') {
     window.open(router.resolve('/docs').href, '_blank', 'noopener')
   } else if (cmd === 'profile') {
@@ -682,4 +689,5 @@ function onCommand(cmd) {
 .mobile-menu .menu { flex: 1; overflow-y: auto; padding: 6px 10px; background: transparent; border-right: none; }
 :deep(.mobile-menu-drawer) { background: #faf9f7; }
 :deep(.mobile-menu-drawer .el-drawer__body) { padding: 0; }
+:deep(.version-item) { font-size: 12px; color: var(--el-text-color-secondary); }
 </style>

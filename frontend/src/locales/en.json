@@ -960,7 +960,8 @@
     "view_all": "View all",
     "profile": "Profile",
     "team_activity": "Team activity",
-    "console": "{p0} Console"
+    "console": "{p0} Console",
+    "version": "Version {p0} · what's new"
   },
   "login": {
     "enter_your_password": "Enter your password",

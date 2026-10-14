@@ -960,7 +960,8 @@
     "view_all": "查看全部",
     "profile": "个人中心",
     "team_activity": "团队动态",
-    "console": "{p0} 控制台"
+    "console": "{p0} 控制台",
+    "version": "版本 {p0} · 更新说明"
   },
   "login": {
     "enter_your_password": "请输入密码",

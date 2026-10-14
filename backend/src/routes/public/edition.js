@@ -4,6 +4,7 @@ import express from 'express'
 import { editionName, enabledModuleList } from '../../config/edition.js'
 import { getBrand } from '../../config/brand.js'
 import { appInfo } from '../../lib/yihuOne.js'
+import { APP_VERSION } from '../../lib/version.js'
 
 const router = express.Router()
 
@@ -13,6 +14,7 @@ router.get('/', async (req, res) => {
   res.json({
     code: 0,
     data: {
+      version: APP_VERSION,
       edition: editionName(),
       brand: getBrand(),
       enabledModules: enabledModuleList(),
