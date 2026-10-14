@@ -10,28 +10,21 @@
         </div>
         <div class="subtitle">{{ brand.tagline || $t('common.default_tagline') }}</div>
       </div>
-      <!-- 统一登录(以虎 One 等 OIDC 身份提供方) -->
-      <template v-if="providers.oidc">
-        <el-button type="primary" size="large" class="sso-btn" :loading="ssoBusy" @click="startSso">
-          {{ $t('login.sign_in_with', { p0: providers.oidc.name }) }}
-        </el-button>
-        <div v-if="providers.password" class="divider"><span>{{ $t('login.or_use_password') }}</span></div>
-      </template>
-      <div v-if="ssoError && !providers.password" class="error">{{ ssoError }}</div>
-      <el-form v-if="providers.password" :model="form" @submit.prevent="onLogin" label-position="top">
-        <el-form-item :label="$t('common.username')">
-          <el-input v-model="form.username" :placeholder="$t('common.enter_your_username')" size="large" />
-        </el-form-item>
-        <el-form-item :label="$t('common.password')">
-          <el-input v-model="form.password" type="password" :placeholder="$t('login.enter_your_password')" size="large" show-password @keyup.enter="onLogin" />
-        </el-form-item>
+      <!-- 只用以虎 One 账号登录 -->
+      <el-button v-if="providers.platform" type="primary" size="large" class="sso-btn" :loading="ssoBusy || loading" @click="startSso">
+        {{ $t('login.sign_in_with', { p0: providers.platform.name }) }}
+      </el-button>
+      <div v-else-if="loaded && !providers.devLogin" class="hint">{{ $t('login.not_connected') }}</div>
+      <div v-if="ssoError" class="error">{{ ssoError }}</div>
+
+      <!-- 开发登录: 只在本地开发 / 测试时出现(后端 DEV_LOGIN=true) -->
+      <el-form v-if="providers.devLogin" class="dev-login" @submit.prevent="onDevLogin" label-position="top">
+        <div class="divider"><span>{{ $t('login.dev_login') }}</span></div>
         <el-form-item>
-          <el-checkbox v-model="remember">{{ $t('login.stay_signed_in_30_days') }}</el-checkbox>
+          <el-input v-model="devUser" :placeholder="$t('login.dev_login_placeholder')" size="large" @keyup.enter="onDevLogin" />
         </el-form-item>
-        <el-button :type="providers.oidc ? 'default' : 'primary'" size="large" :loading="loading" @click="onLogin" style="width: 100%;">
-          {{ $t('common.p0', { p0: autoLogging ? $t('login.signing_in_automatically') : $t('common.sign_in') }) }}
-        </el-button>
-        <div v-if="error || ssoError" class="error">{{ error || ssoError }}</div>
+        <el-button size="large" :loading="loading" style="width: 100%;" @click="onDevLogin">{{ $t('common.sign_in') }}</el-button>
+        <div v-if="error" class="error">{{ error }}</div>
       </el-form>
     </div>
   </div>
@@ -50,16 +43,13 @@ import LangSwitch from '@/components/common/LangSwitch.vue'
 import { refreshMyPermissions } from '@/api/permissions.js'
 
 const router = useRouter()
-// 1.2.7: 记住用户名 + 自动登录选项 (勾选后后端发 30 天长效 token)
-const form = ref({ username: localStorage.getItem('fde_last_username') || '', password: '' })
-const remember = ref(localStorage.getItem('fde_remember') !== '0')
 const loading = ref(false)
-const autoLogging = ref(false)
+const loaded = ref(false)
 const error = ref('')
 const ssoError = ref('')
 const ssoBusy = ref(false)
-// 登录方式: 默认按「只有密码」渲染, 接口回来再更新(接口失败也不至于没法登录)
-const providers = ref({ password: true, oidc: null })
+const devUser = ref(localStorage.getItem('fde_last_username') || 'admin')
+const providers = ref({ platform: null, devLogin: false })
 
 function afterLoginTarget() {
   const q = router.currentRoute.value.query
@@ -72,34 +62,32 @@ function startSso() {
   location.href = withBase('/api/auth/oidc/login') + '?next=' + encodeURIComponent(afterLoginTarget())
 }
 
-/** 保存登录结果并进入系统(密码登录与统一登录共用) */
+/** 保存登录结果并进入系统 */
 async function completeLogin(data) {
   localStorage.setItem('fde_internal_token', data.token)
   localStorage.setItem('fde_internal_user', JSON.stringify(data.user))
   // 拉取当前角色生效权限 (后台可配置); 失败自动回退前端静态矩阵
   await refreshMyPermissions()
-  if (data.user?.mustChangePassword) {
-    router.push({ path: '/admin/change-password', query: { forced: '1', redirect: afterLoginTarget() } })
-  } else {
-    router.push(afterLoginTarget())
-  }
+  router.push(afterLoginTarget())
 }
 
-/** 统一登录回跳: 用一次性 ticket 换 token; 返回 true 表示已处理 */
+/** 以虎 One 回跳: 用一次性 ticket 换 token; 返回 true 表示已处理 */
 async function handleSsoReturn() {
   const q = router.currentRoute.value.query
   if (q.sso_error) { ssoError.value = String(q.sso_error); return true }
   if (!q.ticket) return false
+  const ticket = String(q.ticket)
+  // ticket 只能用一次: 先从地址栏拿掉, 页面重载时不会拿旧 ticket 再换一次(而是用已存的 token 进入)
+  await router.replace({ path: '/admin/login', query: q.next ? { next: q.next } : {} })
   loading.value = true
   try {
     const res = await fetch('/api/auth/oidc/exchange', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ticket: q.ticket })
+      body: JSON.stringify({ ticket })
     })
     const data = await res.json()
     if (data.code !== 0) { ssoError.value = data.message || $t('login.sign_in_failed'); return true }
-    localStorage.setItem('fde_remember', '0')
     await completeLogin(data.data)
   } catch (e) {
     ssoError.value = $t('common.network_error') + e.message
@@ -113,52 +101,42 @@ async function loadProviders() {
   try {
     const data = await (await fetch('/api/auth/providers')).json()
     if (data.code === 0) providers.value = data.data
-  } catch { /* 保持默认: 只有密码登录 */ }
+  } catch { /* 留在登录页 */ }
+  loaded.value = true
 }
 
-// 1.2.7: 自动登录 —— 勾选过"下次自动登录"且本地 token 仍有效, 进登录页直接放行
-// (路由守卫的历史 bug 读错 key 不会自动跳转, 这里在页面级兜底; 守卫修复在 v1.3.0)
 onMounted(async () => {
   if (await handleSsoReturn()) { loadProviders(); return }
-  await loadProviders()
+  // 本地 token 还有效: 直接进系统
   const token = localStorage.getItem('fde_internal_token')
-  if (!token || localStorage.getItem('fde_remember') !== '1') {
-    // 只允许统一登录时直接跳过去(用户已在身份提供方登录则一闪而过); 刚手动退出的不自动跳
-    if (!providers.value.password && providers.value.oidc && !router.currentRoute.value.query.signed_out) startSso()
-    return
-  }
-  autoLogging.value = true
-  loading.value = true
-  try {
-    const res = await fetch('/api/fde/me', { headers: { Authorization: 'Bearer ' + token } })
-    const data = await res.json()
-    if (data.code === 0) {
-      await refreshMyPermissions()
-      router.push(afterLoginTarget())
-      return
-    }
-    // token 失效: 清掉, 留在登录页手动登录
+  if (token && !router.currentRoute.value.query.signed_out) {
+    try {
+      const res = await fetch('/api/fde/me', { headers: { Authorization: 'Bearer ' + token } })
+      if ((await res.json()).code === 0) {
+        await refreshMyPermissions()
+        router.push(afterLoginTarget())
+        return
+      }
+    } catch { /* 网络异常, 留在登录页 */ }
     localStorage.removeItem('fde_internal_token')
-  } catch { /* 网络异常, 留在登录页 */ }
-  finally { autoLogging.value = false; loading.value = false }
+  }
+  await loadProviders()
+  // 接了以虎 One 且没开开发登录: 直接去平台(已在平台登录则一闪而过); 刚手动退出的不自动跳
+  if (providers.value.platform && !providers.value.devLogin && !router.currentRoute.value.query.signed_out) startSso()
 })
 
-async function onLogin() {
+async function onDevLogin() {
   loading.value = true
   error.value = ''
   try {
-    const res = await fetch('/api/auth/login', {
+    const res = await fetch('/api/auth/dev-login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...form.value, remember: remember.value })
+      body: JSON.stringify({ username: devUser.value.trim() })
     })
     const data = await res.json()
-    if (data.code !== 0) {
-      error.value = data.message || $t('login.sign_in_failed')
-      return
-    }
-    localStorage.setItem('fde_last_username', form.value.username)
-    localStorage.setItem('fde_remember', remember.value ? '1' : '0')
+    if (data.code !== 0) { error.value = data.message || $t('login.sign_in_failed'); return }
+    localStorage.setItem('fde_last_username', devUser.value.trim())
     await completeLogin(data.data)
   } catch (e) {
     error.value = $t('common.network_error') + e.message

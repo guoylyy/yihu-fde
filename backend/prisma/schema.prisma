@@ -19,7 +19,8 @@ datasource db {
 model User {
   id                 BigInt    @id @default(autoincrement())
   username           String    @unique @db.VarChar(50)
-  passwordHash       String    @map("password_hash") @db.VarChar(255)
+  // 只用以虎 One 登录, 不再有本地密码; 列保留到下个版本再删(平台回滚只回代码不回库)
+  passwordHash       String?   @map("password_hash") @db.VarChar(255)
   name               String    @db.VarChar(50)
   phone              String?   @db.VarChar(20)
   email              String?   @db.VarChar(100)
@@ -31,10 +32,18 @@ model User {
   lastLoginAt        DateTime? @map("last_login_at")
   // v1.4.3 使用监控: 最近活跃时间(埋点中间件节流更新, 在线判定依据)
   lastActiveAt       DateTime? @map("last_active_at")
-  // 2026-07-05: 是否需要强制修改密码（首次登录 / 重置后）
+  // 已不使用(没有本地密码了), 列保留到下个版本再删
   mustChangePassword Boolean   @default(false) @map("must_change_password")
   // 外部身份(OIDC, 如以虎 One)的用户 id(sub); 统一登录按它找人, 为空 = 只用本地账号
   oidcSubject        String?   @unique @map("oidc_subject") @db.VarChar(191)
+  // 角色从哪来: PLATFORM_ADMIN=平台管理员(每次登录同步) / DEPT_LEADER=部门负责人规则 / DEFAULT=默认角色 / MANUAL=管理员在本系统设的(登录不再改)
+  roleSource         String    @default("MANUAL") @map("role_source") @db.VarChar(20)
+  // 平台上停用(通讯录同步发现)而停用的; 平台上恢复后自动启用。管理员在本系统手动停用的不受影响
+  platformDisabled   Boolean   @default(false) @map("platform_disabled")
+  // 最近一次经以虎 One(助手 / 个人 API Key)调用 MCP; 开发上手「打通 MCP」据此点亮
+  mcpLastUsedAt      DateTime? @map("mcp_last_used_at")
+  // 下载开发配置包的时间; 开发上手第一步据此点亮
+  kitDownloadedAt    DateTime? @map("kit_downloaded_at")
   // 通知偏好（JSON）：{ [eventType]: { site?: bool, feishu?: bool, mail?: bool } }
   notificationPrefs  Json?     @map("notification_prefs")
   createdAt          DateTime  @default(now()) @map("created_at")
@@ -66,6 +75,8 @@ model Team {
   name           String    @unique @db.VarChar(50)
   description    String?   @db.VarChar(500)
   leaderId       BigInt?   @map("leader_id") // 团队负责人 userId(可选)
+  // 对应的以虎 One 部门 id: 团队由通讯录同步按平台部门生成, 名称和成员以平台为准
+  platformDeptId Int?      @unique @map("platform_dept_id")
   // 团队群机器人 Webhook(可选): 即时消息通知按团队路由时使用, 留空回退全局群
   chatWebhookUrl String?   @map("chat_webhook_url") @db.VarChar(300)
   status         Int       @default(1) // 1=启用 0=停用

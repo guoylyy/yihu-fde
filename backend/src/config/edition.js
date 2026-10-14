@@ -86,7 +86,6 @@ export const PERM_PREFIX_MODULE = {
   timesheet: 'timesheets', knowledge: 'knowledge',
   // 人
   engineer: 'engineers', engineer_stats: 'engineers', skill: 'engineers',
-  skillPackage: 'engineers',
   asset: 'assets',   // v2.7(#1140) 项目资产库
   idea: 'ideas',     // v2.10.0(#1180) 创意中心
   // 客户

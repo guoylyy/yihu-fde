@@ -1,36 +1,45 @@
-// 系统设置(管理员): 品牌外观、访问地址; 大模型配置另见 llm-configs.js
-// 每项的取值优先级与生效方式见 lib/settings.js
+// 系统设置(管理员): 接入以虎 One 的情况(只读) + 本系统开关(部门负责人规则、消息转发)
+// 大模型配置另见 llm-configs.js
 import express from 'express'
-import { internalAuth, requirePermission } from '../../lib/auth.js'
-import { describeSettings, saveSettings, publicBaseUrl, mcpUrl } from '../../lib/settings.js'
+import { internalAuth, requirePermission, getRoleName } from '../../lib/auth.js'
+import { describeSettings, saveSettings, mcpUrl } from '../../lib/settings.js'
 import { oidcConfig } from '../../lib/oidc.js'
+import { appInfo } from '../../lib/yihuOne.js'
 import { ON_YIHU_ONE } from '../../lib/platform.js'
-import { getBrand } from '../../config/brand.js'
+import { lastDirectorySync } from '../../services/directorySync.js'
 import { logInternalAction } from '../../lib/audit.js'
 
 const router = express.Router()
 router.use(internalAuth)
 router.use(requirePermission('system.manage'))
 
-function snapshot(req) {
-  const oidc = oidcConfig()
+async function snapshot(req) {
+  const cfg = oidcConfig()
+  const app = cfg.enabled ? await appInfo() : null
   return {
     settings: describeSettings(),
-    effective: { brand: getBrand(), publicBaseUrl: publicBaseUrl(req), mcpUrl: mcpUrl(req) },
-    // 只读: 登录方式由部署配置决定(凭证不进库)
-    login: {
-      password: !['false', '0', 'no', 'off'].includes(String(process.env.PASSWORD_LOGIN ?? '').toLowerCase()),
-      oidc: oidc.enabled ? { name: oidc.name, issuer: oidc.issuer, autoCreate: oidc.autoCreate, defaultRole: oidc.defaultRole } : null,
-      onYihuOne: ON_YIHU_ONE
-    }
+    platform: cfg.enabled ? {
+      name: cfg.name,
+      url: app?.platformUrl || cfg.issuer,
+      space: app?.space || null,
+      hosted: ON_YIHU_ONE,
+      autoCreate: cfg.autoCreate,
+      defaultRole: cfg.defaultRole,
+      defaultRoleName: getRoleName(cfg.defaultRole),
+      adminRoles: cfg.adminRoles,
+      // 个人 AI 工具经平台 MCP 网关接入; 本系统的 MCP 地址只给 Agent 专属 Key 用
+      gatewayMcpUrl: app?.platformUrl ? `${app.platformUrl.replace(/\/+$/, '')}/api/mcp` : null,
+      agentMcpUrl: mcpUrl(req),
+      directorySync: lastDirectorySync()
+    } : null
   }
 }
 
-router.get('/', (req, res) => {
-  res.json({ code: 0, data: snapshot(req) })
+router.get('/', async (req, res) => {
+  res.json({ code: 0, data: await snapshot(req) })
 })
 
-// body: { values: { 'brand.name': 'Acme', 'url.mcp': null, ... } }  null/空串 = 清除, 回到环境变量或默认
+// body: { values: { 'auth.leaderIsManager': true, ... } }  null = 恢复默认
 router.put('/', async (req, res) => {
   const values = req.body?.values
   if (!values || typeof values !== 'object' || Array.isArray(values)) {
@@ -39,9 +48,8 @@ router.put('/', async (req, res) => {
   try {
     const keys = await saveSettings(values, req.user.userId)
     logInternalAction(req, 'SYSTEM_SETTINGS_UPDATE', { resourceType: 'appSetting', details: { values } })
-    res.json({ code: 0, data: { updated: keys, ...snapshot(req) } })
+    res.json({ code: 0, data: { updated: keys, ...(await snapshot(req)) } })
   } catch (e) {
-    // 校验失败的提示直接给用户; 其余是库错误
     const invalid = !e.code
     if (!invalid) console.error('[system-settings:update]', e)
     res.status(invalid ? 400 : 500).json({ code: invalid ? 1001 : 9001, message: e.message })

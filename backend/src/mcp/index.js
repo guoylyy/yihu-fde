@@ -1,7 +1,8 @@
 // MCP Server (Streamable HTTP, 无状态模式) — FDE 工程师智能体对接入口
-// 鉴权 (Authorization: Bearer xxx 或 X-API-Key), 两种凭证任选:
-//   ① 个人 API Key (fde_ 前缀, 旧版 yhk_) → Key 绑定的用户身份
-//   ② 用户登录 JWT (Agent 平台透传模式, 2026-07-29 替代手机号路由) → Token 里的用户身份
+// 鉴权 (Authorization: Bearer xxx 或 X-API-Key), 凭证任选:
+//   ① 以虎 One 转发的 access_token → 平台 AI 助手 / 用户的以虎 One 个人 API Key 经平台 MCP 网关调用(主要入口)
+//   ② Agent 专属 Key (fde_ 前缀, 旧版 yhk_; 老的个人 Key 也照常认) → Key 绑定的用户 + Agent 身份
+//   ③ 本系统登录 JWT (Agent 平台透传模式) → Token 里的用户身份
 // 工具实现: 内部签发短期 JWT, 回调本机 REST API, 完全复用角色权限与数据范围逻辑
 import express from 'express'
 import { z } from 'zod'
@@ -23,7 +24,9 @@ async function callApi(user, { method, path, query, body }) {
     role: user.role,
     engineerId: user.engineerId,
     // v1.6.0: Agent 专属 Key 进来的调用带上 Agent 身份, 业务层写入时记归属
-    agentProfileId: user.agentProfileId
+    agentProfileId: user.agentProfileId,
+    // 经 MCP 来的调用: 使用数据上报时标 via=ai
+    via: 'mcp'
   })
   const url = new URL(path, SELF_BASE())
   for (const [k, v] of Object.entries(query || {})) {
@@ -89,8 +92,12 @@ function logAgentActivity(user, action, built, data) {
   }).catch(() => {})
 }
 
-function toToolResult(data) {
+/** card: 首页卡片工具, 成功时把 data 作为 structuredContent 返回(以虎 One 的数据卡片直接用它) */
+function toToolResult(data, { card = false } = {}) {
   const isError = data.httpStatus >= 400 || (data.code !== undefined && data.code !== 0)
+  if (card && !isError && data.data && typeof data.data === 'object' && !Array.isArray(data.data)) {
+    return { content: [{ type: 'text', text: JSON.stringify(data.data) }], structuredContent: data.data }
+  }
   let text = JSON.stringify(data, null, 2)
   if (isError && data.httpStatus === 403) {
     text += '\n\n提示: 403 表示该操作超出工程师权限（通常需要项目经理/管理员），不要重试，向用户解释并建议转交对应角色。'
@@ -103,7 +110,7 @@ function buildServer(user) {
   const server = new McpServer(
     { name: 'fde-platform', version: '1.0.0' },
     { instructions: [
-      'FDE 平台工具集。当前已通过 API Key 或用户 Token 绑定身份，所有操作以该用户身份执行，数据范围与权限完全按其角色收敛（工程师只看得到自己/自己参与的项目，经理能看到名下项目全量）。',
+      'FDE 平台工具集。当前已绑定用户身份（经以虎 One、Agent 专属 Key 或用户 Token），所有操作以该用户身份执行，数据范围与权限完全按其角色收敛（工程师只看得到自己/自己参与的项目，经理能看到名下项目全量）。',
       '使用约定:',
       '① 会话开始先调 get_my_workbench 获取 engineerId、userId 与项目列表, 后面所有 id 参数都从这里或 list_* 工具解析, 不要凭猜。',
       '② 涉及工时/日期的写操作, 先把要写的内容复述给用户确认再调。',
@@ -124,7 +131,7 @@ function buildServer(user) {
           const built = def.build(args || {})
           const data = await callApi(user, built)
           logAgentActivity(user, def.name, built, data)
-          return toToolResult(data)
+          return toToolResult(data, { card: def.card })
         } catch (e) {
           return { content: [{ type: 'text', text: `工具执行失败: ${e.message}` }], isError: true }
         }

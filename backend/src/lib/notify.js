@@ -1,7 +1,7 @@
 // 站内通知 - 推送中心
-// 支持多通道：site (站内) / chat (团队群机器人, 见 chatNotify.js) / mail (邮件)
+// 支持多通道：site (站内) / chat (团队群机器人, 见 chatNotify.js) / platform (经以虎 One 发到本人的钉钉 / 飞书 / 企业微信)
 // 用法：import { pushNotification } from '../../lib/notify.js'
-//       await pushNotification({ userId, type, title, body, link, data, channels: ['site','chat','mail'] })
+//       await pushNotification({ userId, type, title, body, link, data, channels: ['site','chat','platform'] })
 //
 // 通道策略：
 //   - channels 不传时，按 DEFAULT_CHANNELS_BY_TYPE[type] 自动选通道
@@ -10,7 +10,8 @@
 
 import prisma from './prisma.js'
 import { notifyChat } from './chatNotify.js'
-import { sendMail } from './mail.js'
+import { notifyPlatformUsers, platformEnabled } from './yihuOne.js'
+import { getSetting, publicBaseUrl } from './settings.js'
 import { resolveDelivery, getCatalogEntry } from './notificationCatalog.js'
 
 // v2.5.5(#912) 精简通知: 送达前先过「分档 + 用户按类型开关」两道闸, 见 notificationCatalog.js
@@ -22,14 +23,13 @@ const warnedUnknownTypes = new Set()
  * 默认通道矩阵（按事件类型）
  * site  = 站内通知（必带）
  * chat = 团队群机器人（重要事件）
- * mail  = 邮件（重要事件 + 有邮箱时）
+ * platform = 经以虎 One 发到本人的钉钉 / 飞书 / 企业微信（重要事件; 系统设置里可关）
  */
 export const DEFAULT_CHANNELS_BY_TYPE = {
   // 用户/账号
-  USER_INVITED:        ['site', 'chat', 'mail'],
-  PASSWORD_RESET:      ['site', 'mail'],
-  ROLE_CHANGED:        ['site', 'mail'],
-  ACCOUNT_DISABLED:    ['site', 'mail'],
+  USER_INVITED:        ['site', 'chat', 'platform'],
+  ROLE_CHANGED:        ['site', 'platform'],
+  ACCOUNT_DISABLED:    ['site'],
   // 客户
   CUSTOMER_CREATED:    ['site', 'chat'],
   // v1.7.5 工程师招募: 官网新申请(通知 ADMIN) / 邀请对象入驻(通知邀请人)
@@ -38,14 +38,14 @@ export const DEFAULT_CHANNELS_BY_TYPE = {
   // 项目
   PROJECT_STATUS:      ['site', 'chat'],
   // 任务
-  TASK_ASSIGNED:       ['site', 'chat', 'mail'],
+  TASK_ASSIGNED:       ['site', 'chat', 'platform'],
   TASK_STATUS_CHANGED: ['site'],
   // 工时
-  TIMESHEET_APPROVED:  ['site', 'chat', 'mail'],
-  TIMESHEET_REJECTED:  ['site', 'mail'],
-  TIMESHEET_PENDING:   ['site', 'chat'],
+  TIMESHEET_APPROVED:  ['site', 'chat', 'platform'],
+  TIMESHEET_REJECTED:  ['site', 'platform'],
+  TIMESHEET_PENDING:   ['site', 'chat', 'platform'],
   // 评论
-  COMMENT_MENTION:     ['site', 'mail'],
+  COMMENT_MENTION:     ['site', 'platform'],
   COMMENT_REPLY:       ['site'],
   // 系统
   SYSTEM:              ['site']
@@ -56,7 +56,6 @@ export const DEFAULT_CHANNELS_BY_TYPE = {
  */
 const CHAT_EVENT_BY_TYPE = {
   USER_INVITED: 'user.invited',
-  PASSWORD_RESET: null,  // 群里不推密码重置（安全考虑）
   ROLE_CHANGED: null,
   ACCOUNT_DISABLED: null,
   CUSTOMER_CREATED: 'customer.created',
@@ -72,26 +71,8 @@ const CHAT_EVENT_BY_TYPE = {
 }
 
 /**
- * 邮件模板类型映射
- */
-const MAIL_TYPE_BY_TYPE = {
-  USER_INVITED: 'USER_INVITED',
-  PASSWORD_RESET: 'PASSWORD_RESET',
-  ROLE_CHANGED: null,
-  ACCOUNT_DISABLED: null,
-  CUSTOMER_CREATED: null,
-  PROJECT_STATUS: null,
-  TASK_ASSIGNED: 'TASK_ASSIGNED',
-  TIMESHEET_APPROVED: 'TIMESHEET_RESULT',
-  TIMESHEET_REJECTED: 'TIMESHEET_RESULT',
-  TIMESHEET_PENDING: null,
-  COMMENT_MENTION: null,
-  COMMENT_REPLY: null
-}
-
-/**
  * 解析用户的通知偏好
- * 格式: { [type]: { site: bool, chat: bool, mail: bool } } (旧数据的 feishu 键视同 chat)
+ * 格式: { [type]: { site: bool, chat: bool, platform: bool } } (旧数据的 feishu 键视同 chat, mail 键视同 platform)
  * 未设置 = 全部默认
  */
 function parseUserPrefs(prefsJson) {
@@ -114,7 +95,7 @@ function resolveChannels(type, userPrefs, requestedChannels) {
   // 3. 应用用户偏好
   if (userPrefs?.[type]) {
     const p = userPrefs[type]
-    channels = channels.filter(ch => (ch === 'chat' ? (p.chat ?? p.feishu) : p[ch]) !== false)
+    channels = channels.filter(ch => (ch === 'chat' ? (p.chat ?? p.feishu) : ch === 'platform' ? (p.platform ?? p.mail) : p[ch]) !== false)
   }
   // 4. site 永远在（不可能完全不要站内通知）
   if (!channels.includes('site')) channels.unshift('site')
@@ -131,11 +112,11 @@ function resolveChannels(type, userPrefs, requestedChannels) {
  * @param {string|null} options.link
  * @param {object|null} options.data  模板变量
  * @param {string[]} options.channels 强制指定通道（可选）
- * @returns {Promise<{site: any, chat: any, mail: any}>}
+ * @returns {Promise<{site: any, chat: any, platform: any}>}
  */
 export async function pushNotification({ userId, type, title, body, link = null, data = null, channels = null, actorId = null }) {
   if (!userId || !type || !title) return null
-  const result = { site: null, chat: null, mail: null, delivery: 'on' }
+  const result = { site: null, chat: null, platform: null, delivery: 'on' }
 
   // v2.5.5(#912) 自触发去重: 自己的操作不用通知自己(同事手动发的 MANUAL 除外)
   if (actorId != null && type !== 'MANUAL' && String(actorId) === String(userId)) {
@@ -158,7 +139,7 @@ export async function pushNotification({ userId, type, title, body, link = null,
     // 1) 查用户（含 email 和 prefs）
     const user = await prisma.user.findUnique({
       where: { id: typeof userId === 'bigint' ? userId : BigInt(userId) },
-      select: { id: true, name: true, email: true, notificationPrefs: true, role: true }
+      select: { id: true, name: true, email: true, notificationPrefs: true, role: true, oidcSubject: true }
     })
     if (!user) return result
 
@@ -214,20 +195,10 @@ export async function pushNotification({ userId, type, title, body, link = null,
       }
     }
 
-    // 5) 邮件（必须有 email）
-    if (activeChannels.includes('mail') && user.email) {
-      try {
-        const mailType = MAIL_TYPE_BY_TYPE[type]
-        if (mailType) {
-          result.mail = await sendMail({
-            to: user.email,
-            type: mailType,
-            data: { ...(data || {}), name: user.name }
-          })
-        }
-      } catch (e) {
-        console.error('[notify.mail] 失败:', e.message)
-      }
+    // 5) 以虎 One 个人消息(不等结果: 平台慢或发不出去都不影响业务)
+    if (activeChannels.includes('platform') && user.oidcSubject) {
+      result.platform = 'queued'
+      forwardToPlatform(user, { title, body, link }).catch(e => console.error('[notify.platform] 失败:', e.message))
     }
 
     return result
@@ -235,6 +206,14 @@ export async function pushNotification({ userId, type, title, body, link = null,
     console.error('[notify] 推送失败:', e.message)
     return result
   }
+}
+
+/** 经以虎 One 发给本人; 系统设置里关了或没接平台就不发 */
+async function forwardToPlatform(user, { title, body, link }) {
+  if (!platformEnabled() || !(await getSetting('notify.platform'))) return
+  const base = publicBaseUrl()
+  const url = link && base ? `${base}${link.startsWith('/') ? '' : '/'}${link}` : undefined
+  await notifyPlatformUsers({ userIds: [Number(user.oidcSubject)], title: String(title).slice(0, 80), content: String(body || title).slice(0, 2000), url })
 }
 
 /**

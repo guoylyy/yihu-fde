@@ -1,43 +1,29 @@
-// 2026-07-31 大模型调用层: 读「大模型配置」模块的默认配置发起对话补全
-// 首个消费场景 = 会议纪要导入(project-records)。后续功能接入大模型统一走这里, 不要散落直连
-// Provider 分两类:
-//   - ANTHROPIC: 官方 @anthropic-ai/sdk (Messages API)。注意最新 Claude 模型(Opus 4.7+)已移除
-//     temperature 参数, 传了直接 400, 因此对 Anthropic 一律不透传 temperature
-//   - 其余(DeepSeek/Qwen/Zhipu/Moonshot/OpenAI/Custom): OpenAI 兼容 /chat/completions, 原生 fetch
-import Anthropic from '@anthropic-ai/sdk'
+// 大模型调用层: 用以虎 One 托管的模型(OpenAI 兼容接口, 本应用的平台凭证, 密钥不出平台)
+// 「系统设置 → 大模型」里同步平台的模型、选默认; 一个都没选时用平台的默认模型。功能接入大模型统一走这里
 import prisma from './prisma.js'
 import { YIHU_ONE, yihuOneEndpoint } from './yihuOneLlm.js'
-
-// 各 provider 官方接口地址(配置里 baseUrl 留空时兜底)
-const DEFAULT_BASE_URLS = {
-  ANTHROPIC: 'https://api.anthropic.com',
-  DEEPSEEK: 'https://api.deepseek.com',
-  QWEN: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-  ZHIPU: 'https://open.bigmodel.cn/api/paas/v4',
-  MOONSHOT: 'https://api.moonshot.cn/v1',
-  OPENAI: 'https://api.openai.com/v1'
-}
 
 // 思考模型(reasoning)重试用的输出预算: 各处调用传的 1000~2000 只够思考, 正文会被截没
 const REASONING_MAX_TOKENS = 16000
 
 export class LlmNotConfiguredError extends Error {
-  constructor(msg = '尚未配置可用的大模型：请管理员在「基础配置 → 大模型配置」中添加并启用一个配置') {
+  constructor(msg = '还没有接入以虎 One，无法使用大模型') {
     super(msg)
     this.code = 'LLM_NOT_CONFIGURED'
   }
 }
 
-/** 取默认(优先)或任一启用的大模型配置; 无可用配置抛 LlmNotConfiguredError */
+/** 平台默认模型(不指定 model, 由以虎 One 选) */
+const PLATFORM_DEFAULT = { name: '以虎 One 默认模型', provider: YIHU_ONE, model: '', temperature: null, maxTokens: null }
+
+/** 取默认(优先)或任一启用的模型配置; 都没有时用平台默认模型。没接平台抛 LlmNotConfiguredError */
 export async function getActiveLlmConfig() {
+  if (!yihuOneEndpoint()) throw new LlmNotConfiguredError()
   const config = await prisma.llmConfig.findFirst({
-    where: { deletedAt: null, enabled: true },
+    where: { deletedAt: null, enabled: true, provider: YIHU_ONE },
     orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }]
   })
-  if (!config) throw new LlmNotConfiguredError()
-  // 以虎 One 的模型用平台凭证, 不存密钥
-  if (!config.apiKey && config.provider !== YIHU_ONE) throw new LlmNotConfiguredError(`大模型配置「${config.name}」缺少 API 密钥，请管理员补齐`)
-  return config
+  return config || PLATFORM_DEFAULT
 }
 
 /**
@@ -45,46 +31,26 @@ export async function getActiveLlmConfig() {
  * @param {{ system?: string, user: string, maxTokens?: number, config?: object }} opts
  */
 export async function chatComplete({ system, user, maxTokens, config }) {
-  let cfg = config || await getActiveLlmConfig()
-  if (cfg.provider === YIHU_ONE) {
-    const ep = yihuOneEndpoint()
-    if (!ep) throw new LlmNotConfiguredError(`大模型配置「${cfg.name}」来自以虎 One，但本系统还没有接入以虎 One（统一登录未配置）`)
-    cfg = { ...cfg, baseUrl: ep.baseUrl, apiKey: ep.apiKey }
-  }
+  const cfg = config || await getActiveLlmConfig()
+  const ep = yihuOneEndpoint()
+  if (!ep) throw new LlmNotConfiguredError()
   const max = maxTokens || cfg.maxTokens || 4096
-  if (cfg.provider === 'ANTHROPIC') {
-    const client = new Anthropic({
-      apiKey: cfg.apiKey,
-      baseURL: cfg.baseUrl || undefined,
-      timeout: 120000
-    })
-    const resp = await client.messages.create({
-      model: cfg.model,
-      max_tokens: max,
-      system: system || undefined,
-      messages: [{ role: 'user', content: user }]
-    })
-    if (resp.stop_reason === 'refusal') throw new Error('大模型拒绝了此请求(安全策略)')
-    return resp.content.filter(b => b.type === 'text').map(b => b.text).join('')
-  }
-
-  // OpenAI 兼容
-  const base = (cfg.baseUrl || DEFAULT_BASE_URLS[cfg.provider] || '').replace(/\/$/, '')
-  if (!base) throw new Error(`大模型配置「${cfg.name}」缺少接口地址(baseUrl)`)
   const messages = [
     ...(system ? [{ role: 'system', content: system }] : []),
     { role: 'user', content: user }
   ]
   const callOnce = async (budget) => {
-    const body = { model: cfg.model, max_tokens: budget, messages }
+    const body = { max_tokens: budget, messages }
+    if (cfg.model) body.model = cfg.model
     if (cfg.temperature !== null && cfg.temperature !== undefined) body.temperature = Number(cfg.temperature)
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), 120000)
     let resp
     try {
-      resp = await fetch(`${base}/chat/completions`, {
+      resp = await fetch(`${ep.baseUrl}/chat/completions`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.apiKey}` },
+        // 平台的应用凭证: Basic base64(client_id:client_secret)
+        headers: { 'Content-Type': 'application/json', Authorization: 'Basic ' + Buffer.from(ep.apiKey).toString('base64') },
         body: JSON.stringify(body),
         signal: controller.signal
       })
@@ -107,12 +73,12 @@ export async function chatComplete({ system, user, maxTokens, config }) {
   let r = await callOnce(max)
   // 思考模型预算被思考吃光(finish_reason=length 且正文为空): 抬高预算重试一次, 否则功能整条链路白跑
   if (!r.content && r.finish === 'length' && r.reasoningLen > 0 && max < REASONING_MAX_TOKENS) {
-    console.warn(`[llm] ${cfg.name}/${cfg.model} 思考占满 ${max} tokens 无正文, 以 ${REASONING_MAX_TOKENS} 重试`)
+    console.warn(`[llm] ${cfg.name}/${cfg.model || 'default'} 思考占满 ${max} tokens 无正文, 以 ${REASONING_MAX_TOKENS} 重试`)
     r = await callOnce(REASONING_MAX_TOKENS)
   }
   if (!r.content) {
-    throw new Error(`大模型返回内容为空(模型 ${cfg.model}, finish_reason=${r.finish || '未知'}, 思考 ${r.reasoningTokens} tokens)` +
-      (r.finish === 'length' ? ': 输出预算被思考过程占满, 请在「大模型配置」调大 maxTokens 或换用非思考模型' : ''))
+    throw new Error(`大模型返回内容为空(模型 ${cfg.model || '平台默认'}, finish_reason=${r.finish || '未知'}, 思考 ${r.reasoningTokens} tokens)` +
+      (r.finish === 'length' ? ': 输出预算被思考过程占满, 请在「系统设置 → 大模型」调大 maxTokens 或换用非思考模型' : ''))
   }
   return r.content
 }

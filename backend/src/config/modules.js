@@ -9,7 +9,6 @@ export const MODULE_PREFIXES = [
   ['/api/fde/engineer-profiles', 'engineers'],
   ['/api/fde/engineers', 'engineers'],
   ['/api/fde/skills', 'engineers'],
-  ['/api/fde/skill-packages', 'engineers'],
   ['/api/fde/timesheets', 'timesheets'],
   ['/api/fde/reports', 'reports'],
   ['/api/fde/me', 'me'],
@@ -37,6 +36,7 @@ export const MODULE_PREFIXES = [
   ['/api/fde/api-keys', 'admin'],
   ['/api/fde/llm-configs', 'admin'],
   ['/api/fde/system-settings', 'admin'],
+  ['/api/fde/cards', 'me'],
   ['/api/auth', 'auth'],
   ['/api/public', 'public']
 ].sort((a, b) => b[0].length - a[0].length)

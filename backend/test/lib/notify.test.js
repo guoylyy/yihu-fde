@@ -25,14 +25,15 @@ describe('lib/notify.js - 纯函数', () => {
 
   // ===== DEFAULT_CHANNELS_BY_TYPE 矩阵 =====
   describe('默认通道矩阵', () => {
-    test('USER_INVITED 默认三通道 (site+chat+mail)', () => {
-      assert.deepEqual(DEFAULT_CHANNELS_BY_TYPE.USER_INVITED, ['site', 'chat', 'mail'])
+    test('USER_INVITED 默认三通道 (site+chat+platform)', () => {
+      assert.deepEqual(DEFAULT_CHANNELS_BY_TYPE.USER_INVITED, ['site', 'chat', 'platform'])
     })
-    test('PASSWORD_RESET 双通道 (site+mail)', () => {
-      assert.deepEqual(DEFAULT_CHANNELS_BY_TYPE.PASSWORD_RESET, ['site', 'mail'])
+    test('没有密码相关通知, 也没有邮件通道', () => {
+      assert.equal(DEFAULT_CHANNELS_BY_TYPE.PASSWORD_RESET, undefined)
+      assert.ok(Object.values(DEFAULT_CHANNELS_BY_TYPE).every(chs => !chs.includes('mail')))
     })
-    test('TIMESHEET_PENDING 双通道（无 mail）', () => {
-      assert.deepEqual(DEFAULT_CHANNELS_BY_TYPE.TIMESHEET_PENDING, ['site', 'chat'])
+    test('TIMESHEET_PENDING 发给审批人的个人消息', () => {
+      assert.deepEqual(DEFAULT_CHANNELS_BY_TYPE.TIMESHEET_PENDING, ['site', 'chat', 'platform'])
     })
     test('COMMENT_REPLY 单通道（仅 site）', () => {
       assert.deepEqual(DEFAULT_CHANNELS_BY_TYPE.COMMENT_REPLY, ['site'])
@@ -72,7 +73,7 @@ describe('lib/notify.js - 纯函数', () => {
   describe('_resolveChannels 决定通道', () => {
     test('无 prefs 无 channels 用默认', () => {
       const r = _resolveChannels('USER_INVITED', null, null)
-      assert.deepEqual(r, ['site', 'chat', 'mail'])
+      assert.deepEqual(r, ['site', 'chat', 'platform'])
     })
 
     test('无 prefs 无 channels + 未知 type 用 site 兜底', () => {
@@ -81,16 +82,16 @@ describe('lib/notify.js - 纯函数', () => {
     })
 
     test('调用方 channels 覆盖默认', () => {
-      const r = _resolveChannels('COMMENT_REPLY', null, ['site', 'chat', 'mail'])
-      assert.deepEqual(r, ['site', 'chat', 'mail'])
+      const r = _resolveChannels('COMMENT_REPLY', null, ['site', 'chat', 'platform'])
+      assert.deepEqual(r, ['site', 'chat', 'platform'])
     })
 
     test('调用方传空数组用默认', () => {
       const r = _resolveChannels('USER_INVITED', null, [])
-      assert.deepEqual(r, ['site', 'chat', 'mail'])
+      assert.deepEqual(r, ['site', 'chat', 'platform'])
     })
 
-    test('用户 prefs 关闭某通道', () => {
+    test('用户 prefs 关闭某通道(旧数据的 mail 键视同 platform)', () => {
       const r = _resolveChannels('USER_INVITED', { USER_INVITED: { mail: false } }, null)
       assert.deepEqual(r, ['site', 'chat'])
     })
@@ -102,19 +103,19 @@ describe('lib/notify.js - 纯函数', () => {
     })
 
     test('用户 prefs 只配置部分通道，未配置的走默认', () => {
-      // 只关 mail，chat 没设（默认 = true）
-      const r = _resolveChannels('USER_INVITED', { USER_INVITED: { mail: false } }, null)
+      // 只关 platform，chat 没设（默认 = true）
+      const r = _resolveChannels('USER_INVITED', { USER_INVITED: { platform: false } }, null)
       assert.deepEqual(r, ['site', 'chat'])
     })
 
     test('调用方 channels + 用户 prefs 同时生效', () => {
-      const r = _resolveChannels('COMMENT_REPLY', { COMMENT_REPLY: { chat: false } }, ['site', 'chat', 'mail'])
-      assert.deepEqual(r, ['site', 'mail'])
+      const r = _resolveChannels('COMMENT_REPLY', { COMMENT_REPLY: { chat: false } }, ['site', 'chat', 'platform'])
+      assert.deepEqual(r, ['site', 'platform'])
     })
 
     test('旧版 prefs 的 feishu 键视同 chat', () => {
-      const r = _resolveChannels('COMMENT_REPLY', { COMMENT_REPLY: { feishu: false } }, ['site', 'chat', 'mail'])
-      assert.deepEqual(r, ['site', 'mail'])
+      const r = _resolveChannels('COMMENT_REPLY', { COMMENT_REPLY: { feishu: false } }, ['site', 'chat', 'platform'])
+      assert.deepEqual(r, ['site', 'platform'])
     })
 
     test('site 不在调用方列表时自动补上', () => {

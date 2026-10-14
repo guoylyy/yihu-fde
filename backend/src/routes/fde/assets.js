@@ -262,12 +262,7 @@ router.get('/link-targets', requirePermission('asset.manage'), async (req, res) 
     const { type, keyword = '' } = req.query
     const kw = String(keyword).trim()
     let list = []
-    if (type === 'SKILL_PACKAGE') {
-      list = (await prisma.skillPackage.findMany({
-        where: { deletedAt: null, ...(kw ? { OR: [{ name: { contains: kw } }, { displayName: { contains: kw } }] } : {}) },
-        select: { id: true, name: true, displayName: true }, take: 20, orderBy: { updatedAt: 'desc' }
-      })).map(x => ({ id: x.id, label: x.displayName ? `${x.displayName}（${x.name}）` : x.name }))
-    } else if (type === 'KNOWLEDGE') {
+    if (type === 'KNOWLEDGE') {
       list = (await prisma.knowledgeArticle.findMany({
         where: { deletedAt: null, ...(kw ? { title: { contains: kw } } : {}) },
         select: { id: true, title: true }, take: 20, orderBy: { updatedAt: 'desc' }
@@ -386,7 +381,7 @@ async function resolveLinks(links) {
     const t = maps[l.targetType]?.get(String(l.targetId))
     let label = '(已删除)', href = null
     if (t) {
-      if (l.targetType === 'SKILL_PACKAGE') { label = t.displayName ? `${t.displayName}（${t.name}）` : t.name; href = '/admin/skill-packages' }
+      if (l.targetType === 'SKILL_PACKAGE') label = t.displayName ? `${t.displayName}（${t.name}）` : t.name
       if (l.targetType === 'KNOWLEDGE') { label = t.title; href = `/admin/knowledge/${t.id}` }
       if (l.targetType === 'ASSET') { label = `${t.name}（${t.slug}）`; href = `/admin/assets/${t.slug}` }
     }
@@ -583,7 +578,7 @@ router.post('/:id/links', requirePermission('asset.manage'), async (req, res) =>
     if (!ASSET_LINK_TYPES.includes(targetType)) return res.status(400).json({ code: 1001, message: `targetType 必须是 ${ASSET_LINK_TYPES.join('/')}` })
     if (!targetId) return res.status(400).json({ code: 1001, message: 'targetId 必填' })
     if (targetType === 'ASSET' && targetId === asset.id) return res.status(400).json({ code: 1001, message: '不能关联自己' })
-    const model = { SKILL_PACKAGE: 'skillPackage', KNOWLEDGE: 'knowledgeArticle', ASSET: 'asset' }[targetType]
+    const model = { KNOWLEDGE: 'knowledgeArticle', ASSET: 'asset' }[targetType]
     const target = await prisma[model].findUnique({ where: { id: targetId }, select: { id: true } })
     if (!target) return res.status(400).json({ code: 1001, message: '关联对象不存在' })
     const link = await prisma.assetLink.upsert({

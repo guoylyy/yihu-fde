@@ -968,7 +968,10 @@
     "signing_in_automatically": "Signing in automatically…",
     "sign_in_failed": "Sign-in failed",
     "sign_in_with": "Sign in with {p0}",
-    "or_use_password": "or sign in with a password"
+    "or_use_password": "or sign in with a password",
+    "not_connected": "Sign-in is not set up: this system runs as a Yihu One app. Open it from your Yihu One workspace.",
+    "dev_login": "Dev login (local development only)",
+    "dev_login_placeholder": "Username, e.g. admin"
   },
   "projectDetail": {
     "project_doesnt_exist_or_you_cant": "Project doesn't exist or you can't view it",
@@ -1380,7 +1383,9 @@
     "purpose": "Purpose",
     "failed_load_users": "Failed to load users: ",
     "enter_name_purpose": "Enter a name (purpose)",
-    "choose_bound_user": "Choose the bound user"
+    "choose_bound_user": "Choose the bound user",
+    "go_agents": "Register an agent",
+    "personal_keys_from_platform": "Personal API keys now come from Yihu One (Personal center → API Key) and work for every app on the platform. Robots that need their own identity get a key when you register them under Agents. Existing keys below keep working until revoked."
   },
   "assetDetail": {
     "ai_drafted_awaiting_review": "AI drafted · awaiting review",
@@ -1439,7 +1444,8 @@
     "what_changed_optional": "What changed (optional)",
     "recorded": "Recorded",
     "withdraw_failed": "Withdraw failed",
-    "choose_what_link": "Choose what to link"
+    "choose_what_link": "Choose what to link",
+    "links_hint": "Related knowledge articles and other assets"
   },
   "assets": {
     "things_weve_built_ready_for_next": "Things we've built, ready for the next project · search before you build, and record reuse when you use one",
@@ -1470,30 +1476,6 @@
     "actor": "Actor",
     "resource": "Resource",
     "no_audit_records": "No audit records"
-  },
-  "changePassword": {
-    "change_password": "Change password",
-    "youre_using_default_password": "You're using the default password",
-    "for_your_accounts_safety_please_set": "; for your account's safety, please set a new password first.",
-    "changing_your_password_regularly_keeps_your": "Changing your password regularly keeps your account safe.",
-    "youre_using_default_password_must_change": "You're using the default password and must change it to continue",
-    "current_password": "Current password",
-    "current_password_2": "Current password",
-    "new_password": "New password",
-    "at_least_6_characters_not_123456": "At least 6 characters, not 123456",
-    "enter_new_password_again": "Enter the new password again",
-    "set_new_password_continue": "Set new password and continue",
-    "password_requirements": "Password requirements:",
-    "at_least_6_characters": "At least 6 characters",
-    "you_cant_use_default_password_123456": "You can't use the default password 123456",
-    "letters_numbers_recommended": "Letters + numbers recommended",
-    "new_password_required": "New password is required",
-    "new_password_must_be_at_least": "New password must be at least 6 characters",
-    "enter_new_password_again_2": "Enter the new password again",
-    "new_passwords_dont_match": "The new passwords don't match",
-    "enter_your_current_password": "Enter your current password",
-    "change_failed": "Change failed",
-    "password_changed": "Password changed 🎉"
   },
   "customers": {
     "customers_industries": "{p0} customers · {p1} industries",
@@ -1756,7 +1738,10 @@
     "sync_from": "Sync from {p0}",
     "platform_credentials": "Platform credentials",
     "yihu_one_hint": "Runs on the models configured in {p0}. Uses this app's platform credentials, so no endpoint or API key is needed.",
-    "sync_result": "{p0} models on the platform: {p1} added, {p2} updated, {p3} disabled"
+    "sync_result": "{p0} models on the platform: {p1} added, {p2} updated, {p3} disabled",
+    "platform_models_hint": "AI features use the models managed in {p0}. Sync them here, pick a default and tune parameters; with none selected the platform default model is used.",
+    "not_connected": "Not connected to Yihu One, so AI features are unavailable.",
+    "no_models_yet": "No models synced yet. Click \"Sync from {p0}\"; until then the platform default model is used."
   },
   "myBots": {
     "all_robots_you_own_total": "All robots you own · {p0} total",
@@ -1828,7 +1813,11 @@
     "stuck_at": "Stuck at",
     "all_done_2": "✓ All done",
     "kit_downloaded_key_in_mcp_json": "Kit downloaded. The key is in .mcp.json; don't share it or commit it to a repository",
-    "change_mcp_url": "Change it in System settings"
+    "change_mcp_url": "Change it in System settings",
+    "download_kit": "Download kit",
+    "put_your_platform_key": " — generate an API key in Yihu One and put it into .mcp.json",
+    "open_platform_for_key": "Open Yihu One",
+    "kit_downloaded_add_key": "Kit downloaded: add your Yihu One API key to .mcp.json"
   },
   "profile": {
     "change_avatar": "Change avatar",
@@ -1931,33 +1920,6 @@
     "saved_permission_changes_effective_immediately": "Saved {p0} permission changes, effective immediately",
     "all_restored_factory_defaults": "All restored to factory defaults"
   },
-  "skillPackages": {
-    "reusable_capabilities_skill_md_source_shared": "Reusable capabilities (SKILL.md source) shared by people and agents (via MCP) · {p0} total",
-    "new_skill": "New skill",
-    "search_name_description_category": "Search name / description / category…",
-    "enable": "✅ Enable",
-    "disable": "⏸ Disable",
-    "log": "Log",
-    "no_skills_yet_create_one_or": "No skills yet · create one, or let an agent add one with create_skill via MCP",
-    "edit": "Edit {p0}",
-    "unique_name": "Unique name",
-    "kebab_case_e_g_my_skill": "kebab-case, e.g. my-skill",
-    "display_name": "Display name",
-    "optional_display_name": "Optional display name",
-    "one_line_description_main_thing_agents": "One-line description; the main thing agents search by",
-    "e_g_dev_workflow_ops_sales": "e.g. dev-workflow / ops / sales",
-    "press_enter_after_typing": "Press Enter after typing",
-    "content": "Content",
-    "skill_md_source_markdown_may_include": "SKILL.md source (Markdown, may include frontmatter: name/description)",
-    "filled_from_frontmatter": "Filled from frontmatter: {p0}",
-    "call_log": "Call log · {p0}",
-    "caller": "Caller",
-    "no_calls_yet": "No calls yet",
-    "no_content": "*No content*",
-    "unique_name_required": "Unique name is required",
-    "content_required": "Content is required",
-    "delete_skill_soft_delete_call_logs": "Delete skill \"{p0}\"? (soft delete; call logs are kept)"
-  },
   "skills": {
     "skills_categories": "{p0} skills · {p1} categories",
     "new_skill": "New skill",
@@ -2019,7 +1981,11 @@
     "team_members": "Team members",
     "enter_team_name": "Enter a team name",
     "team_created_click_members_add_people": "Team created; click \"Members\" to add people",
-    "members_updated": "Members updated"
+    "members_updated": "Members updated",
+    "synced_from_platform": "Teams are the departments in Yihu One: names and members are synced from the platform every day.",
+    "sync_note": "Names and members come from Yihu One departments (synced daily). Here you can set a lead, a group bot webhook for team notifications, the order and a note.",
+    "platform_department": "Yihu One department",
+    "manual_team": "Created before Yihu One (can be deleted)"
   },
   "timesheets": {
     "entries_hours_matching_filters": "{p0} entries · {p1} hours matching the filters",
@@ -2103,7 +2069,20 @@
     "default_password_123456": "Default password 123456",
     "reset_password_123456": "Reset the password of {p0} ({p1}) to 123456?",
     "reset": "Reset",
-    "user_id_not_found_it_may": "User ID={p0} not found; it may be disabled or deleted"
+    "user_id_not_found_it_may": "User ID={p0} not found; it may be disabled or deleted",
+    "add_from_platform": "Add from Yihu One",
+    "search_platform_directory": "Search the Yihu One directory: name, account, employee no., department",
+    "added": "{p0} added; they sign in with their Yihu One account",
+    "linked_platform": "Yihu One account",
+    "not_linked_platform": "Not linked to Yihu One",
+    "change_role": "Change role",
+    "disabled_on_platform": "Disabled on Yihu One",
+    "platform_admin_note": "This person is a Yihu One admin and becomes an admin again at the next sign-in.",
+    "role_manual_note": "A role set here is kept on later sign-ins. Name, email and phone come from Yihu One.",
+    "source_platform_admin": "Yihu One admin",
+    "source_dept_leader": "Department head",
+    "source_default": "Default role",
+    "source_manual": "Set by an admin"
   },
   "workbench": {
     "due_today": "Due today",
@@ -2143,38 +2122,29 @@
   },
   "systemSettings": {
     "title": "System settings",
-    "subtitle": "Branding, addresses, models and sign-in for this installation. Values saved here override environment variables.",
-    "tab_brand": "Branding",
-    "tab_urls": "Addresses",
-    "tab_login": "Sign-in",
-    "brand_name": "Name",
-    "tagline": "Tagline",
-    "logo": "Logo",
-    "upload_logo": "Upload image",
-    "use_builtin_logo": "Use the built-in mark",
-    "logo_url_placeholder": "Or paste an image URL",
-    "logo_hint": "Square PNG/SVG/WebP works best, up to 2 MB.",
-    "logo_too_large": "The logo must be 2 MB or smaller",
-    "primary_color": "Primary color",
-    "brand_save_hint": "The page reloads after saving so the new branding shows everywhere.",
-    "public_url": "Public URL",
-    "public_url_hint": "The address people open this system at. Used in emails, file links and the single sign-on callback.",
-    "mcp_url": "MCP URL",
-    "mcp_url_hint": "Written into developer kits and shown on the onboarding page. Leave empty to use the public URL + /api/mcp.",
-    "in_use": "In use",
-    "empty_uses_env": "Empty: uses the environment value {p0}",
-    "empty_uses_default": "Empty: uses the default {p0}",
-    "empty_derived_from_request": "Empty: worked out from the address in the browser",
-    "empty_mcp_default": "Empty: public URL + /api/mcp",
-    "optional": "Optional",
-    "source_env": "Currently from the {p0} environment variable.",
-    "source_settings": "Saved here; overrides the {p0} environment variable.",
-    "password_login": "Password sign-in",
-    "sso": "Single sign-on",
+    "subtitle": "This system runs as a Yihu One app: sign-in, people, branding and models come from the platform.",
+    "tab_platform": "Yihu One",
+    "tab_accounts": "Accounts & messages",
+    "platform": "Platform",
+    "space": "Space",
+    "space_note": "only people in this space can use the system",
+    "directory_sync": "Directory sync",
+    "directory_sync_result": "Last sync {p0}: {p1} people checked, {p2} updated, {p3} disabled",
+    "directory_sync_pending": "Runs about 30 seconds after start, then hourly",
+    "ai_access": "AI access",
+    "ai_access_assistant": "The {p0} assistant can use all FDE tools as the signed-in user.",
+    "ai_access_personal": "Personal AI tools (Claude Code, Cursor) use a Yihu One API key with",
+    "ai_access_robot": "Robots registered under Agents use their own key with",
+    "brand_from_platform": "Name, logo and colors follow {p0}; change them in the platform.",
+    "not_connected": "Not connected to Yihu One. On the platform this is set up automatically; for local development set OIDC_ISSUER, OIDC_CLIENT_ID and OIDC_CLIENT_SECRET.",
     "new_accounts": "First sign-in",
     "auto_create": "An account is created automatically with the role {p0}",
-    "admin_creates": "An admin has to create the account first",
-    "login_hint": "Sign-in is set by the deployment: OIDC_ISSUER, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET and PASSWORD_LOGIN in the environment. Credentials are never stored in the database.",
-    "login_hint_hosted": "This system runs on Yihu One: sign-in uses the platform account, and the credentials are provided by the platform."
+    "admin_creates": "An admin has to add the person from the Yihu One directory first",
+    "platform_admins": "Admins",
+    "platform_admins_rule": "{p0} admins are always admins here (checked at every sign-in)",
+    "leader_is_manager": "Department heads are project managers",
+    "leader_is_manager_note": "People who lead a department in Yihu One become project managers when they sign in, unless an admin has set their role here.",
+    "platform_messages": "Send to DingTalk / Feishu / WeCom",
+    "platform_messages_note": "Important notifications (task assigned, timesheet approvals, mentions) are also sent to the person through {p0}."
   }
 }

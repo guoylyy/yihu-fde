@@ -17,13 +17,6 @@ const routes = [
     component: () => import('@/views/admin/AdminLogin.vue')
   },
   {
-    // 2026-07-05: 改密码页面，meta 不带 requiresInternalAuth（守卫中定制）
-    path: '/admin/change-password',
-    name: 'AdminChangePassword',
-    component: () => import('@/views/admin/ChangePassword.vue'),
-    meta: { requiresInternalAuth: true, allowDuringMustChange: true }
-  },
-  {
     path: '/admin',
     component: () => import('@/views/admin/AdminLayout.vue'),
     meta: { requiresInternalAuth: true },
@@ -52,8 +45,6 @@ const routes = [
       { path: 'knowledge', name: 'AdminKnowledge', component: () => import('@/views/admin/Knowledge.vue'),
         meta: { requiredPerm: 'knowledge.view', requiredRoles: ['ADMIN', 'MANAGER', 'FDE_ENGINEER'] } },
       // v2.0.9(#429): Skills 能力包管理(交付模块内独立入口)
-      { path: 'skill-packages', name: 'AdminSkillPackages', component: () => import('@/views/admin/SkillPackages.vue'),
-        meta: { requiredPerm: 'skillPackage.view', requiredRoles: ['ADMIN', 'MANAGER', 'FDE_ENGINEER'] } },
       // v2.10.0(#1180): 创意中心(想法与需求广场), 全员可进
       { path: 'ideas', name: 'AdminIdeas', component: () => import('@/views/admin/Ideas.vue'),
         meta: { requiredPerm: 'idea.view', requiredRoles: ['ADMIN', 'MANAGER', 'FDE_ENGINEER'] } },
@@ -145,21 +136,6 @@ router.beforeEach((to, from, next) => {
     role: (() => {
       try { return JSON.parse(localStorage.getItem('fde_internal_user') || 'null')?.role } catch { return undefined }
     })()
-  }
-
-  // 2026-07-05: 强制改密码拦截
-  // 1) 如果已登录且 mustChangePassword=true 且目标不是 login/change-password → 强制跳 change-password
-  // 2) 如果未登录且目标需要登录 → 正常跳 login
-  // 3) 如果是 login 页面但已登录且已修改密码 → 跳 /admin/my
-  const internalUser = (() => {
-    try { return JSON.parse(localStorage.getItem('fde_internal_user') || 'null') } catch { return null }
-  })()
-  const mustChange = !!internalUser?.mustChangePassword
-
-  // 允许的目标（即使 mustChange 也能访问）
-  const allowDuringMustChange = to.matched.some(r => r.meta?.allowDuringMustChange)
-  if (mustChange && !allowDuringMustChange && to.path !== '/admin/login' && to.path !== '/admin/change-password') {
-    return next({ path: '/admin/change-password', query: { forced: '1', redirect: to.fullPath } })
   }
 
   // v1.3.0: 声明了 requiredPerm 的路由按权限点判断(服务端生效权限, 后台可配), 其余回退 requiredRoles

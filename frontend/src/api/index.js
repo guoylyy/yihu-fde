@@ -199,9 +199,7 @@ export const fde = {
       return request('/api/fde/teams' + (q ? '?' + q : ''))
     },
     detail: (id) => request(`/api/fde/teams/${id}`),
-    create: (data) => request('/api/fde/teams', { method: 'POST', body: JSON.stringify(data) }),
     update: (id, data) => request(`/api/fde/teams/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-    setMembers: (id, userIds) => request(`/api/fde/teams/${id}/members`, { method: 'PUT', body: JSON.stringify({ userIds }) }),
     remove: (id) => request(`/api/fde/teams/${id}`, { method: 'DELETE' })
   },
   // v1.4.x 项目记录(过程资料)
@@ -316,20 +314,6 @@ export const fde = {
     byProject: (projectId) => request(`/api/fde/assets/by-project/${projectId}`),
     draftFromProject: (projectId, data = {}) => request(`/api/fde/assets/draft-from-project/${projectId}`, { method: 'POST', body: JSON.stringify(data), timeout: 130000 })
   },
-  skillPackages: {
-    list: (params = {}) => {
-      const q = new URLSearchParams(params).toString()
-      return request('/api/fde/skill-packages' + (q ? '?' + q : ''))
-    },
-    detail: (id, log = false) => request(`/api/fde/skill-packages/${id}${log ? '?log=1' : ''}`),
-    create: (data) => request('/api/fde/skill-packages', { method: 'POST', body: JSON.stringify(data) }),
-    update: (id, data) => request(`/api/fde/skill-packages/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-    remove: (id) => request(`/api/fde/skill-packages/${id}`, { method: 'DELETE' }),
-    usageLogs: (id, params = {}) => {
-      const q = new URLSearchParams(params).toString()
-      return request(`/api/fde/skill-packages/${id}/usage-logs` + (q ? '?' + q : ''))
-    }
-  },
   // v2.0.9(#434): Agent 巡检状态(看板展示谁正在巡检)
   agentPresence: {
     active: () => request('/api/fde/agent-presence/active'),
@@ -347,13 +331,14 @@ export const fde = {
     assignable: () => request('/api/fde/users/assignable'),
     mentionable: () => request('/api/fde/users/mentionable'),
     detail: (id) => request(`/api/fde/users/${id}`),
+    // 从以虎 One 通讯录选人提前开通: { platformUserId, role }
     create: (data) => request('/api/fde/users', { method: 'POST', body: JSON.stringify(data) }),
+    platformDirectory: (keyword = '') => request('/api/fde/users/platform-directory?keyword=' + encodeURIComponent(keyword)),
     update: (id, data, query = {}) => {
       const q = new URLSearchParams(query).toString()
       return request(`/api/fde/users/${id}` + (q ? '?' + q : ''), { method: 'PUT', body: JSON.stringify(data) })
     },
-    remove: (id) => request(`/api/fde/users/${id}`, { method: 'DELETE' }),
-    resetPassword: (id) => request(`/api/fde/users/${id}/reset-password`, { method: 'POST', body: JSON.stringify({}) })
+    remove: (id) => request(`/api/fde/users/${id}`, { method: 'DELETE' })
   },
   // v2.0.0 开发上手中心 (#367)
   onboarding: {
@@ -404,7 +389,6 @@ export const fde = {
   },
   llmConfigs: {
     list: () => request('/api/fde/llm-configs'),
-    create: (data) => request('/api/fde/llm-configs', { method: 'POST', body: JSON.stringify(data) }),
     update: (id, data) => request(`/api/fde/llm-configs/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     setDefault: (id) => request(`/api/fde/llm-configs/${id}/set-default`, { method: 'POST' }),
     remove: (id) => request(`/api/fde/llm-configs/${id}`, { method: 'DELETE' }),
@@ -416,7 +400,6 @@ export const fde = {
       const q = new URLSearchParams(params).toString()
       return request('/api/fde/api-keys' + (q ? '?' + q : ''))
     },
-    create: (data) => request('/api/fde/api-keys', { method: 'POST', body: JSON.stringify(data) }),
     update: (id, data) => request(`/api/fde/api-keys/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
     revoke: (id) => request(`/api/fde/api-keys/${id}/revoke`, { method: 'POST' }),
     remove: (id) => request(`/api/fde/api-keys/${id}`, { method: 'DELETE' })

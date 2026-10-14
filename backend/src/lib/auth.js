@@ -169,8 +169,6 @@ export const PERMISSIONS = {
   'skill.manage':            ['ADMIN', 'MANAGER'],
 
   // v2.0.9 Skills 能力包框架 (#428): 查看全员, 维护限经理/管理员
-  'skillPackage.view':       ['ADMIN', 'MANAGER', 'FDE_ENGINEER'],
-  'skillPackage.manage':     ['ADMIN', 'MANAGER'],
 
   // v2.7 项目资产库 (#1140): 全员可看; 工程师可登记(进草稿)与登记复用; 发布/改/删限经理
   'asset.view':              ['ADMIN', 'MANAGER', 'FDE_ENGINEER'],
@@ -192,7 +190,6 @@ export const PERMISSIONS = {
   'user.create':             ['ADMIN'],
   'user.edit':               ['ADMIN'],
   'user.delete':             ['ADMIN'],
-  'user.resetPassword':      ['ADMIN'],
 
   // API Key (MCP/智能体对接凭证): FDE 工程师可管理自己的 Key; 查看/签发他人 Key 仅 ADMIN
   'apiKey.manage':           ['ADMIN', 'FDE_ENGINEER'],

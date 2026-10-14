@@ -1,7 +1,7 @@
 // 集成测试 - /api/fde/projects 项目
 import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { login, api, uniqName, TAG } from './helpers.js'
+import { login, api, uniqName, TAG, createTestUser } from './helpers.js'
 
 describe('API: /api/fde/projects 项目管理', () => {
   let token, a, createdIds = [], customerId
@@ -128,13 +128,13 @@ describe('API: /api/fde/projects 项目管理', () => {
 describe('POST /:id/members 项目成员 (任何角色)', () => {
   let token, a, testMemberId, testManagerUserId, testProjectId, disabledUserId, memberEngineerId
   const createdUserIds = []
+  const cleanups = []
 
   async function createUser(role) {
-    const username = uniqName('pm').toLowerCase().replace(/[^a-z0-9]/g, 'x')
-    const r = await a.post('/api/fde/users', { username, name: uniqName('成员测试'), password: 'Test123456', role, email: `${username}@test.local` })
-    assert.equal(r.code, 0, `建用户失败: ${r.message}`)
-    createdUserIds.push(r.data.id)
-    return r.data
+    const u = await createTestUser(role, { name: uniqName('成员测试') })
+    createdUserIds.push(u.id)
+    cleanups.push(u.cleanup)
+    return { id: u.id, username: u.username, name: u.name, role }
   }
 
   before(async () => {
@@ -153,7 +153,7 @@ describe('POST /:id/members 项目成员 (任何角色)', () => {
   })
 
   after(async () => {
-    for (const id of createdUserIds) await a.del(`/api/fde/users/${id}`).catch(() => {})
+    for (const c of cleanups) await c()
   })
 
   test('available-users 返回所有角色 (ADMIN/MANAGER/FDE_ENGINEER)', async () => {

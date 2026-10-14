@@ -31,33 +31,39 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIs...   ← 用户登录后拿到的 JWT
 
 规则与边界：
 
-- Token 来源：`POST /api/auth/login` 返回的 `data.token`（有效期 7 天，勾选"下次自动登录"为 30 天）。前端已登录用户的 Token 存在 localStorage，平台侧集成时由用户授权带出。
+- Token 来源：用户用以虎 One 账号登录本系统后拿到的 `data.token`（有效期 7 天）。本系统没有账号密码登录。
 - 服务端逐次落库核验：Token 有效但用户已被禁用/删除 → 401。
 - Token 无效/过期/非内部用户 Token → 401，消息说明两种凭证的传法。
 - 解析成功后行为与个人 Key 完全一致：内部签发该用户 JWT 回调 REST，权限矩阵与数据范围自动生效。
 
-## API Key 获取与管理
+## 凭证
+
+本系统作为以虎 One 的应用运行，**个人 API Key 由以虎 One 签发**（个人中心 → API Key），一个 Key 通用平台上所有应用的工具：
+
+- 外部智能体连以虎 One 的 MCP 网关 `<平台地址>/api/mcp`，FDE 的工具名带 `fde__` 前缀，以用户本人身份执行
+- 以虎 One 的 AI 助手调用 FDE 时自动带上用户身份，不用配置
+- 需要独立身份的机器人（看板派工自动开发）在 FDE「Agent 协作」里注册 Agent，签发 Agent 专属 Key（`fde_` 前缀），直连 FDE 的 `/api/mcp`
 
 | 操作 | 接口 | 说明 |
 |---|---|---|
-| 创建 | `POST /api/fde/api-keys`，body `{name}` | 需 JWT 登录（任何内部用户给自己创建）；**明文只返回这一次**，格式 `fde_` + 32 随机字符 |
-| 给他人签发 | 同上，body `{name, userId}` | 仅 ADMIN |
+| 签发 Agent 专属 Key | `POST /api/fde/agent-profiles` / `.../:id/rotate-key` | 明文只返回这一次 |
 | 列表 | `GET /api/fde/api-keys` | 只展示前缀与 scope，不能找回明文 |
 | 吊销 | `POST /api/fde/api-keys/:id/revoke` | 本人或 ADMIN；立即失效 |
+| 个人 Key | `POST /api/fde/api-keys` | 已停止签发（410），请用以虎 One 个人中心的 API Key |
 
 存储安全：库里只存 sha256 哈希（`api_keys` 表），泄露库不泄露 Key；每次使用更新 `lastUsedAt` 便于审计。
 
 ## 平台配置步骤（以支持 MCP 的智能体平台为例）
 
 1. 凭证二选一：
-   - **Token 透传（平台级对接推荐）**：平台侧让用户完成系统登录（`POST /api/auth/login`）或授权带出已登录 Token，后续调用原样透传。
-   - **个人 Key**：管理员在系统里为目标工程师创建 API Key（备注写平台名）。
+   - **以虎 One 个人 API Key（推荐）**：用户在以虎 One 个人中心生成，连平台 MCP 网关。
+   - **Agent 专属 Key**：机器人在 FDE「Agent 协作」里注册后签发。
 2. 平台的 MCP/插件配置里添加：
-   - Server URL：`https://<域名>/api/mcp`
-   - 认证：自定义 Header `Authorization: Bearer <用户JWT 或 fde_xxx>`
+   - Server URL：以虎 One 个人 Key 用 `<以虎 One 地址>/api/mcp`；Agent 专属 Key 用 `<FDE 地址>/api/mcp`
+   - 认证：自定义 Header `Authorization: Bearer <Key>`
 4. 系统提示词仍建议采用本材料包 01（行为准则）+ 07（槽位归一化）内容；MCP 的 `instructions` 字段已内置七条核心约定（先调工作台/写前确认/不可逆动作要确认/403 不重试/对外通道不由模型触发/日期格式/干完活把过程沉淀回系统）。
 
-## 工具清单（139 个，与 REST 对照见 03 文档）
+## 工具清单（112 个，与 REST 对照见 03 文档）
 
 - 工作台/档案：`get_my_workbench`、`get_engineer_profile`、`suggest_engineers_for_task`、`update_my_profile`
 - 客户：`list_customers`、`get_customer`、`add_customer_contact`、`update_customer_contact`、`delete_customer_contact`
@@ -74,7 +80,7 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIs...   ← 用户登录后拿到的 JWT
 - **Agent 协作（v1.6.0）**：`log_agent_conversation`（对话整段回传留存，挂项目进时间线）、`get_my_agent_profile`（查自己的注册档案与沉淀计数）
 - **创意中心（v2.10.0）**：`list_idea_topics`、`create_idea_topic`、`list_ideas`、`get_idea`、`create_idea`、`add_idea_comment`、`summarize_idea`（AI 总结讨论）、`draft_idea_milestone`（AI 起草里程碑）、`convert_idea_to_milestone`（想法 → 项目里程碑，调用前需用户确认）
 - 知识库：`search_knowledge`、`get_knowledge_article`、`create_knowledge_article`、`update_knowledge_article`、`delete_knowledge_article`
-- 技能/能力包：`list_skills`、`get_skill`、`create_skill`、`update_skill`、`delete_skill`、`match_skills`
+- 技能：已改到以虎 One 的 Skill 中心（平台 MCP 的 `list_skills` / `get_skill` 等），本系统不再提供
 - 资产库：`search_assets`、`get_asset`、`propose_asset`、`record_asset_usage`
 - 团队：`list_teams`
 - 通知：`list_notifications`、`mark_notification_read`、`mark_all_notifications_read`、`delete_notification`、`send_notification`

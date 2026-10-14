@@ -134,7 +134,7 @@ export const TOOLS = [
   },
   {
     name: 'get_customer',
-    description: '客户详情（含联系人）。要找对接人电话/邮箱时用。',
+    description: '客户详情（含联系人）。要找对接人电话/邮箱、「XX 客户的联系人是谁」时用。',
     schema: { customerId: id() },
     build: (a) => ({ method: 'GET', path: `/api/fde/customers/${a.customerId}` })
   },
@@ -176,7 +176,7 @@ export const TOOLS = [
   },
   {
     name: 'delete_customer_contact',
-    description: '删除客户联系人(软删)。删除动作必须拿到用户明确确认才调用, 不要顺手执行。',
+    description: '删除客户联系人(软删，对接人离职、换人时)。删除动作必须拿到用户明确确认才调用, 不要顺手执行。',
     schema: { customerId: id(), contactId: id() },
     build: (a) => ({ method: 'DELETE', path: `/api/fde/customers/${a.customerId}/contacts/${a.contactId}` })
   },
@@ -340,7 +340,7 @@ export const TOOLS = [
   },
   {
     name: 'submit_timesheet',
-    description: '提交一条草稿状态的工时进入审批。',
+    description: '提交一条草稿状态的工时进入审批（报工、提交工时、交工时）。',
     schema: { timesheetId: id() },
     build: (a) => ({ method: 'POST', path: `/api/fde/timesheets/${a.timesheetId}/submit` })
   },
@@ -489,7 +489,7 @@ export const TOOLS = [
   },
   {
     name: 'list_task_comments',
-    description: '查看任务的评论串（含 @提及）。',
+    description: '查看任务的评论串（含 @提及）。回答「这个任务大家说了什么」「任务讨论 / 留言」。',
     schema: { taskId: id() },
     build: (a) => ({ method: 'GET', path: '/api/fde/comments', query: { entity: 'task', entityId: a.taskId } })
   },
@@ -501,19 +501,19 @@ export const TOOLS = [
   },
   {
     name: 'list_subtasks',
-    description: '查看某任务的子任务清单。',
+    description: '查看某任务的子任务清单（拆解、checklist、进度明细）。',
     schema: { taskId: id() },
     build: (a) => ({ method: 'GET', path: '/api/fde/subtasks', query: { taskId: a.taskId } })
   },
   {
     name: 'create_subtask',
-    description: '给任务添加一个子任务。批量拆解时多次调用, order 递增。',
+    description: '给任务添加一个子任务（拆任务、加子项）。批量拆解时多次调用, order 递增。',
     schema: { taskId: id(), title: z.string().min(1), order: z.coerce.number().optional() },
     build: (a) => ({ method: 'POST', path: '/api/fde/subtasks', body: a })
   },
   {
     name: 'update_subtask',
-    description: '勾选/取消勾选子任务完成, 或改标题。',
+    description: '勾选/取消勾选子任务完成（子任务做完了、打勾）, 或改标题。',
     schema: { subtaskId: id(), done: z.boolean().optional(), title: z.string().optional() },
     build: ({ subtaskId, ...body }) => ({ method: 'PUT', path: `/api/fde/subtasks/${subtaskId}`, body })
   },
@@ -559,7 +559,7 @@ export const TOOLS = [
   },
   {
     name: 'update_issue',
-    description: '更新问题状态或内容（OPEN→IN_PROGRESS→RESOLVED→CLOSED）。',
+    description: '更新项目问题（issue、故障、待解决事项）的状态或内容（OPEN→IN_PROGRESS→RESOLVED→CLOSED）。',
     schema: {
       projectId: id(),
       issueId: id(),
@@ -585,7 +585,7 @@ export const TOOLS = [
   },
   {
     name: 'update_risk',
-    description: '更新风险状态（IDENTIFIED→MONITORING→MITIGATED→CLOSED）或缓解措施。',
+    description: '更新项目风险的状态（IDENTIFIED→MONITORING→MITIGATED→CLOSED）或缓解措施（风险跟进、关闭风险）。',
     schema: {
       projectId: id(),
       riskId: id(),
@@ -757,7 +757,7 @@ export const TOOLS = [
   },
   {
     name: 'get_knowledge_article',
-    description: '读知识库文章全文（Markdown）。先用 search_knowledge 搜到 articleId 再取。',
+    description: '读知识库文章全文（Markdown，经验、方案、文档）。先用 search_knowledge 搜到 articleId 再取。',
     schema: { articleId: id() },
     build: (a) => ({ method: 'GET', path: `/api/fde/knowledge/${a.articleId}` })
   },
@@ -775,7 +775,7 @@ export const TOOLS = [
   },
   {
     name: 'update_knowledge_article',
-    description: '编辑知识库文章; 传入的字段整体覆盖原值。内容过时优先修订而不是新建重复文章。',
+    description: '编辑知识库文章（修订文档、更新经验）; 传入的字段整体覆盖原值。内容过时优先修订而不是新建重复文章。',
     schema: {
       articleId: id(),
       title: z.string().optional(),
@@ -795,25 +795,25 @@ export const TOOLS = [
   // ============ 通知 ============
   {
     name: 'list_notifications',
-    description: '查站内通知, unread=true 只看未读。',
+    description: '查我的站内通知（消息、提醒、有没有人找我）, unread=true 只看未读。',
     schema: { unread: z.enum(['true', 'false']).optional(), ...page },
     build: (a) => ({ method: 'GET', path: '/api/fde/notifications', query: a })
   },
   {
     name: 'mark_notification_read',
-    description: '标记单条通知已读（只能标记自己收到的）。',
+    description: '标记单条通知已读（消息已读，只能标记自己收到的）。',
     schema: { notificationId: id() },
     build: (a) => ({ method: 'POST', path: `/api/fde/notifications/${a.notificationId}/read` })
   },
   {
     name: 'mark_all_notifications_read',
-    description: '把自己所有未读通知一次性标记为已读。',
+    description: '把自己所有未读通知一次性标记为已读（消息全部已读、清空提醒）。',
     schema: {},
     build: () => ({ method: 'POST', path: '/api/fde/notifications/read-all' })
   },
   {
     name: 'delete_notification',
-    description: '删掉自己收到的一条通知。只能删自己的, 删别人的会 403。',
+    description: '删掉自己收到的一条通知（删除消息）。只能删自己的, 删别人的会 403。',
     schema: { notificationId: id() },
     build: (a) => ({ method: 'DELETE', path: `/api/fde/notifications/${a.notificationId}` })
   },
@@ -916,75 +916,6 @@ export const TOOLS = [
       readme: z.string().optional().describe('方案 Markdown(已脱敏)')
     },
     build: (body) => ({ method: 'POST', path: '/api/fde/assets', body: { maturity: 'L0', ...body } })
-  },
-
-  // ============ v2.0.9 Skills 能力包 (#428) ============
-  {
-    name: 'list_skills',
-    description: '查询平台 Skills 能力包列表（按名称/描述/分类/触发词模糊搜索）。无 skillPackage.manage 权限只返回启用中的。Agent 找能力时先用它检索。',
-    schema: {
-      keyword: z.string().optional().describe('名称/描述/分类关键词'),
-      category: z.string().optional().describe('分类精确过滤, 如 dev-workflow / ops / sales'),
-      status: z.enum(['ENABLED', 'DISABLED']).optional().describe('状态过滤(仅维护权限生效, 默认只看启用); v2.1.1 已无草稿态'),
-      ...page
-    },
-    build: (a) => ({ method: 'GET', path: '/api/fde/skill-packages', query: a })
-  },
-  {
-    name: 'get_skill',
-    description: '读一个 Skill 的全文（Markdown, 含 frontmatter）。先用 list_skills 搜到 id 再取; 传 log=1 记录一条加载日志(调用留痕)。',
-    schema: {
-      skillId: id(),
-      log: z.coerce.boolean().optional().describe('true=记录一条 LOAD 调用日志')
-    },
-    build: ({ skillId, log }) => ({ method: 'GET', path: `/api/fde/skill-packages/${skillId}`, query: log ? { log: 1 } : {} })
-  },
-  {
-    name: 'create_skill',
-    description: '新建平台 Skill（需 skillPackage.manage 权限）。name 为 kebab-case 唯一名; content 为 SKILL.md 原文(含 frontmatter, 缺失元数据自动回填)。403 说明无维护权限, 请转交经理/管理员。',
-    schema: {
-      name: z.string().regex(/^[a-z0-9][a-z0-9-]{1,79}$/, 'kebab-case: 小写字母/数字/连字符').describe('唯一名, 如 fde-tasks'),
-      displayName: z.string().optional(),
-      description: z.string().optional().describe('一句话说明(检索主依据)'),
-      category: z.string().optional().describe('分类, 如 dev-workflow / ops / sales'),
-      keywords: z.array(z.string()).optional().describe('触发关键词数组'),
-      content: z.string().min(1).describe('SKILL.md 原文(Markdown, 可含 frontmatter)'),
-      status: z.enum(['ENABLED', 'DISABLED']).optional().describe('v2.1.1 双态: 新建缺省停用, 确认可用后再启用'),
-      projectId: id().optional().describe('可选挂项目 id')
-    },
-    build: (a) => ({ method: 'POST', path: '/api/fde/skill-packages', body: a })
-  },
-  {
-    name: 'update_skill',
-    description: '编辑平台 Skill（需 skillPackage.manage 权限）。content 变更时版本自动 +1。传入的字段整体覆盖, 不传的不动。',
-    schema: {
-      skillId: id(),
-      name: z.string().regex(/^[a-z0-9][a-z0-9-]{1,79}$/).optional(),
-      displayName: z.string().optional(),
-      description: z.string().optional(),
-      category: z.string().optional(),
-      keywords: z.array(z.string()).optional(),
-      content: z.string().optional().describe('SKILL.md 原文'),
-      status: z.enum(['ENABLED', 'DISABLED']).optional().describe('v2.1.1 双态: 新建缺省停用, 确认可用后再启用'),
-      projectId: id().optional()
-    },
-    build: ({ skillId, ...body }) => ({ method: 'PUT', path: `/api/fde/skill-packages/${skillId}`, body })
-  },
-  {
-    name: 'delete_skill',
-    description: '删除平台 Skill（软删, 需 skillPackage.manage 权限）。不可逆动作 —— 调用前必须拿到用户明确确认。',
-    schema: { skillId: id() },
-    build: ({ skillId }) => ({ method: 'DELETE', path: `/api/fde/skill-packages/${skillId}` })
-  },
-
-  {
-    name: 'match_skills',
-    description: '按任务上下文匹配平台 Skills（触发词/描述命中打分排序，返回全文可直接注入上下文）。Agent 接到任务时先调它：命中即按 skill 内容执行；调用即留 SEARCH 日志。',
-    schema: {
-      text: z.string().min(1).describe('任务上下文/用户指令原文（如「开工」「巡检项目64」）'),
-      projectId: id().optional().describe('当前项目 id（通用+该项目 skill 都参与匹配）')
-    },
-    build: (a) => ({ method: 'GET', path: '/api/fde/skill-packages/match', query: a })
   },
 
   // ============ v2.9.0(#1162) 看板派工自动开发: 机器人侧 ============
@@ -1153,5 +1084,56 @@ export const TOOLS = [
       progress: z.number().int().min(0).max(99).nullable().optional().describe('进度 0-99；巡检无进度可不传（前端按「巡检中」渲染）')
     },
     build: (a) => ({ method: 'POST', path: '/api/fde/agent-presence', body: a })
+  },
+
+  // ============ 以虎 One 首页数据卡片(只读, 结果小; card: true 时返回 structuredContent 给平台卡片直接用) ============
+  {
+    name: 'get_my_open_task_count',
+    card: true,
+    description: '我手上还有几个没做完的任务（待办、等候生产、生产中的任务数）。回答「我还有几个任务」「待办多少」。返回 { total }，适合放首页数字卡片。',
+    schema: {},
+    build: () => ({ method: 'GET', path: '/api/fde/cards/my-open-task-count' })
+  },
+  {
+    name: 'list_my_open_tasks',
+    card: true,
+    description: '我的待办任务清单（生产中的在前，再按截止日）：标题、项目、状态、截止日。回答「我今天做什么」「我的任务」「待办」。返回 { list }，适合放首页列表卡片；要筛选/分页用 list_my_tasks。',
+    schema: { limit: z.number().int().min(1).max(20).optional().describe('最多几条，默认 8') },
+    build: (a) => ({ method: 'GET', path: '/api/fde/cards/my-tasks', query: a })
+  },
+  {
+    name: 'get_my_week_hours',
+    card: true,
+    description: '我本周报了多少工时（小时，不含已驳回）。回答「我这周报了多少工时」「本周工时」。返回 { total }，适合放首页数字卡片。',
+    schema: {},
+    build: () => ({ method: 'GET', path: '/api/fde/cards/my-week-hours' })
+  },
+  {
+    name: 'list_my_weekly_hours',
+    card: true,
+    description: '我最近几周每周的工时（报工趋势）。返回 { list: [{ week, hours }] }，week 是周一日期；放首页折线卡片时 x = week、y = hours。',
+    schema: { weeks: z.number().int().min(2).max(26).optional().describe('最近几周，默认 8') },
+    build: (a) => ({ method: 'GET', path: '/api/fde/cards/my-hours-trend', query: a })
+  },
+  {
+    name: 'list_pending_timesheet_approvals',
+    card: true,
+    description: '等我审批的工时（项目经理 / 管理员；范围是我能看到的项目）：谁、哪天、几小时、哪个项目。回答「有哪些工时待审批」「待我审批」。返回 { total, list }；没有审批权限返回空。审批用 approve_timesheet。',
+    schema: { limit: z.number().int().min(1).max(20).optional().describe('最多几条，默认 8') },
+    build: (a) => ({ method: 'GET', path: '/api/fde/cards/pending-approvals', query: a })
+  },
+  {
+    name: 'list_project_health',
+    card: true,
+    description: '进行中项目的交付健康度（风险 / 关注 / 正常）和进度，有风险的在前。回答「哪些项目有风险」「项目健康度」「项目进展」。返回 { list }，适合放首页列表卡片。',
+    schema: { limit: z.number().int().min(1).max(20).optional().describe('最多几条，默认 8') },
+    build: (a) => ({ method: 'GET', path: '/api/fde/cards/project-health', query: a })
+  },
+  {
+    name: 'list_overdue_tasks',
+    card: true,
+    description: '已过截止日还没完成的任务（我能看到的项目里），逾期最久的在前：标题、项目、截止日、逾期天数。回答「哪些任务逾期了」「延期任务」。返回 { list }。',
+    schema: { limit: z.number().int().min(1).max(20).optional().describe('最多几条，默认 8') },
+    build: (a) => ({ method: 'GET', path: '/api/fde/cards/overdue-tasks', query: a })
   }
 ]

@@ -16,9 +16,10 @@
 
 ### 认证与基础接口
 
+> 本系统只用以虎 One 账号登录（`GET /api/auth/oidc/login` 跳转平台授权），没有账号密码登录。智能体经以虎 One 接入或用 Agent 专属 Key，见 10 文档。
+
 | 方法 | 路径 | 功能 | 说明 |
 |---|---|---|---|
-| POST | `/api/auth/login` | 登录 | body `{ "username": "...", "password": "..." }`；返回 `data.token`（JWT）与 `data.user`（含 `id`, `name`, `role`, `engineerId`, `mustChangePassword`）。⚠️ 注意路径前缀是 `/api/auth`，不是 `/api/fde`。JWT payload 含 `userId`/`role`/`engineerId`，工程师身份操作依赖 `engineerId`。 |
 | GET | `/api/auth/me` | 当前登录用户信息 | 需 Bearer token |
 | GET | `/api/fde/me` | 个人工作台聚合 | FDE_ENGINEER 返回：个人档案+技能、我的在职项目（含客户）、本月工时汇总、待办任务、可用性。v1.5.6 起 `profile.teams` 带出所属团队（即时消息通知按团队定位，未设置会收不到团队群通知）。**智能体会话开始时建议先调这个接口获取上下文。** |
 | GET | `/api/fde/teams` | 团队清单（v1.5.6） | 登录即可（只读）；返回启用中团队 `{ list: [{id, name, leader, memberCount, ...}] }`。`?all=1` 含停用团队（需 team.manage）。`GET /api/fde/teams/:id` 返回详情含成员清单。**团队归属由管理员设置**（用户管理 `PUT /api/fde/users/:id` 的 `teamIds` 字段，或团队管理 `PUT /api/fde/teams/:id/members`），本人不可自改。用户报「收不到通知」时检查其 `profile.teams` 是否为空，为空则提醒找管理员设置。 |

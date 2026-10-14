@@ -968,7 +968,10 @@
     "signing_in_automatically": "自动登录中…",
     "sign_in_failed": "登录失败",
     "sign_in_with": "使用 {p0} 登录",
-    "or_use_password": "或使用账号密码登录"
+    "or_use_password": "或使用账号密码登录",
+    "not_connected": "登录未配置：本系统作为以虎 One 的应用运行，请从以虎 One 工作台打开。",
+    "dev_login": "开发登录（仅本地开发）",
+    "dev_login_placeholder": "用户名，如 admin"
   },
   "projectDetail": {
     "project_doesnt_exist_or_you_cant": "项目不存在或无权查看",
@@ -1380,7 +1383,9 @@
     "purpose": "用途备注",
     "failed_load_users": "加载用户列表失败: ",
     "enter_name_purpose": "请填写名称（用途备注）",
-    "choose_bound_user": "请选择绑定用户"
+    "choose_bound_user": "请选择绑定用户",
+    "go_agents": "注册 Agent",
+    "personal_keys_from_platform": "个人 API Key 改由以虎 One 签发（个人中心 → API Key），平台上所有应用通用。需要独立身份的机器人在「Agent 协作」里注册后获得专属 Key。下面已有的 Key 吊销前照常可用。"
   },
   "assetDetail": {
     "ai_drafted_awaiting_review": "AI 起草 · 待审核",
@@ -1439,7 +1444,8 @@
     "what_changed_optional": "这次改了什么（可选）",
     "recorded": "已记录",
     "withdraw_failed": "撤销失败",
-    "choose_what_link": "请选择关联对象"
+    "choose_what_link": "请选择关联对象",
+    "links_hint": "相关的知识文章和其他资产"
   },
   "assets": {
     "things_weve_built_ready_for_next": "做过的东西，下一个项目直接拿来用 · 开发前先搜一搜，用上了记得登记复用",
@@ -1470,30 +1476,6 @@
     "actor": "操作者",
     "resource": "资源",
     "no_audit_records": "暂无审计记录"
-  },
-  "changePassword": {
-    "change_password": "修改密码",
-    "youre_using_default_password": "你正在使用默认密码",
-    "for_your_accounts_safety_please_set": "，为了账号安全，请先设置一个新密码。",
-    "changing_your_password_regularly_keeps_your": "定期更换密码可以保护你的账号安全。",
-    "youre_using_default_password_must_change": "当前是默认密码，必须修改后才能继续使用系统",
-    "current_password": "当前密码",
-    "current_password_2": "输入当前密码",
-    "new_password": "新密码",
-    "at_least_6_characters_not_123456": "至少 6 位，且不能为 123456",
-    "enter_new_password_again": "再输入一次新密码",
-    "set_new_password_continue": "设置新密码并进入系统",
-    "password_requirements": "密码要求：",
-    "at_least_6_characters": "至少 6 位字符",
-    "you_cant_use_default_password_123456": "不能使用默认密码 123456",
-    "letters_numbers_recommended": "建议包含字母 + 数字",
-    "new_password_required": "新密码不能为空",
-    "new_password_must_be_at_least": "新密码至少 6 位",
-    "enter_new_password_again_2": "请再次输入新密码",
-    "new_passwords_dont_match": "两次输入的新密码不一致",
-    "enter_your_current_password": "请输入当前密码",
-    "change_failed": "修改失败",
-    "password_changed": "密码修改成功 🎉"
   },
   "customers": {
     "customers_industries": "共 {p0} 个客户 · {p1} 个行业",
@@ -1756,7 +1738,10 @@
     "sync_from": "从{p0}同步",
     "platform_credentials": "平台凭证",
     "yihu_one_hint": "使用{p0}里配置的模型，用本应用在平台的凭证调用，不需要填地址和密钥。",
-    "sync_result": "平台共 {p0} 个模型：新增 {p1}，更新 {p2}，停用 {p3}"
+    "sync_result": "平台共 {p0} 个模型：新增 {p1}，更新 {p2}，停用 {p3}",
+    "platform_models_hint": "AI 功能使用{p0}托管的模型。在这里同步模型、选默认、调参数；一个都不选时用平台的默认模型。",
+    "not_connected": "还没有接入以虎 One，AI 功能不可用。",
+    "no_models_yet": "还没有同步模型。点「从{p0}同步」；同步前用平台的默认模型。"
   },
   "myBots": {
     "all_robots_you_own_total": "你名下的全部机器人 · 共 {p0} 个",
@@ -1828,7 +1813,11 @@
     "stuck_at": "卡在",
     "all_done_2": "✓ 全部完成",
     "kit_downloaded_key_in_mcp_json": "配置包已下载，密钥在 .mcp.json 里，请勿外传或提交进仓库",
-    "change_mcp_url": "在系统设置里修改"
+    "change_mcp_url": "在系统设置里修改",
+    "download_kit": "下载配置包",
+    "put_your_platform_key": "，在以虎 One 生成 API Key 填进 .mcp.json",
+    "open_platform_for_key": "打开以虎 One",
+    "kit_downloaded_add_key": "配置包已下载：把你的以虎 One API Key 填进 .mcp.json"
   },
   "profile": {
     "change_avatar": "更换头像",
@@ -1931,33 +1920,6 @@
     "saved_permission_changes_effective_immediately": "已保存 {p0} 项权限改动，即时生效",
     "all_restored_factory_defaults": "已全部恢复为出厂默认"
   },
-  "skillPackages": {
-    "reusable_capabilities_skill_md_source_shared": "平台沉淀的可复用能力（SKILL.md 原文），人工与 Agent（经 MCP）共用 · 共 {p0} 个",
-    "new_skill": "新建 Skill",
-    "search_name_description_category": "搜索名称 / 描述 / 分类…",
-    "enable": "✅ 启用",
-    "disable": "⏸ 停用",
-    "log": "日志",
-    "no_skills_yet_create_one_or": "还没有 Skill · 可新建，或让 Agent 经 MCP 的 create_skill 沉淀",
-    "edit": "编辑 {p0}",
-    "unique_name": "唯一名",
-    "kebab_case_e_g_my_skill": "kebab-case, 如 my-skill",
-    "display_name": "展示名",
-    "optional_display_name": "可选, 中文展示名",
-    "one_line_description_main_thing_agents": "一句话说明, Agent 检索的主要依据",
-    "e_g_dev_workflow_ops_sales": "如 dev-workflow / ops / sales",
-    "press_enter_after_typing": "输入后回车",
-    "content": "正文",
-    "skill_md_source_markdown_may_include": "SKILL.md 原文（Markdown, 可含 frontmatter: name/description）",
-    "filled_from_frontmatter": "已从 frontmatter 自动回填：{p0}",
-    "call_log": "调用日志 · {p0}",
-    "caller": "调用者",
-    "no_calls_yet": "暂无调用记录",
-    "no_content": "*暂无内容*",
-    "unique_name_required": "唯一名必填",
-    "content_required": "正文必填",
-    "delete_skill_soft_delete_call_logs": "删除 Skill「{p0}」？（软删，调用日志保留）"
-  },
   "skills": {
     "skills_categories": "共 {p0} 个技能 · {p1} 个分类",
     "new_skill": "新建技能",
@@ -2019,7 +1981,11 @@
     "team_members": "团队成员",
     "enter_team_name": "请输入团队名称",
     "team_created_click_members_add_people": "团队已创建，可点「成员」添加团队成员",
-    "members_updated": "成员已更新"
+    "members_updated": "成员已更新",
+    "synced_from_platform": "团队就是以虎 One 的部门：名称和成员每天从平台同步。",
+    "sync_note": "名称和成员来自以虎 One 的部门（每天同步）。这里可以设置负责人、团队通知用的群机器人 Webhook、排序和备注。",
+    "platform_department": "以虎 One 部门",
+    "manual_team": "接入以虎 One 前手建（可删除）"
   },
   "timesheets": {
     "entries_hours_matching_filters": "筛选条件下共 {p0} 条 · {p1} 小时",
@@ -2103,7 +2069,20 @@
     "default_password_123456": "默认密码 123456",
     "reset_password_123456": "确定将 {p0}（{p1}）的密码重置为 123456？",
     "reset": "已重置",
-    "user_id_not_found_it_may": "未找到用户 ID={p0}，可能已停用或被删除"
+    "user_id_not_found_it_may": "未找到用户 ID={p0}，可能已停用或被删除",
+    "add_from_platform": "从以虎 One 添加",
+    "search_platform_directory": "搜索以虎 One 通讯录：姓名、账号、工号、部门",
+    "added": "已添加 {p0}，用以虎 One 账号登录即可",
+    "linked_platform": "以虎 One 账号",
+    "not_linked_platform": "未关联以虎 One",
+    "change_role": "改角色",
+    "disabled_on_platform": "以虎 One 上已停用",
+    "platform_admin_note": "此人是以虎 One 管理员，下次登录会恢复为本系统管理员。",
+    "role_manual_note": "在这里设的角色，之后登录不会再被规则改动。姓名、邮箱、手机以以虎 One 为准。",
+    "source_platform_admin": "以虎 One 管理员",
+    "source_dept_leader": "部门负责人",
+    "source_default": "默认角色",
+    "source_manual": "管理员设置"
   },
   "workbench": {
     "due_today": "今日到期",
@@ -2143,38 +2122,29 @@
   },
   "systemSettings": {
     "title": "系统设置",
-    "subtitle": "本系统的品牌外观、访问地址、大模型与登录方式。这里保存的值优先于环境变量。",
-    "tab_brand": "品牌外观",
-    "tab_urls": "访问地址",
-    "tab_login": "登录方式",
-    "brand_name": "系统名称",
-    "tagline": "副标题",
-    "logo": "Logo",
-    "upload_logo": "上传图片",
-    "use_builtin_logo": "改用内置标志",
-    "logo_url_placeholder": "或粘贴图片地址",
-    "logo_hint": "建议正方形 PNG/SVG/WebP，不超过 2 MB。",
-    "logo_too_large": "Logo 不能超过 2 MB",
-    "primary_color": "主题色",
-    "brand_save_hint": "保存后页面会刷新，让新品牌在各处生效。",
-    "public_url": "对外地址",
-    "public_url_hint": "大家访问本系统用的地址，用在邮件、文件链接和统一登录回调里。",
-    "mcp_url": "MCP 地址",
-    "mcp_url_hint": "写进开发配置包、显示在开发上手页。留空 = 对外地址 + /api/mcp。",
-    "in_use": "当前生效",
-    "empty_uses_env": "留空：使用环境变量 {p0}",
-    "empty_uses_default": "留空：使用默认值 {p0}",
-    "empty_derived_from_request": "留空：按浏览器访问的地址推算",
-    "empty_mcp_default": "留空：对外地址 + /api/mcp",
-    "optional": "可选",
-    "source_env": "当前来自环境变量 {p0}。",
-    "source_settings": "已在此保存，覆盖环境变量 {p0}。",
-    "password_login": "账号密码登录",
-    "sso": "统一登录",
+    "subtitle": "本系统作为以虎 One 的应用运行：登录、人员、外观和模型都来自平台。",
+    "tab_platform": "以虎 One",
+    "tab_accounts": "账号与消息",
+    "platform": "平台",
+    "space": "空间",
+    "space_note": "只有这个空间的人能使用本系统",
+    "directory_sync": "通讯录同步",
+    "directory_sync_result": "上次同步 {p0}：核对 {p1} 人，更新 {p2}，停用 {p3}",
+    "directory_sync_pending": "启动约 30 秒后同步，之后每小时一次",
+    "ai_access": "AI 接入",
+    "ai_access_assistant": "{p0} 的 AI 助手以当前用户身份使用 FDE 的全部工具。",
+    "ai_access_personal": "个人 AI 工具（Claude Code、Cursor）用以虎 One API Key 连接",
+    "ai_access_robot": "在「Agent 协作」里注册的机器人用专属 Key 连接",
+    "brand_from_platform": "名称、LOGO 和配色跟随{p0}，在平台里修改。",
+    "not_connected": "还没有接入以虎 One。装在平台上时会自动配置；本地开发需配置 OIDC_ISSUER、OIDC_CLIENT_ID、OIDC_CLIENT_SECRET。",
     "new_accounts": "首次登录",
     "auto_create": "自动开通账号，角色为 {p0}",
-    "admin_creates": "需要管理员先开通账号",
-    "login_hint": "登录方式由部署配置决定：环境变量 OIDC_ISSUER、OIDC_CLIENT_ID、OIDC_CLIENT_SECRET、PASSWORD_LOGIN。凭证不会存进数据库。",
-    "login_hint_hosted": "本系统运行在以虎 One 上：用平台账号登录，凭证由平台提供。"
+    "admin_creates": "需要管理员先从以虎 One 通讯录添加",
+    "platform_admins": "管理员",
+    "platform_admins_rule": "{p0} 的管理员永远是本系统管理员（每次登录核对）",
+    "leader_is_manager": "部门负责人是项目经理",
+    "leader_is_manager_note": "在以虎 One 里负责某个部门的人，登录时自动成为项目经理；管理员在这里设过角色的除外。",
+    "platform_messages": "发到钉钉 / 飞书 / 企业微信",
+    "platform_messages_note": "重要通知（任务指派、工时审批、{'@'}提及）同时经{p0}发到本人。"
   }
 }

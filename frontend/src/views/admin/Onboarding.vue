@@ -36,14 +36,13 @@
           <!-- 第 1 步的动作区: 生成并下载配置包 -->
           <div v-if="s.key === 'package'" class="step-action">
             <el-button type="primary" size="small" :loading="downloading" @click="downloadPackage">
-              {{ $t('common.p0', { p0: s.done ? $t('onboarding.regenerate_download') : $t('onboarding.generate_download_kit') }) }}
+              {{ $t('onboarding.download_kit') }}
             </el-button>
-            <span v-if="s.done" class="action-note">{{ $t('onboarding.downloading_again_issues_new_key_old') }}</span>
           </div>
           <!-- 第 2 步提示连接地址 -->
           <div v-else-if="s.key === 'mcp' && !s.done" class="step-action">
-            <span class="action-note">{{ $t('onboarding.platform_url') }}<code>{{ mcpUrl }}</code>{{ $t('onboarding.already_filled_in_kit_put_files') }}</span>
-            <router-link v-if="can('system.manage')" to="/admin/settings?tab=url" class="action-note">{{ $t('onboarding.change_mcp_url') }}</router-link>
+            <span class="action-note">{{ $t('onboarding.platform_url') }}<code>{{ mcpUrl }}</code>{{ $t('onboarding.put_your_platform_key') }}</span>
+            <a v-if="platformUrl" :href="platformUrl" target="_blank" rel="noopener" class="action-note">{{ $t('onboarding.open_platform_for_key') }}</a>
           </div>
         </div>
       </div>
@@ -96,7 +95,6 @@ import { $t } from '@/i18n'
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { fde } from '@/api/index.js'
-import { can } from '@/api/permissions.js'
 
 const user = JSON.parse(localStorage.getItem('fde_internal_user') || 'null')
 const isManager = computed(() => ['ADMIN', 'MANAGER'].includes(user?.role))
@@ -105,6 +103,7 @@ const loading = ref(false)
 const steps = ref([])
 const doneCount = ref(0)
 const mcpUrl = ref('')
+const platformUrl = ref(null)
 // 步骤可能跳着完成, 「当前步骤」= 第一个未完成的
 const currentIdx = computed(() => steps.value.findIndex(s => !s.done))
 
@@ -118,6 +117,7 @@ async function load() {
     steps.value = d.steps
     doneCount.value = d.doneCount
     mcpUrl.value = d.mcpUrl
+    platformUrl.value = d.platformUrl
   } catch (e) {
     ElMessage.error(e.message)
   } finally {
@@ -145,7 +145,7 @@ async function downloadPackage() {
     a.download = 'fde-dev-kit.zip'
     a.click()
     URL.revokeObjectURL(a.href)
-    ElMessage.success($t('onboarding.kit_downloaded_key_in_mcp_json'))
+    ElMessage.success($t('onboarding.kit_downloaded_add_key'))
     load()
   } catch (e) {
     ElMessage.error(e.message)

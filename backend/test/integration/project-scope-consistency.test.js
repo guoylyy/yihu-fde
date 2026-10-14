@@ -8,7 +8,7 @@
 // 这里守的是: 详情页放行的项目, 它的子资源也必须放行; 详情页挡掉的, 子资源也挡掉。
 import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { login, api, request, uniqName } from './helpers.js'
+import { login, api, request, uniqName, createTestUser } from './helpers.js'
 import prisma from '../../src/lib/prisma.js'
 
 describe('项目详情与子资源的数据范围必须一致', () => {
@@ -186,35 +186,5 @@ describe('scope 条件不得覆盖 URL 项目 id (v2.1.14 串项目回归)', () 
   })
 })
 
-/**
- * 现建一个内部账号并登录, 返回 token 与清理函数。
- * 后端建号默认密码 123456; 建号会顺带生成工程师档案, 清理时一并硬删, 不留残渣。
- */
-async function createThrowawayUser(role) {
-  const adminApi = api(await login('admin'))
-  const username = uniqName('u').replace(/[^a-zA-Z0-9-]/g, '').slice(0, 40)
-  const created = await adminApi.post('/api/fde/users', { username, name: uniqName('测试用户'), role })
-  assert.equal(created.code, 0, `建测试账号失败: ${created.message}`)
-  const id = created.data.id
-
-  const r = await request('POST', '/api/auth/login', { username, password: '123456' }, null)
-  assert.equal(r.code, 0, `测试账号登录失败: ${r.message}`)
-
-  return {
-    id,
-    token: r.data.token,
-    async cleanup() {
-      // 走接口是软删, 会在库里留账号(既有 users.test.js 就是这么积压了几百个),
-      // 这里直接硬删本用例造的那一个, 连带工程师档案与项目成员关系
-      const uid = BigInt(id)
-      await prisma.projectMember.deleteMany({ where: { userId: uid } }).catch(() => {})
-      const eng = await prisma.engineer.findUnique({ where: { userId: uid }, select: { id: true } }).catch(() => null)
-      if (eng) {
-        await prisma.projectMember.deleteMany({ where: { engineerId: eng.id } }).catch(() => {})
-        await prisma.engineer.delete({ where: { id: eng.id } }).catch(() => {})
-      }
-      await prisma.notification.deleteMany({ where: { userId: uid } }).catch(() => {})
-      await prisma.user.delete({ where: { id: uid } }).catch(() => {})
-    }
-  }
-}
+/** 现建一个内部账号并登录, 返回 token 与清理函数(见 helpers.createTestUser) */
+const createThrowawayUser = (role) => createTestUser(role)

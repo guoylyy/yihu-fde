@@ -1,25 +1,10 @@
-// 文件存储 —— 三种驱动, 由环境变量决定:
-//
-//   STORAGE_DRIVER=local   默认。存到 UPLOAD_DIR(默认 ./uploads), 后端在 /uploads 下直接托管
-//   STORAGE_DRIVER=s3      任意 S3 兼容存储(AWS S3 / MinIO / Cloudflare R2 / 阿里云 OSS 等)
-//                          S3_BUCKET, S3_REGION, S3_ENDPOINT?, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY,
-//                          S3_PUBLIC_URL?(对外访问前缀, 如 CDN 域名), S3_FORCE_PATH_STYLE?(MinIO 填 true)
-//   STORAGE_DRIVER=qiniu   七牛云: QINIU_ACCESS_KEY, QINIU_SECRET_KEY, QINIU_BUCKET, QINIU_DOMAIN, QINIU_REGION?
-//
-// 未显式指定时: 配了 S3_BUCKET 走 s3, 配了 QINIU_ACCESS_KEY 走 qiniu, 否则 local。
+// 文件存储 —— 存到 UPLOAD_DIR, 后端在 /uploads 下直接托管
+// 装在以虎 One 上时 UPLOAD_DIR=/data/uploads(platform.js), 平台每晚备份 /data; 本地开发默认 ./uploads
 // 返回值统一 { url, key }; url 是可直接给浏览器/智能体用的地址。
 import fs from 'fs'
 import path from 'path'
 
-export function resolveDriver(env = process.env) {
-  const explicit = String(env.STORAGE_DRIVER || '').toLowerCase()
-  if (['local', 's3', 'qiniu'].includes(explicit)) return explicit
-  if (env.S3_BUCKET) return 's3'
-  if (env.QINIU_ACCESS_KEY) return 'qiniu'
-  return 'local'
-}
-
-const DRIVER = resolveDriver()
+const DRIVER = 'local'
 export const UPLOAD_DIR = path.resolve(process.env.UPLOAD_DIR || 'uploads')
 /** local 驱动的对外路径前缀, index.js 用它挂静态目录 */
 export const LOCAL_URL_PREFIX = '/uploads'
@@ -85,77 +70,7 @@ async function localPut(key, { filePath, buffer }) {
   return { url: localUrl(key), key }
 }
 
-// ---------------- s3 ----------------
-
-let s3Client = null
-async function s3() {
-  if (s3Client) return s3Client
-  const { S3Client, PutObjectCommand } = await import('@aws-sdk/client-s3')
-  const client = new S3Client({
-    region: process.env.S3_REGION || 'us-east-1',
-    endpoint: process.env.S3_ENDPOINT || undefined,
-    forcePathStyle: process.env.S3_FORCE_PATH_STYLE === 'true',
-    credentials: process.env.S3_ACCESS_KEY_ID
-      ? { accessKeyId: process.env.S3_ACCESS_KEY_ID, secretAccessKey: process.env.S3_SECRET_ACCESS_KEY }
-      : undefined
-  })
-  s3Client = { client, PutObjectCommand }
-  return s3Client
-}
-
-function s3Url(key) {
-  const bucket = process.env.S3_BUCKET
-  if (process.env.S3_PUBLIC_URL) return `${trimSlash(process.env.S3_PUBLIC_URL)}/${keyToUrlPath(key)}`
-  if (process.env.S3_ENDPOINT) return `${trimSlash(process.env.S3_ENDPOINT)}/${bucket}/${keyToUrlPath(key)}`
-  return `https://${bucket}.s3.${process.env.S3_REGION || 'us-east-1'}.amazonaws.com/${keyToUrlPath(key)}`
-}
-
-async function s3Put(key, { filePath, buffer, contentType }) {
-  const { client, PutObjectCommand } = await s3()
-  const body = buffer || fs.createReadStream(filePath)
-  await client.send(new PutObjectCommand({
-    Bucket: process.env.S3_BUCKET,
-    Key: key,
-    Body: body,
-    ContentType: contentType || undefined
-  }))
-  return { url: s3Url(key), key }
-}
-
-// ---------------- qiniu ----------------
-
-let qiniuSdk = null
-async function qiniu() {
-  if (!qiniuSdk) {
-    const sdk = await import('qiniu')
-    qiniuSdk = sdk.default || sdk   // qiniu v7 是 CJS
-  }
-  return qiniuSdk
-}
-
-async function qiniuPut(key, { filePath, buffer }) {
-  const q = await qiniu()
-  const mac = new q.auth.digest.Mac(process.env.QINIU_ACCESS_KEY, process.env.QINIU_SECRET_KEY)
-  const uploadToken = new q.rs.PutPolicy({ scope: process.env.QINIU_BUCKET }).uploadToken(mac)
-  const config = new q.conf.Config()
-  const zoneMap = { z0: q.zone.Zone_z0, z1: q.zone.Zone_z1, z2: q.zone.Zone_z2, na0: q.zone.Zone_na0, as0: q.zone.Zone_as0 }
-  config.zone = zoneMap[process.env.QINIU_REGION || 'z0'] || q.zone.Zone_z0
-  const uploader = new q.form_up.FormUploader(config)
-  const putExtra = new q.form_up.PutExtra()
-  return new Promise((resolve, reject) => {
-    const done = (err, body, info) => {
-      if (err) return reject(err)
-      if (info.statusCode !== 200) {
-        return reject(new Error(`七牛上传失败 status=${info.statusCode}: ${JSON.stringify(body)}`))
-      }
-      resolve({ url: `${trimSlash(process.env.QINIU_DOMAIN)}/${keyToUrlPath(key)}`, key })
-    }
-    if (buffer) uploader.put(uploadToken, key, buffer, putExtra, done)
-    else uploader.putFile(uploadToken, key, filePath, putExtra, done)
-  })
-}
-
-const DRIVERS = { local: localPut, s3: s3Put, qiniu: qiniuPut }
+const DRIVERS = { local: localPut }
 
 /**
  * 上传 multer 落盘文件

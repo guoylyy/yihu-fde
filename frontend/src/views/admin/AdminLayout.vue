@@ -61,11 +61,6 @@
             <el-icon><Files /></el-icon>
             <span>{{ $t('common.asset_library') }}</span>
           </el-menu-item>
-          <!-- v2.0.9(#429): Skills 能力包 -->
-          <el-menu-item v-if="can('skillPackage.view')" index="/admin/skill-packages">
-            <el-icon><MagicStick /></el-icon>
-            <span>Skills</span>
-          </el-menu-item>
           <!-- v2.0.0 开发上手中心(#367): 全员可见, 2026-10-02 从顶级菜单移入交付组 -->
           <el-menu-item index="/admin/onboarding">
             <el-icon><Guide /></el-icon>
@@ -251,9 +246,6 @@
             <el-menu-item v-if="can('asset.view')" index="/admin/assets">
               <el-icon><Files /></el-icon><span>{{ $t('common.asset_library') }}</span>
             </el-menu-item>
-            <el-menu-item v-if="can('skillPackage.view')" index="/admin/skill-packages">
-              <el-icon><MagicStick /></el-icon><span>Skills</span>
-            </el-menu-item>
             <el-menu-item index="/admin/onboarding">
               <el-icon><Guide /></el-icon><span>{{ $t('common.developer_onboarding') }}</span>
             </el-menu-item>
@@ -294,7 +286,7 @@
 import { $t } from '@/i18n'
 import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowDown, Bell, User, Document, Avatar, Clock, UserFilled, List, DataAnalysis, Reading, Key, Setting, Connection, Checked, MagicStick, Guide, Files, Fold, Expand, Opportunity, OfficeBuilding } from '@element-plus/icons-vue'
+import { ArrowDown, Bell, User, Document, Avatar, Clock, UserFilled, List, DataAnalysis, Reading, Key, Setting, Connection, Checked, Guide, Files, Fold, Expand, Opportunity, OfficeBuilding } from '@element-plus/icons-vue'
 import { fde } from '@/api/index.js'
 import LangSwitch from '@/components/common/LangSwitch.vue'
 import { can as permCan, refreshMyPermissions, clearMyPermissions } from '@/api/permissions.js'

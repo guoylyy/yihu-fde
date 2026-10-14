@@ -2,72 +2,46 @@
 
 FDE 系统内置 MCP Server（Model Context Protocol，Streamable HTTP 传输）。任何支持 MCP 的智能体平台，配一个端点、带一个凭证即可接入，自动获得全部工具及参数说明——无需逐个配置 REST 接口。
 
+## 三种接入方式
+
+FDE 作为以虎 One 的应用运行，智能体都经以虎 One 拿到身份：
+
+| 谁在用 | 怎么接 | 地址 | 凭证 |
+|---|---|---|---|
+| 以虎 One 的 AI 助手 | 不用配置，用户对助手说话即可 | — | 平台自动带上当前用户身份 |
+| 个人的 AI 工具（Claude Code、Cursor、WorkBuddy 等） | 连以虎 One 的 MCP 网关 | `<以虎 One 地址>/api/mcp` | 本人在以虎 One「个人中心 → API Key」生成的 Key |
+| 机器人（看板派工、巡检，需要独立身份） | 直连 FDE | `<FDE 地址>/api/mcp` | 在「Agent 协作」注册 Agent 后发的专属 Key（`fde_` 前缀） |
+
+- 经以虎 One 网关时，FDE 的工具名带应用前缀 `fde__`（如 `fde__list_my_tasks`），平台按用户可见范围汇总、带上用户身份转发。一个以虎 One Key 通用平台上所有应用。
+- 无论哪种方式，都以对应用户的身份执行，角色权限与数据范围自动生效；只读工具标了 `readOnlyHint`，以虎 One 助手调写操作前会先让用户确认。
+- 本系统**不再签发个人 API Key**；已有的个人 Key 吊销前照常可用。Agent 专属 Key 的写入会标注该 Agent 为来源、留活动审计，可单独停用/换 Key，详见《Agent 协作与数据沉淀》。
+
 ## 连接信息
 
 | 项 | 值 |
 |---|---|
-| 端点 | `POST https://<系统域名>/api/mcp` |
 | 传输 | MCP Streamable HTTP，无状态模式（仅 POST，无需会话管理；返回纯 JSON，兼容不支持 SSE 的平台） |
 | 协议版本 | 2025-03-26 |
-| 鉴权 | 个人 API Key 或用户登录 Token，二选一（见下） |
-| 工具数量 | 104 个（`tools/list` 自描述，含参数 JSON Schema） |
-
-## 鉴权
-
-端点接受两种凭证，服务端按前缀自动识别（`fde_` 开头按 API Key 处理，否则按用户 JWT 处理）：
-
-### 方式一：用户登录 Token 透传（平台级对接推荐）
-
-平台把用户自己的登录 JWT 原样放进请求头调用 MCP：
-
-```
-POST /api/mcp
-Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
-```
-
-- Token 来源：`POST /api/auth/login` 返回的 `data.token`（有效期 7 天，勾选「下次自动登录」为 30 天）。
-- 服务端验签后以该用户身份执行，角色权限与数据范围自动生效。不需要签发任何 Key，一个 Agent 服务全体用户天然成立。
-- 服务端逐次核验用户状态：Token 有效但用户已被禁用/删除 → 401。
-
-### 方式二：个人 API Key（单人/长期挂机对接）
-
-`fde_` 前缀的 Key 绑定到具体用户——智能体拿着某个用户的 Key，就以该用户身份操作，权限与数据隔离自动生效。
-
-> **v1.6.0 推荐：Agent 专属 Key**。在控制台「Agent 协作」注册 Agent 后发放（一 Agent 一 Key，同为 `fde_` 前缀）。权限与普通个人 Key 一致，但写入会标注该 Agent 为来源、留活动审计，且可单独停用/换 Key。给自己的 Agent 配 Key 一律用这种，详见《Agent 协作与数据沉淀》文档。
-
-```
-POST /api/mcp
-Authorization: Bearer fde_xxxxxxxx        # 或 X-API-Key: fde_xxxxxxxx
-```
-
-**Key 的获取与管理**（在系统内完成，也可走以下接口）：
-
-| 操作 | 接口 | 说明 |
-|---|---|---|
-| 创建 | `POST /api/fde/api-keys`，body `{name}` | 任何内部用户给自己创建；**明文只返回这一次** |
-| 给他人签发 | 同上，body `{name, userId}` | 仅管理员 |
-| 列表 | `GET /api/fde/api-keys` | 只展示前缀，不能找回明文 |
-| 吊销 | `POST /api/fde/api-keys/:id/revoke` | 本人或管理员，立即失效 |
-
-服务端只存 Key 的 sha256 哈希；每次使用记录 `lastUsedAt` 便于审计。
+| 工具数量 | 111 个（`tools/list` 自描述，含参数 JSON Schema） |
+| 首页卡片 | `get_my_open_task_count`、`list_my_open_tasks`、`get_my_week_hours`、`list_my_weekly_hours`、`list_pending_timesheet_approvals`、`list_project_health`、`list_overdue_tasks` 返回结构化结果，可以直接放到以虎 One 首页的数据卡片上 |
 
 ## 快速开始
 
-> 💡 如果你的智能体本身就能执行命令或读写配置（如 OpenClaw、WorkBuddy），最省事的接法是**把端点和凭证直接发给它，让它自己完成接入**——话术模板见左侧「接入教程」两篇。
+> 💡 最省事的是在「开发上手」页下载配置包：`.mcp.json` 已经填好以虎 One 网关地址，只要把你的以虎 One Key 填进去。
 
-1. 准备凭证（Token 透传或个人 Key，见上）。
-2. 在平台的 MCP / 插件配置里添加：
-   - **Server URL**：`https://<系统域名>/api/mcp`
-   - **认证**：自定义 Header `Authorization: Bearer <用户JWT 或 fde_xxx>`
-3. 平台会自动完成 `initialize` + `tools/list`，拉取全部工具及参数 Schema。
+Claude Code 一条命令接入（个人 AI 工具）：
+
+```bash
+claude mcp add --scope user yihu-one --transport http <以虎 One 地址>/api/mcp --header "Authorization: Bearer <你的以虎 One API Key>"
+```
 
 用 curl 验证连通性：
 
 ```bash
-curl -s https://<系统域名>/api/mcp \
+curl -s <以虎 One 地址>/api/mcp \
   -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \
-  -H 'Authorization: Bearer <凭证>' \
+  -H 'Authorization: Bearer <你的以虎 One API Key>' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
 

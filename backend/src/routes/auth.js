@@ -1,28 +1,30 @@
-// 认证路由: 账号密码登录 + 统一登录(OIDC, 如以虎 One)
+// 认证路由: 只用以虎 One 账号登录(OIDC 授权码 + PKCE)
+// 本地开发 / 测试另有开发登录(DEV_LOGIN=true 且非生产、未装在平台上), 线上不存在
 import express from 'express'
 import crypto from 'node:crypto'
-import bcrypt from 'bcrypt'
 import prisma from '../lib/prisma.js'
 import { signToken, verifyToken, internalAuth } from '../lib/auth.js'
-import { oidcConfig, buildAuthorizeRequest, exchangeCode, findOrCreateUser, OidcLoginError } from '../lib/oidc.js'
-import { basePathOf } from '../lib/platform.js'
+import { oidcConfig, buildAuthorizeRequest, exchangeCode } from '../lib/oidc.js'
+import { platformUser } from '../lib/yihuOne.js'
+import { signInPlatformUser, OidcLoginError } from '../lib/identity.js'
+import { basePathOf, ON_YIHU_ONE } from '../lib/platform.js'
 
 const router = express.Router()
 
-/** PASSWORD_LOGIN=false 时只允许统一登录(接入以虎 One 后建议关掉本地密码) */
-const passwordLoginEnabled = () => !['false', '0', 'no', 'off'].includes(String(process.env.PASSWORD_LOGIN ?? 'true').toLowerCase())
+/** 开发登录: 只在本地开发 / 跑测试时打开, 生产和装在以虎 One 上一律关闭 */
+export const devLoginEnabled = () =>
+  process.env.DEV_LOGIN === 'true' && process.env.NODE_ENV !== 'production' && !ON_YIHU_ONE
 
 /** 登录成功后的统一出参: 签发本系统 token + 用户摘要 */
-async function issueLogin(user, { remember = false } = {}) {
+async function issueLogin(user) {
   await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } })
-  // 勾选"下次自动登录"发 30 天长效 token, 否则用默认有效期
   const token = signToken({
     type: 'internal',
     userId: user.id,
     username: user.username,
     role: user.role,
     engineerId: user.engineer?.id
-  }, remember ? '30d' : undefined)
+  })
   return {
     token,
     user: {
@@ -31,61 +33,36 @@ async function issueLogin(user, { remember = false } = {}) {
       name: user.name,
       role: user.role,
       engineerId: user.engineer?.id,
-      avatarUrl: user.avatarUrl || null,
-      // 统一登录的账号没有可用的本地密码, 不走强制改密
-      mustChangePassword: user.oidcSubject ? false : !!user.mustChangePassword
+      avatarUrl: user.avatarUrl || null
     }
   }
 }
 
 /**
  * GET /api/auth/providers
- * 登录页用: 有哪些登录方式
+ * 登录页用: 以虎 One 是否可用、是否打开了开发登录
  */
 router.get('/providers', (req, res) => {
   const cfg = oidcConfig()
   res.json({
     code: 0,
     data: {
-      password: passwordLoginEnabled(),
-      oidc: cfg.enabled ? { name: cfg.name } : null
+      platform: cfg.enabled ? { name: cfg.name } : null,
+      devLogin: devLoginEnabled()
     }
   })
 })
 
 /**
- * POST /api/auth/login
- * 账号密码登录
+ * POST /api/auth/dev-login { username }
+ * 开发登录: 不验密码, 直接以某个本地账号进入。只在 devLoginEnabled() 时存在
  */
-router.post('/login', async (req, res) => {
-  try {
-    if (!passwordLoginEnabled()) {
-      return res.status(403).json({ code: 2005, message: '本系统只允许统一登录' })
-    }
-    const { username, password, remember } = req.body
-    if (!username || !password) {
-      return res.status(400).json({ code: 1001, message: '参数错误' })
-    }
-
-    const user = await prisma.user.findUnique({
-      where: { username },
-      include: { engineer: true }
-    })
-
-    if (!user || user.status !== 1 || user.deletedAt) {
-      return res.status(401).json({ code: 2003, message: '账号或密码错误' })
-    }
-
-    const valid = await bcrypt.compare(password, user.passwordHash)
-    if (!valid) {
-      return res.status(401).json({ code: 2003, message: '账号或密码错误' })
-    }
-
-    res.json({ code: 0, message: 'ok', data: await issueLogin(user, { remember }) })
-  } catch (e) {
-    console.error('[auth/login]', e)
-    res.status(500).json({ code: 9001, message: e.message })
-  }
+router.post('/dev-login', async (req, res) => {
+  if (!devLoginEnabled()) return res.status(404).json({ code: 4040, message: 'Not found' })
+  const username = String(req.body?.username || '').trim()
+  const user = username && await prisma.user.findUnique({ where: { username }, include: { engineer: true } })
+  if (!user || user.status !== 1 || user.deletedAt) return res.status(401).json({ code: 2003, message: '账号不存在或已停用' })
+  res.json({ code: 0, message: 'ok', data: await issueLogin(user) })
 })
 
 /**
@@ -109,8 +86,7 @@ router.get('/me', internalAuth, async (req, res) => {
         role: user.role,
         phone: user.phone,
         email: user.email,
-        engineerId: user.engineer?.id || null,
-        mustChangePassword: !!user.mustChangePassword
+        engineerId: user.engineer?.id || null
       }
     })
   } catch (e) {
@@ -119,8 +95,8 @@ router.get('/me', internalAuth, async (req, res) => {
   }
 })
 
-// ==================== 统一登录(OIDC) ====================
-// 浏览器: /api/auth/oidc/login → 身份提供方授权页 → /api/auth/oidc/callback → /admin/login?ticket=…
+// ==================== 以虎 One 统一登录 ====================
+// 浏览器: /api/auth/oidc/login → 以虎 One 授权页 → /api/auth/oidc/callback → /admin/login?ticket=…
 // 前端拿 ticket 调 POST /api/auth/oidc/exchange 换本系统 token(token 不进地址栏/浏览器历史)
 
 const STATE_COOKIE = 'fde_oidc'
@@ -159,7 +135,7 @@ const stateCookiePath = (req) => `${basePathOf(req)}/api/auth/oidc`
  */
 router.get('/oidc/login', async (req, res) => {
   const cfg = oidcConfig()
-  if (!cfg.enabled) return res.status(404).json({ code: 4041, message: '未配置统一登录' })
+  if (!cfg.enabled) return res.status(404).json({ code: 4041, message: '还没有接入以虎 One' })
   try {
     const redirectUri = redirectUriFor(req, cfg)
     const { url, state, nonce, verifier } = await buildAuthorizeRequest(cfg, redirectUri)
@@ -170,7 +146,7 @@ router.get('/oidc/login', async (req, res) => {
     res.redirect(302, url)
   } catch (e) {
     console.error('[auth/oidc/login]', e)
-    loginPageRedirect(req, res, { sso_error: '无法连接统一登录服务' })
+    loginPageRedirect(req, res, { sso_error: '无法连接以虎 One' })
   }
 })
 
@@ -179,7 +155,7 @@ router.get('/oidc/login', async (req, res) => {
  */
 router.get('/oidc/callback', async (req, res) => {
   const cfg = oidcConfig()
-  if (!cfg.enabled) return res.status(404).json({ code: 4041, message: '未配置统一登录' })
+  if (!cfg.enabled) return res.status(404).json({ code: 4041, message: '还没有接入以虎 One' })
   res.setHeader('Set-Cookie', `${STATE_COOKIE}=; Path=${stateCookiePath(req)}; HttpOnly; SameSite=Lax; Max-Age=0`)
   const saved = verifyToken(readCookie(req, STATE_COOKIE) || '')
   try {
@@ -191,10 +167,12 @@ router.get('/oidc/callback', async (req, res) => {
       crypto.timingSafeEqual(Buffer.from(saved.state), Buffer.from(state))
     if (!ok) return loginPageRedirect(req, res, { sso_error: '登录校验失败或已超时, 请重试' })
 
-    const { claims } = await exchangeCode(cfg, {
+    const { accessToken } = await exchangeCode(cfg, {
       code: String(req.query.code || ''), redirectUri: saved.redirectUri, verifier: saved.verifier, nonce: saved.nonce
     })
-    const user = await findOrCreateUser(claims, cfg)
+    const pu = await platformUser(accessToken, cfg)
+    if (!pu) throw new Error('读取以虎 One 用户信息失败')
+    const user = await signInPlatformUser(pu, cfg)
     const data = await issueLogin(user)
     const ticket = crypto.randomBytes(24).toString('base64url')
     for (const [k, v] of tickets) if (v.exp < Date.now()) tickets.delete(k)
@@ -202,7 +180,7 @@ router.get('/oidc/callback', async (req, res) => {
     loginPageRedirect(req, res, { ticket, next: saved.next })
   } catch (e) {
     if (!(e instanceof OidcLoginError)) console.error('[auth/oidc/callback]', e)
-    loginPageRedirect(req, res, { sso_error: e instanceof OidcLoginError ? e.message : '统一登录失败, 请重试' })
+    loginPageRedirect(req, res, { sso_error: e instanceof OidcLoginError ? e.message : '登录失败, 请重试' })
   }
 })
 

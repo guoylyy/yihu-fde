@@ -3,7 +3,7 @@
 //       权限(工程师不能改别人的、不能置顶、不能转里程碑) / 转里程碑(新建与重复转) / AI 草稿与总结(注入假模型)
 import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { login, api, uniqName } from './helpers.js'
+import { login, api, uniqName, createTestUser } from './helpers.js'
 import prisma from '../../src/lib/prisma.js'
 import { summarizeIdea, draftMilestoneFromIdea } from '../../src/services/ideas.js'
 
@@ -15,20 +15,15 @@ describe('API: /api/fde/ideas 创意中心', () => {
   let topicId, emptyTopicId
   let ideaId, engIdeaId
   let commentId
-  const createdUserIds = []
+  const cleanups = []
 
   before(async () => {
     a = api(await login())
     adminName = (await a.get('/api/auth/me')).data.name
-    const username = uniqName('idea').toLowerCase().replace(/[^a-z0-9]/g, 'x')
-    const u = await a.post('/api/fde/users', {
-      username, name: uniqName('想法工程师').replace(/[^\w一-龥]/g, ''),
-      password: 'Test123456', role: 'FDE_ENGINEER', email: `${username}@test.local`
-    })
-    assert.equal(u.code, 0, `建用户失败: ${u.message}`)
-    engUser = u.data
-    createdUserIds.push(u.data.id)
-    engApi = api(await login(username, '123456'))
+    const u = await createTestUser('FDE_ENGINEER', { name: uniqName('想法工程师').replace(/[^\w一-龥]/g, '') })
+    engUser = { id: u.id, name: u.name, username: u.username }
+    cleanups.push(u.cleanup)
+    engApi = api(u.token)
 
     const c = await a.post('/api/fde/customers', { name: uniqName('客户') })
     assert.equal(c.code, 0, `建客户失败: ${c.message}`)
@@ -59,12 +54,7 @@ describe('API: /api/fde/ideas 创意中心', () => {
         await prisma.contact.deleteMany({ where: { customerId: BigInt(customerId) } }).catch(() => {})
         await prisma.customer.delete({ where: { id: BigInt(customerId) } }).catch(() => {})
       }
-      if (createdUserIds.length) {
-        const ids = createdUserIds.map(BigInt)
-        await prisma.engineer.deleteMany({ where: { userId: { in: ids } } }).catch(() => {})
-        await prisma.notification.deleteMany({ where: { userId: { in: ids } } }).catch(() => {})
-        await prisma.user.deleteMany({ where: { id: { in: ids } } }).catch(() => {})
-      }
+      for (const c of cleanups) await c()
     } finally {
       await prisma.$disconnect().catch(() => {})
     }

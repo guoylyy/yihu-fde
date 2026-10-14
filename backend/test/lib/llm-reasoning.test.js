@@ -1,8 +1,14 @@
-import { test } from 'node:test'
+import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { chatComplete } from '../../src/lib/llm.js'
 
-const CFG = { name: '测试', provider: 'DEEPSEEK', model: 'deepseek-v4-pro', baseUrl: 'https://api.example.com', apiKey: 'k', temperature: null }
+// 模型都经以虎 One 调用: 给一套平台凭证(请求被下面的 stubFetch 截走, 不真的发出去)
+const PLATFORM_ENV = { OIDC_ISSUER: 'https://one.example.com', OIDC_CLIENT_ID: 'fde', OIDC_CLIENT_SECRET: 's' }
+const saved = {}
+before(() => { for (const k of Object.keys(PLATFORM_ENV)) saved[k] = process.env[k]; Object.assign(process.env, PLATFORM_ENV) })
+after(() => { for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v } })
+
+const CFG = { name: '测试', provider: 'YIHU_ONE', model: 'deepseek-v4-pro', temperature: null }
 
 function stubFetch(responses) {
   const calls = []

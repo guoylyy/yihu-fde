@@ -4,8 +4,7 @@ import assert from 'node:assert/strict'
 import http from 'node:http'
 import crypto from 'node:crypto'
 import {
-  oidcConfig, discover, buildAuthorizeRequest, exchangeCode, fetchUserinfo,
-  usernameCandidates, roleFor, resetOidcCaches
+  oidcConfig, discover, buildAuthorizeRequest, exchangeCode, serverUrl, resetOidcCaches
 } from '../../src/lib/oidc.js'
 
 const b64url = (o) => Buffer.from(JSON.stringify(o)).toString('base64url')
@@ -80,25 +79,11 @@ describe('oidcConfig', () => {
   })
 })
 
-describe('roleFor / usernameCandidates', () => {
-  const c = oidcConfig({})
-  test('身份提供方的 ADMIN 映射为 ADMIN, 其余用默认角色', () => {
-    assert.equal(roleFor({ roles: ['MEMBER', 'ADMIN'] }, c), 'ADMIN')
-    assert.equal(roleFor({ roles: ['DEVELOPER'] }, c), 'FDE_ENGINEER')
-    assert.equal(roleFor({}, c), 'FDE_ENGINEER')
-    assert.equal(roleFor({ roles: 'ADMIN' }, c), 'ADMIN')
-  })
-
-  test('OIDC_ADMIN_ROLES 置空则不映射管理员', () => {
-    assert.equal(roleFor({ roles: ['ADMIN'] }, oidcConfig({ OIDC_ADMIN_ROLES: '' })), 'FDE_ENGINEER')
-  })
-
-  test('用户名只含合法字符, 依次退到邮箱前缀', () => {
-    const [a, b] = usernameCandidates({ sub: 'u_ABCDEF123456', preferred_username: 'Zhang San!' })
-    assert.equal(a, 'zhangsan')
-    assert.match(b, /^zhangsan-[a-z0-9._-]{1,8}$/)
-    assert.equal(usernameCandidates({ sub: '1', email: 'Li.Si@corp.com' })[0], 'li.si')
-    assert.equal(usernameCandidates({ sub: '1', preferred_username: '张三' })[0], 'user')
+describe('serverUrl', () => {
+  test('服务端请求走 OIDC_INTERNAL_URL 的主机, 路径不变', () => {
+    const c = oidcConfig({ OIDC_ISSUER: 'https://one.example.com', OIDC_INTERNAL_URL: 'http://yh-console:3105' })
+    assert.equal(serverUrl('/api/open/app', c), 'http://yh-console:3105/api/open/app')
+    assert.equal(serverUrl('/api/open/app', oidcConfig({ OIDC_ISSUER: 'https://one.example.com' })), 'https://one.example.com/api/open/app')
   })
 })
 
@@ -131,12 +116,10 @@ describe('授权码流程', () => {
     assert.equal(u.searchParams.get('code_challenge'), expected)
   })
 
-  test('换 token 用 Basic 认证并带 code_verifier, 返回 userinfo', async () => {
+  test('换 token 用 Basic 认证并带 code_verifier, 返回 access_token', async () => {
     idp.idToken = fakeJwt({ iss: issuer, aud: 'fde', nonce: 'n1', sub: 'u1' })
-    idp.claims = { sub: 'u1', name: 'Alice', email: 'alice@example.com' }
-    const { claims, accessToken } = await exchangeCode(cfg(), { code: 'c1', redirectUri: 'http://fde/cb', verifier: 'v1', nonce: 'n1' })
+    const { accessToken } = await exchangeCode(cfg(), { code: 'c1', redirectUri: 'http://fde/cb', verifier: 'v1', nonce: 'n1' })
     assert.equal(accessToken, 'at-123')
-    assert.equal(claims.sub, 'u1')
     const [req] = idp.tokenRequests
     assert.equal(req.auth, 'Basic ' + Buffer.from('fde:s3cret').toString('base64'))
     assert.deepEqual(req.form, { grant_type: 'authorization_code', code: 'c1', redirect_uri: 'http://fde/cb', code_verifier: 'v1' })
@@ -159,7 +142,4 @@ describe('授权码流程', () => {
     await assert.rejects(exchangeCode(cfg(), { code: 'c', redirectUri: 'r', verifier: 'v' }), /code expired/)
   })
 
-  test('无效 access_token 的 userinfo 返回 null', async () => {
-    assert.equal(await fetchUserinfo(cfg(), 'bad'), null)
-  })
 })

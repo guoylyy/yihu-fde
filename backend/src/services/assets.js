@@ -12,7 +12,8 @@ export const ASSET_MATURITY_LABELS = { L0: '线索', L1: '可参考', L2: '可�
 export const ASSET_STATUSES = ['DRAFT', 'PUBLISHED', 'DEPRECATED']
 export const ASSET_AUTHORIZATIONS = ['INTERNAL', 'CLIENT_CLEARED', 'RESTRICTED']
 export const ASSET_USAGE_MODES = ['REFERENCE', 'COPY', 'INSTALL']
-export const ASSET_LINK_TYPES = ['SKILL_PACKAGE', 'KNOWLEDGE', 'ASSET']
+// 关联对象(新建只能关联这两类); 老数据里的 SKILL_PACKAGE 关联照常展示, Skill 已改到以虎 One 的 Skill 中心
+export const ASSET_LINK_TYPES = ['KNOWLEDGE', 'ASSET']
 
 // ---------- 发布前脱敏扫描 ----------
 

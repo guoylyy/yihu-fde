@@ -8,7 +8,7 @@
 
 - 已安装 WorkBuddy 桌面端（配置目录为 `~/.workbuddy/`）
 - 已准备好凭证，二选一：
-  - **个人 API Key**（`fde_` 前缀）：在系统「API Key 管理」里创建，明文只显示一次
+  - **以虎 One API Key**：在以虎 One「个人中心 → API Key」生成，连以虎 One 的 MCP 网关 `<以虎 One 地址>/api/mcp`（FDE 工具名带 `fde__` 前缀）；机器人用「Agent 协作」里注册后发的 Agent 专属 Key（`fde_` 前缀）直连 `<FDE 地址>/api/mcp`
   - **登录 Token**：`POST /api/auth/login` 返回的 JWT（有效期 7 天，勾选自动登录为 30 天）
 
 长期挂机使用推荐 API Key——Token 过期后要手动换，Key 不吊销就一直有效。
@@ -19,8 +19,8 @@ WorkBuddy 的智能体能读写本机文件——把端点和凭证发给它，�
 
 ```text
 帮我接入FDE 系统的 MCP 服务：
-- 端点：https://<系统域名>/api/mcp
-- 凭证：fde_你的Key
+- 端点：<以虎 One 地址>/api/mcp
+- 凭证：你的以虎 One API Key（或机器人的 Agent 专属 Key）
 
 请把它写进 ~/.workbuddy/.mcp.json 的 mcpServers（条目名 fde，type 用 http，
 凭证放 headers 的 Authorization: Bearer）。注意只新增条目、别动已有的 server，
@@ -42,9 +42,9 @@ WorkBuddy 的智能体能读写本机文件——把端点和凭证发给它，�
   "mcpServers": {
     "fde": {
       "type": "http",
-      "url": "https://<系统域名>/api/mcp",
+      "url": "<以虎 One 地址>/api/mcp",
       "headers": {
-        "Authorization": "Bearer fde_你的Key"
+        "Authorization": "Bearer <你的以虎 One API Key>"
       },
       "description": "FDE 平台（项目/工时/任务）"
     }

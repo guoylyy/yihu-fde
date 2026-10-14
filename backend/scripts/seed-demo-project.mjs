@@ -1,6 +1,5 @@
 // 一次性 seed：创建一个内容完整的演示项目，用于验证项目主页
 import { PrismaClient } from '@prisma/client'
-import bcrypt from 'bcrypt'
 const prisma = new PrismaClient()
 
 function d(str) { return new Date(str) }
@@ -13,7 +12,7 @@ async function main() {
   const engUser = await prisma.user.upsert({
     where: { username: 'engineer1' },
     update: {},
-    create: { username: 'engineer1', passwordHash: await bcrypt.hash('123456', 10), name: '张工', role: 'FDE_ENGINEER', status: 1, phone: '13800000001', email: 'zhang@example.com' }
+    create: { username: 'engineer1', name: '张工', role: 'FDE_ENGINEER', status: 1, phone: '13800000001', email: 'zhang@example.com' }
   })
   const engineer = await prisma.engineer.upsert({
     where: { userId: engUser.id },

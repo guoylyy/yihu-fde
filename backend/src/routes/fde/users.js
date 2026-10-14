@@ -1,12 +1,14 @@
 // FDE 平台 - 用户管理（仅 ADMIN）
+// 人以以虎 One 为准: 账号在首次登录时自动开通, 或由管理员从平台通讯录里选人提前开通并指定角色。
+// 姓名、邮箱、手机来自平台(登录和通讯录同步时更新), 这里只管本系统的角色和启停。没有本地密码。
 import express from 'express'
-import bcrypt from 'bcrypt'
 import prisma from '../../lib/prisma.js'
 import { internalAuth, requireRole, requirePermission, isValidRole, getValidRoleCodes, getRoleName } from '../../lib/auth.js'
 import { ensureEngineerProfile, removeEngineerProfile, ENGINEER_ROLES } from './engineers.js'
 import { recordActivity } from '../../lib/activity.js'
 import { pushNotification } from '../../lib/notify.js'
 import { getTeamsByUserIds, getTeamsByUserId } from '../../lib/teams.js'
+import { listDirectory, platformEnabled } from '../../lib/yihuOne.js'
 
 // v1.5.6: 人员列表统一带出所属团队
 async function attachTeams(users) {
@@ -14,34 +16,13 @@ async function attachTeams(users) {
   return users.map(u => ({ ...u, teams: teamMap.get(String(u.id)) || [] }))
 }
 
-// v1.5.6: 团队归属由管理员在用户管理设置(本人只读)。全量替换该用户的团队
-// 返回 { error } 表示校验失败; teamIds 未传时不动团队
-async function setUserTeams(userId, teamIds) {
-  const ids = [...new Set((teamIds || []).map(String))].map(BigInt)
-  if (ids.length) {
-    const validCount = await prisma.team.count({ where: { id: { in: ids }, deletedAt: null, status: 1 } })
-    if (validCount !== ids.length) return { error: '所选团队中存在无效或已停用的团队' }
-  }
-  await prisma.$transaction([
-    prisma.teamMembership.deleteMany({ where: { userId, teamId: { notIn: ids } } }),
-    ...ids.map(teamId => prisma.teamMembership.upsert({
-      where: { teamId_userId: { teamId, userId } },
-      create: { teamId, userId },
-      update: {}
-    }))
-  ])
-  return {}
-}
-
 const router = express.Router()
 router.use(internalAuth)
 // 可指派用户接口 (assignable) 对所有有 lead.assign 权限的角色开放
-// 自己改密码 (/me/change-password) 任何已登录用户可用
 // 其他用户管理接口仅 ADMIN
 router.use((req, res, next) => {
   if (req.path === '/assignable') return next()
   if (req.path === '/mentionable') return next()
-  if (req.path === '/me/change-password') return next()
   return requireRole('ADMIN')(req, res, next)
 })
 
@@ -65,7 +46,8 @@ router.get('/mentionable', async (req, res) => {
 
 // v1.3.2: 角色名/白名单改读角色缓存 (roles 表), 加角色不再改这里
 
-const USER_FIELDS = ['username', 'name', 'phone', 'email', 'role', 'status']
+// 姓名 / 邮箱 / 手机以平台为准, 本系统只改角色和启停
+const USER_FIELDS = ['role', 'status']
 
 function pick(obj, fields) {
   const out = {}
@@ -101,7 +83,7 @@ router.get('/', requirePermission('user.view'), async (req, res) => {
         orderBy: { createdAt: 'desc' },
         select: {
           id: true, username: true, name: true, phone: true, email: true,
-          role: true, status: true, lastLoginAt: true,
+          role: true, status: true, lastLoginAt: true, roleSource: true, platformDisabled: true, oidcSubject: true,
           createdAt: true, updatedAt: true,
           engineer: { select: { id: true, level: true, city: true, available: true } }
         }
@@ -116,6 +98,36 @@ router.get('/', requirePermission('user.view'), async (req, res) => {
   }
 })
 
+// ---------- 从以虎 One 通讯录开通 ----------
+
+let directoryCache = null   // { at, list }
+async function directory() {
+  if (directoryCache && Date.now() - directoryCache.at < 60_000) return directoryCache.list
+  const { list } = await listDirectory()
+  directoryCache = { at: Date.now(), list }
+  return list
+}
+
+/**
+ * GET /api/fde/users/platform-directory?keyword=
+ * 平台通讯录里还没在本系统开通的在职的人(选人提前开通用), 最多 50 条
+ */
+router.get('/platform-directory', requirePermission('user.create'), async (req, res) => {
+  if (!platformEnabled()) return res.status(503).json({ code: 9003, message: '还没有接入以虎 One' })
+  try {
+    const kw = String(req.query.keyword || '').trim().toLowerCase()
+    const linked = new Set((await prisma.user.findMany({ where: { oidcSubject: { not: null }, deletedAt: null }, select: { oidcSubject: true } })).map(u => u.oidcSubject))
+    const list = (await directory())
+      .filter(p => p.active && !linked.has(String(p.id)))
+      .filter(p => !kw || [p.name, p.username, p.jobNumber, p.email, ...(p.depts || []).map(d => d.path)].some(v => String(v || '').toLowerCase().includes(kw)))
+      .slice(0, 50)
+      .map(p => ({ id: p.id, name: p.name, username: p.username, jobNumber: p.jobNumber, email: p.email, title: p.title, depts: (p.depts || []).map(d => d.path || d.name) }))
+    res.json({ code: 0, data: { list } })
+  } catch (e) {
+    res.status(502).json({ code: 9002, message: e.message })
+  }
+})
+
 /**
  * GET /api/fde/users/:id
  */
@@ -125,7 +137,7 @@ router.get('/:id', requirePermission('user.view'), async (req, res) => {
       where: { id: BigInt(req.params.id) },
       select: {
         id: true, username: true, name: true, phone: true, email: true,
-        role: true, status: true, lastLoginAt: true,
+        role: true, status: true, lastLoginAt: true, roleSource: true, platformDisabled: true, oidcSubject: true,
         createdAt: true, updatedAt: true,
         engineer: { select: { id: true, level: true, city: true, available: true, skills: true } }
       }
@@ -140,109 +152,53 @@ router.get('/:id', requirePermission('user.view'), async (req, res) => {
 })
 
 /**
- * PUT /api/fde/users/me/change-password
- * 用户自己改密码 (任何已登录用户可用)
- * Body: { oldPassword, newPassword }
- * 修改成功后清 mustChangePassword 标志
- */
-router.put('/me/change-password', async (req, res) => {
-  try {
-    const { oldPassword, newPassword } = req.body || {}
-    if (!oldPassword || !newPassword) {
-      return res.status(400).json({ code: 1001, message: '旧密码和新密码不能为空' })
-    }
-    if (newPassword.length < 6) {
-      return res.status(400).json({ code: 1005, message: '新密码至少 6 位' })
-    }
-    if (newPassword === '123456') {
-      return res.status(400).json({ code: 1005, message: '不能使用默认密码 123456' })
-    }
-    const user = await prisma.user.findUnique({ where: { id: BigInt(req.user.userId) } })
-    if (!user) return res.status(404).json({ code: 2004, message: '用户不存在' })
-    const valid = await bcrypt.compare(oldPassword, user.passwordHash)
-    if (!valid) return res.status(400).json({ code: 2003, message: '旧密码错误' })
-    const newHash = await bcrypt.hash(newPassword, 10)
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { passwordHash: newHash, mustChangePassword: false }
-    })
-    // 活动流
-    await recordActivity({
-      actorId: user.id,
-      entity: 'user',
-      entityId: user.id,
-      action: 'updated',
-      summary: '修改了自己的密码',
-      data: { action: 'change_password' }
-    })
-    res.json({ code: 0, message: 'ok', _hint: '密码修改成功' })
-  } catch (e) {
-    console.error('[fde/users PUT /me/change-password]', e)
-    res.status(500).json({ code: 9001, message: e.message })
-  }
-})
-
-/**
- * POST /api/fde/users
- * 创建内部用户
- * 默认密码 123456（前端提示管理员可以重置）
+ * POST /api/fde/users  { platformUserId, role }
+ * 从平台通讯录选人提前开通并指定角色(角色记为管理员设置, 登录时不再按规则改; 平台管理员除外)
  */
 router.post('/', requirePermission('user.create'), async (req, res) => {
+  if (!platformEnabled()) return res.status(503).json({ code: 9003, message: '还没有接入以虎 One' })
   try {
-    const data = pick(req.body, USER_FIELDS)
-    if (!data.username) return res.status(400).json({ code: 1001, message: '用户名不能为空' })
-    if (!data.name) return res.status(400).json({ code: 1002, message: '姓名不能为空' })
-    if (!data.role || !isValidRole(data.role)) {
+    const { platformUserId, role } = req.body || {}
+    if (!role || !isValidRole(role)) {
       return res.status(400).json({ code: 1003, message: `角色必须是 ${getValidRoleCodes().join(' / ')}` })
     }
-    if (data.status == null) data.status = 1
-
-    // 检查用户名唯一
-    const exist = await prisma.user.findFirst({
-      where: { username: data.username, deletedAt: null }
-    })
-    if (exist) return res.status(400).json({ code: 1004, message: '用户名已存在' })
-
-    // 默认密码 123456
-    const passwordHash = await bcrypt.hash('123456', 10)
-
+    directoryCache = null
+    const pu = (await directory()).find(p => String(p.id) === String(platformUserId))
+    if (!pu || !pu.active) return res.status(400).json({ code: 1004, message: '平台通讯录里没有这个人，或已停用' })
+    if (await prisma.user.findUnique({ where: { oidcSubject: String(pu.id) } })) {
+      return res.status(400).json({ code: 1004, message: '这个人已经开通了' })
+    }
+    const base = String(pu.username || pu.jobNumber || `user${pu.id}`).toLowerCase().replace(/[^a-z0-9._-]+/g, '').slice(0, 40) || `user${pu.id}`
+    const username = (await prisma.user.findUnique({ where: { username: base } })) ? `${base}-${pu.id}` : base
     const user = await prisma.user.create({
-      data: { ...data, passwordHash, mustChangePassword: true },
-      select: {
-        id: true, username: true, name: true, phone: true, email: true,
-        role: true, status: true, createdAt: true
-      }
+      data: {
+        username, name: String(pu.name || username).slice(0, 50),
+        email: pu.email ? String(pu.email).slice(0, 100) : null,
+        phone: pu.mobile ? String(pu.mobile).slice(0, 20) : null,
+        role, roleSource: 'MANUAL', status: 1, oidcSubject: String(pu.id)
+      },
+      select: { id: true, username: true, name: true, phone: true, email: true, role: true, status: true, createdAt: true }
     })
-    // v1.5.6: 建号时可直接指定所属团队
-    if (req.body.teamIds !== undefined) {
-      const { error } = await setUserTeams(user.id, req.body.teamIds)
-      if (error) console.warn('[fde/users POST /] setUserTeams:', error)
-    }
-    // 方案 B: 创建可派工角色时自动建工程师档案（FDE_ENGINEER / MANAGER）
-    if (ENGINEER_ROLES.includes(user.role)) {
-      await ensureEngineerProfile(user.id)
-    }
-    // v2.12: 默认必修路径随以太学院删除
-    // 活动流 + 通知
+    if (ENGINEER_ROLES.includes(user.role)) await ensureEngineerProfile(user.id)
     await recordActivity({
       actorId: req.user.id,
       entity: 'user',
       entityId: user.id,
       action: 'created',
-      summary: `邀请新成员「${user.name}」加入（${user.role}）`,
+      summary: `从以虎 One 通讯录开通了「${user.name}」（${getRoleName(user.role)}）`,
       data: { role: user.role, username: user.username }
     })
     await pushNotification({
       userId: user.id,
       type: 'USER_INVITED',
       title: '🎉 欢迎加入',
-      body: `你已被添加为 ${getRoleName(user.role)}，默认密码 123456，请尽快修改`,
+      body: `你已被添加为 ${getRoleName(user.role)}，用以虎 One 账号登录即可`,
       link: '/admin',
-      data: { username: user.username, name: user.name, role: getRoleName(user.role), defaultPassword: '123456' }
+      data: { username: user.username, name: user.name, role: getRoleName(user.role) }
     })
-    res.json({ code: 0, message: 'ok', data: user, _hint: '默认密码：123456（请提醒用户首次登录后修改）' })
+    res.json({ code: 0, message: 'ok', data: user })
   } catch (e) {
-    if (e.code === 'P2002') return res.status(400).json({ code: 1004, message: '用户名已存在' })
+    if (e.code === 'P2002') return res.status(400).json({ code: 1004, message: '这个人已经开通了' })
     console.error('[fde/users POST /]', e)
     res.status(500).json({ code: 9001, message: e.message })
   }
@@ -250,12 +206,11 @@ router.post('/', requirePermission('user.create'), async (req, res) => {
 
 /**
  * PUT /api/fde/users/:id
- * 更新用户基本信息（不包含密码）
+ * 改角色 / 启停。改了角色记为管理员设置(MANUAL), 登录时不再按规则改(平台管理员除外)
  */
 router.put('/:id', requirePermission('user.edit'), async (req, res) => {
   try {
     const data = pick(req.body, USER_FIELDS)
-    delete data.username  // 用户名不可改
     if (data.role && !isValidRole(data.role)) {
       return res.status(400).json({ code: 1003, message: `角色必须是 ${getValidRoleCodes().join(' / ')}` })
     }
@@ -277,11 +232,9 @@ router.put('/:id', requirePermission('user.edit'), async (req, res) => {
     const oldUser = await prisma.user.findUnique({ where: { id: BigInt(req.params.id) } })
     if (!oldUser) return res.status(404).json({ code: 2004, message: '用户不存在' })
 
-    // v1.5.6: 管理员设置所属团队(teamIds 传了才动, 全量替换)
-    if (req.body.teamIds !== undefined) {
-      const { error } = await setUserTeams(oldUser.id, req.body.teamIds)
-      if (error) return res.status(400).json({ code: 9002, message: error })
-    }
+    if (data.role && data.role !== oldUser.role) data.roleSource = 'MANUAL'
+    // 管理员手动启停: 与平台停用无关了
+    if (data.status !== undefined) data.platformDisabled = false
 
     const user = await prisma.user.update({
       where: { id: BigInt(req.params.id) },
@@ -353,48 +306,15 @@ router.put('/:id', requirePermission('user.edit'), async (req, res) => {
     }
 
     const resp = { code: 0, message: 'ok', data: user }
+    if (oldUser.roleSource === 'PLATFORM_ADMIN' && newRole !== 'ADMIN') {
+      extraWarn = '此人是以虎 One 管理员，下次登录会恢复为本系统管理员'
+    }
     if (extraHint) resp._hint = extraHint
     if (extraWarn) resp._warn = extraWarn
     res.json(resp)
   } catch (e) {
     if (e.code === 'P2025') return res.status(404).json({ code: 2004, message: '用户不存在' })
     console.error('[fde/users PUT /:id]', e)
-    res.status(500).json({ code: 9001, message: e.message })
-  }
-})
-
-/**
- * POST /api/fde/users/:id/reset-password
- * 重置密码为 123456
- */
-router.post('/:id/reset-password', requirePermission('user.resetPassword'), async (req, res) => {
-  try {
-    const passwordHash = await bcrypt.hash('123456', 10)
-    const user = await prisma.user.update({
-      where: { id: BigInt(req.params.id) },
-      data: { passwordHash, mustChangePassword: true },
-      select: { id: true, username: true, name: true }
-    })
-    // 活动流 + 通知被重置人
-    await recordActivity({
-      actorId: req.user.id,
-      entity: 'user',
-      entityId: user.id,
-      action: 'updated',
-      summary: `重置了「${user.name}」的密码`,
-      data: { action: 'reset_password' }
-    })
-    await pushNotification({
-      userId: user.id,
-      type: 'PASSWORD_RESET',
-      title: '🔑 密码已重置',
-      body: '你的密码已被重置为默认密码 123456，请尽快修改',
-      link: '/admin'
-    })
-    res.json({ code: 0, message: 'ok', data: user, _hint: '密码已重置为 123456' })
-  } catch (e) {
-    if (e.code === 'P2025') return res.status(404).json({ code: 2004, message: '用户不存在' })
-    console.error('[fde/users POST /:id/reset-password]', e)
     res.status(500).json({ code: 9001, message: e.message })
   }
 })

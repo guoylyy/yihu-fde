@@ -5,8 +5,9 @@
         <h2 class="page-title">{{ $t('common.users') }}</h2>
         <p class="hint">{{ $t('users.internal_accounts_administrators_only', { p0: pagination.total }) }}</p>
       </div>
-      <el-button v-if="can('user.create')" type="primary" @click="openCreate">
-        <el-icon><Plus /></el-icon>{{ $t('users.new_user') }}
+      <!-- 人以以虎 One 为准: 首次登录自动开通, 或在这里从平台通讯录选人提前开通并指定角色 -->
+      <el-button v-if="can('user.create')" type="primary" @click="openAdd">
+        <el-icon><Plus /></el-icon>{{ $t('users.add_from_platform') }}
       </el-button>
     </div>
 
@@ -41,6 +42,7 @@
           <template #default="{ row }">
             <strong>{{ row.username }}</strong>
             <el-tag v-if="row.username === currentUsername" type="success" size="small" effect="light" style="margin-left: 8px;">{{ $t('common.me') }}</el-tag>
+            <div class="sub">{{ row.oidcSubject ? $t('users.linked_platform') : $t('users.not_linked_platform') }}</div>
           </template>
         </el-table-column>
         <el-table-column prop="name" :label="$t('common.name_2')" min-width="120" />
@@ -49,6 +51,7 @@
             <el-tag :type="roleTagType(row.role)" effect="dark" size="small">
               {{ roleLabel(row.role) }}
             </el-tag>
+            <div class="sub">{{ roleSourceText(row.roleSource) }}</div>
           </template>
         </el-table-column>
         <!-- v1.5.6 所属团队 (即时消息通知按团队定位) -->
@@ -62,11 +65,12 @@
         </el-table-column>
         <el-table-column prop="phone" :label="$t('common.phone_2')" width="130" />
         <el-table-column prop="email" :label="$t('common.email')" min-width="180" show-overflow-tooltip />
-        <el-table-column :label="$t('common.status')" width="80" align="center">
+        <el-table-column :label="$t('common.status')" width="110" align="center">
           <template #default="{ row }">
             <el-tag :type="row.status === 1 ? 'success' : 'info'" effect="light" size="small">
               {{ $t('common.p0', { p0: row.status === 1 ? $t('common.enabled') : $t('common.disable') }) }}
             </el-tag>
+            <div v-if="row.platformDisabled" class="sub">{{ $t('users.disabled_on_platform') }}</div>
           </template>
         </el-table-column>
         <el-table-column prop="lastLoginAt" :label="$t('users.last_sign_in')" width="170">
@@ -76,8 +80,7 @@
         </el-table-column>
         <el-table-column :label="$t('common.actions')" width="280" fixed="right">
           <template #default="{ row }">
-            <el-button v-if="can('user.edit')" size="small" link type="primary" @click="openEdit(row)">{{ $t('common.edit') }}</el-button>
-            <el-button v-if="can('user.resetPassword')" size="small" link type="warning" @click="confirmReset(row)">{{ $t('common.reset_password') }}</el-button>
+            <el-button v-if="can('user.edit')" size="small" link type="primary" @click="openEdit(row)">{{ $t('users.change_role') }}</el-button>
             <el-button v-if="can('user.edit') && row.status === 1 && row.username !== currentUsername" size="small" link type="info" @click="toggleStatus(row)">{{ $t('common.disable') }}</el-button>
             <el-button v-if="can('user.edit') && row.status === 0" size="small" link type="success" @click="toggleStatus(row)">{{ $t('common.enabled') }}</el-button>
             <el-popconfirm v-if="can('user.delete') && row.username !== currentUsername" :title="$t('users.delete_this_user')" @confirm="handleDelete(row)">
@@ -101,41 +104,47 @@
       />
     </el-card>
 
-    <!-- 创建/编辑对话框 -->
-    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="500px" @closed="resetForm">
-      <el-form :model="form" :rules="formRules" ref="formRef" label-width="80px">
-        <el-form-item :label="$t('common.username')" prop="username">
-          <el-input v-model="form.username" :disabled="editing" :placeholder="$t('users.username_lowercase_letters_numbers')" />
-        </el-form-item>
-        <el-form-item :label="$t('common.name_2')" prop="name">
-          <el-input v-model="form.name" :placeholder="$t('users.full_name')" />
-        </el-form-item>
-        <el-form-item :label="$t('common.role')" prop="role">
-          <el-select v-model="form.role" :placeholder="$t('users.choose_role')" style="width: 100%;">
+    <!-- 改角色: 姓名 / 邮箱 / 手机 / 团队都来自以虎 One, 这里只读 -->
+    <el-dialog v-model="dialogVisible" :title="$t('users.change_role')" width="480px">
+      <el-form :model="form" label-width="80px">
+        <el-form-item :label="$t('common.name_2')">{{ form.name }} <span class="sub-inline">{{ form.username }}</span></el-form-item>
+        <el-form-item :label="$t('common.role')">
+          <el-select v-model="form.role" style="width: 100%;">
             <el-option v-for="r in activeRoles" :key="r.code" :label="`${r.name} (${r.code})`" :value="r.code" />
           </el-select>
         </el-form-item>
-        <!-- v1.5.6 所属团队: 管理员在此设置(本人只读); 即时消息通知按团队定位, 未设置无法精准触达 -->
-        <el-form-item :label="$t('common.team')">
-          <el-select v-model="form.teamIds" multiple filterable :placeholder="$t('users.multiple_allowed_without_team_user_gets')" style="width: 100%;">
-            <el-option v-for="t in teamOptions" :key="String(t.id)" :value="String(t.id)" :label="t.name" />
-          </el-select>
-        </el-form-item>
-        <el-form-item :label="$t('common.phone_2')" prop="phone">
-          <el-input v-model="form.phone" :placeholder="$t('common.optional')" />
-        </el-form-item>
-        <el-form-item :label="$t('common.email')" prop="email">
-          <el-input v-model="form.email" :placeholder="$t('common.optional')" />
-        </el-form-item>
-        <el-form-item v-if="!editing" label="">
-          <el-alert type="info" :closable="false" show-icon>
-            <template #title>{{ $t('users.default_password_123456_remind_user_change') }}</template>
-          </el-alert>
-        </el-form-item>
+        <el-alert v-if="form.roleSource === 'PLATFORM_ADMIN'" type="warning" :closable="false" show-icon :title="$t('users.platform_admin_note')" />
+        <el-alert v-else type="info" :closable="false" show-icon :title="$t('users.role_manual_note')" />
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">{{ $t('common.cancel') }}</el-button>
         <el-button type="primary" :loading="submitting" @click="handleSubmit">{{ $t('common.ok') }}</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 从以虎 One 通讯录添加 -->
+    <el-dialog v-model="addDlg.visible" :title="$t('users.add_from_platform')" width="560px">
+      <el-input v-model="addDlg.keyword" :placeholder="$t('users.search_platform_directory')" clearable @keyup.enter="searchDirectory" @clear="searchDirectory">
+        <template #append><el-button :loading="addDlg.loading" @click="searchDirectory">{{ $t('common.search_2') }}</el-button></template>
+      </el-input>
+      <div v-if="addDlg.error" class="dlg-error">{{ addDlg.error }}</div>
+      <el-table :data="addDlg.list" v-loading="addDlg.loading" highlight-current-row max-height="300" style="margin-top: 12px;" @current-change="r => addDlg.picked = r">
+        <el-table-column prop="name" :label="$t('common.name_2')" min-width="100" />
+        <el-table-column prop="username" :label="$t('common.account')" min-width="100" />
+        <el-table-column :label="$t('common.team')" min-width="160" show-overflow-tooltip>
+          <template #default="{ row }">{{ (row.depts || []).join('、') || '—' }}</template>
+        </el-table-column>
+      </el-table>
+      <el-form label-width="80px" style="margin-top: 14px;">
+        <el-form-item :label="$t('common.role')">
+          <el-select v-model="addDlg.role" style="width: 100%;">
+            <el-option v-for="r in activeRoles" :key="r.code" :label="`${r.name} (${r.code})`" :value="r.code" />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="addDlg.visible = false">{{ $t('common.cancel') }}</el-button>
+        <el-button type="primary" :disabled="!addDlg.picked" :loading="submitting" @click="addFromDirectory">{{ $t('common.ok') }}</el-button>
       </template>
     </el-dialog>
   </div>
@@ -145,7 +154,7 @@
 import { $t } from '@/i18n'
 import { ref, reactive, onMounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import { fde } from '@/api/index.js'
 import { can } from '@/api/permissions.js'
@@ -188,70 +197,62 @@ function resetFilters() {
   loadList()
 }
 
-// 创建/编辑对话框
+// 改角色
 const dialogVisible = ref(false)
-const editing = ref(false)
-const formRef = ref(null)
 const submitting = ref(false)
-const form = reactive({
-  id: null, username: '', name: '', role: '', phone: '', email: '', teamIds: []
-})
-// v1.5.6 团队下拉选项
-const teamOptions = ref([])
-async function loadTeams() {
-  try {
-    const d = await fde.teams.list()
-    teamOptions.value = d.list
-  } catch { /* 团队清单加载失败不影响用户管理 */ }
-}
-const dialogTitle = computed(() => editing.value ? $t('users.edit_user') : $t('users.new_user'))
+const form = reactive({ id: null, username: '', name: '', role: '', roleSource: '' })
 
-const formRules = {
-  username: [{ required: true, message: $t('common.enter_your_username'), trigger: 'blur' }],
-  name: [{ required: true, message: $t('users.enter_name'), trigger: 'blur' }],
-  role: [{ required: true, message: $t('users.choose_role'), trigger: 'change' }]
+const ROLE_SOURCE = {
+  PLATFORM_ADMIN: () => $t('users.source_platform_admin'),
+  DEPT_LEADER: () => $t('users.source_dept_leader'),
+  DEFAULT: () => $t('users.source_default'),
+  MANUAL: () => $t('users.source_manual')
 }
-
-function openCreate() {
-  editing.value = false
-  Object.assign(form, { id: null, username: '', name: '', role: '', phone: '', email: '', teamIds: [] })
-  dialogVisible.value = true
-}
+const roleSourceText = (s) => ROLE_SOURCE[s]?.() || ''
 
 function openEdit(row) {
-  editing.value = true
-  Object.assign(form, {
-    id: row.id, username: row.username, name: row.name, role: row.role,
-    phone: row.phone || '', email: row.email || '',
-    teamIds: (row.teams || []).map(t => String(t.id))
-  })
+  Object.assign(form, { id: row.id, username: row.username, name: row.name, role: row.role, roleSource: row.roleSource })
   dialogVisible.value = true
-}
-
-function resetForm() {
-  formRef.value?.resetFields()
 }
 
 async function handleSubmit() {
-  try {
-    await formRef.value.validate()
-  } catch { return }
   submitting.value = true
   try {
-    if (editing.value) {
-      await fde.users.update(form.id, {
-        name: form.name, role: form.role, phone: form.phone, email: form.email,
-        teamIds: form.teamIds
-      })
-      ElMessage.success($t('common.updated'))
-    } else {
-      const r = await fde.users.create({
-        username: form.username, name: form.name, role: form.role,
-        phone: form.phone, email: form.email, teamIds: form.teamIds
-      })
-      ElMessage.success($t('users.created', { p0: r._hint || $t('users.default_password_123456') }))
-    }
+    const r = await fde.users.update(form.id, { role: form.role })
+    ElMessage.success(r?._warn || $t('common.updated'))
     dialogVisible.value = false
+    loadList()
+  } catch (e) {
+    ElMessage.error(e.message || $t('common.action_failed'))
+  } finally {
+    submitting.value = false
+  }
+}
+
+// 从以虎 One 通讯录添加
+const addDlg = reactive({ visible: false, keyword: '', list: [], loading: false, error: '', picked: null, role: 'FDE_ENGINEER' })
+function openAdd() {
+  Object.assign(addDlg, { visible: true, keyword: '', list: [], error: '', picked: null, role: 'FDE_ENGINEER' })
+  searchDirectory()
+}
+async function searchDirectory() {
+  addDlg.loading = true
+  addDlg.error = ''
+  try {
+    addDlg.list = (await fde.users.platformDirectory(addDlg.keyword)).list
+  } catch (e) {
+    addDlg.error = e.message
+    addDlg.list = []
+  } finally {
+    addDlg.loading = false
+  }
+}
+async function addFromDirectory() {
+  submitting.value = true
+  try {
+    await fde.users.create({ platformUserId: addDlg.picked.id, role: addDlg.role })
+    ElMessage.success($t('users.added', { p0: addDlg.picked.name }))
+    addDlg.visible = false
     loadList()
   } catch (e) {
     ElMessage.error(e.message || $t('common.action_failed'))
@@ -266,22 +267,6 @@ async function toggleStatus(row) {
     await fde.users.update(row.id, { status: newStatus })
     ElMessage.success(newStatus === 1 ? $t('common.enabled_2') : $t('common.disabled_2'))
     loadList()
-  } catch (e) {
-    ElMessage.error(e.message)
-  }
-}
-
-async function confirmReset(row) {
-  try {
-    await ElMessageBox.confirm(
-      $t('users.reset_password_123456', { p0: row.name, p1: row.username }),
-      $t('common.reset_password'),
-      { type: 'warning' }
-    )
-  } catch { return }
-  try {
-    const r = await fde.users.resetPassword(row.id)
-    ElMessage.success(r._hint || $t('users.reset'))
   } catch (e) {
     ElMessage.error(e.message)
   }
@@ -323,7 +308,6 @@ async function tryOpenEditFromQuery() {
 
 onMounted(async () => {
   refreshRoles()
-  loadTeams()
   await loadList()
   await tryOpenEditFromQuery()
 })
@@ -348,6 +332,9 @@ onMounted(async () => {
   margin: 4px 0 0 0;
 }
 .filter-card { border-radius: 8px; }
+.sub { font-size: 12px; color: #a8a29e; line-height: 1.4; }
+.sub-inline { font-size: 12px; color: #a8a29e; margin-left: 8px; }
+.dlg-error { color: var(--el-color-danger); font-size: 13px; margin-top: 8px; }
 .table-card { border-radius: 8px; }
 /* v1.2.8: 行 hover 色收编进全局主题(element-vi.css), 半透明覆盖会让 fixed 列透出下层内容 */
 </style>

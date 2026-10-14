@@ -1,9 +1,8 @@
 // FDE 平台 - API Key 管理（MCP / 智能体对接凭证）
-// 每个用户管理自己的 Key; ADMIN 可通过 userId 参数给他人签发/查看
+// 列表 / 改名 / 吊销: 每个用户管自己的 Key, ADMIN 可看全部。新 Key 只由 Agent 档案签发(见 agent-profiles.js)
 import express from 'express'
 import prisma from '../../lib/prisma.js'
 import { internalAuth, hasRole } from '../../lib/auth.js'
-import { generateApiKey } from '../../lib/apiKey.js'
 
 const router = express.Router()
 router.use(internalAuth)
@@ -47,42 +46,10 @@ router.get('/', async (req, res) => {
   }
 })
 
-// 创建：明文只返回这一次
-router.post('/', async (req, res) => {
-  try {
-    const { name, userId, scope } = req.body || {}
-    if (!name || !String(name).trim()) {
-      return res.status(400).json({ code: 1001, message: 'name 必填（用途备注）' })
-    }
-    // 2026-07-29 AGENT 级 Key(手机号路由)下线: Agent 平台改为透传用户登录 Token, 不再需要平台共享 Key
-    if (scope === 'AGENT') {
-      return res.status(400).json({ code: 1001, message: 'AGENT 级 Key 已停用：Agent 平台请直接透传用户登录 Token 调用 /api/mcp（Authorization: Bearer <token>）' })
-    }
-    const keyScope = 'PERSONAL'
-    let targetUserId = BigInt(req.user.userId)
-    if (userId && String(userId) !== String(req.user.userId)) {
-      if (!hasRole(req.user, 'ADMIN')) {
-        return res.status(403).json({ code: 1003, message: '只有 ADMIN 能给他人签发 API Key' })
-      }
-      targetUserId = BigInt(userId)
-      const target = await prisma.user.findUnique({ where: { id: targetUserId } })
-      if (!target || target.status !== 1 || target.deletedAt) {
-        return res.status(404).json({ code: 2004, message: '目标用户不存在或已禁用' })
-      }
-    }
-    const { raw, hash, prefix } = generateApiKey()
-    const record = await prisma.apiKey.create({
-      data: { userId: targetUserId, name: String(name).trim(), keyHash: hash, prefix, scope: keyScope }
-    })
-    res.json({
-      code: 0,
-      message: 'API Key 创建成功，明文仅此一次返回，请妥善保存',
-      data: { id: record.id, name: record.name, scope: record.scope, apiKey: raw }
-    })
-  } catch (e) {
-    console.error('[api-keys:create]', e)
-    res.status(500).json({ code: 9001, message: e.message })
-  }
+// 不再签发个人 Key: 个人 AI 工具用以虎 One 个人中心的 API Key 经平台接入(一个 Key 通用所有应用);
+// 机器人等需要独立身份的在「Agent 协作」里注册, 由 Agent 档案签发专属 Key。已有的个人 Key 照常可用、可吊销
+router.post('/', (req, res) => {
+  res.status(410).json({ code: 4100, message: '本系统不再签发个人 API Key：请在以虎 One 个人中心生成 API Key 接入；机器人请在「Agent 协作」里注册 Agent 获取专属 Key' })
 })
 
 // 修改（仅名称/用途备注; Key 本体不可改）：本人或 ADMIN

@@ -8,7 +8,7 @@
 
 - 已安装 OpenClaw（`openclaw --version` 能出版本号）
 - 已准备好凭证，二选一：
-  - **个人 API Key**（`fde_` 前缀）：在系统「API Key 管理」里创建，明文只显示一次
+  - **以虎 One API Key**：在以虎 One「个人中心 → API Key」生成，连以虎 One 的 MCP 网关 `<以虎 One 地址>/api/mcp`（FDE 工具名带 `fde__` 前缀）；机器人用「Agent 协作」里注册后发的 Agent 专属 Key（`fde_` 前缀）直连 `<FDE 地址>/api/mcp`
   - **登录 Token**：`POST /api/auth/login` 返回的 JWT
 
 OpenClaw 是长期挂机形态，推荐 API Key。
@@ -19,8 +19,8 @@ OpenClaw 的智能体自己就能执行命令——把端点和凭证发给它�
 
 ```text
 帮我接入FDE 系统的 MCP 服务：
-- 端点：https://<系统域名>/api/mcp
-- 凭证：fde_你的Key
+- 端点：<以虎 One 地址>/api/mcp
+- 凭证：你的以虎 One API Key（或机器人的 Agent 专属 Key）
 
 用 openclaw mcp add 添加（server 名叫 fde，transport 用 streamable-http，
 凭证放 Authorization: Bearer 请求头），添加时会自动探活。
@@ -38,9 +38,9 @@ OpenClaw 的智能体自己就能执行命令——把端点和凭证发给它�
 
 ```bash
 openclaw mcp add fde \
-  --url https://<系统域名>/api/mcp \
+  --url <以虎 One 地址>/api/mcp \
   --transport streamable-http \
-  --header "Authorization=Bearer fde_你的Key" \
+  --header "Authorization=Bearer <你的以虎 One API Key>" \
   --connect-timeout 5 --timeout 30
 ```
 
@@ -62,10 +62,10 @@ openclaw mcp reload      # 改完配置后让下一轮对话生效, 不用重启
   "mcp": {
     "servers": {
       "fde": {
-        "url": "https://<系统域名>/api/mcp",
+        "url": "<以虎 One 地址>/api/mcp",
         "transport": "streamable-http",
         "headers": {
-          "Authorization": "Bearer fde_你的Key"
+          "Authorization": "Bearer <你的以虎 One API Key>"
         },
         "connectTimeout": 5,
         "timeout": 30

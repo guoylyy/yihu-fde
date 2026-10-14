@@ -1,8 +1,8 @@
-// Prisma seed script —— 内置角色 + 默认话题 + 一套演示数据
+// Prisma seed script —— 内置角色 + 默认话题 + 一套演示数据(本地开发 / 测试用)
 // 用法：node prisma/seed.js
 // 幂等: 角色/话题/账号按唯一键 upsert, 演示项目已存在则跳过。
+// 演示账号没有密码: 本地用开发登录(DEV_LOGIN=true)进入; 装在以虎 One 上时账号由平台登录开通。
 import { PrismaClient } from '@prisma/client'
-import bcrypt from 'bcrypt'
 import { BUILTIN_ROLES } from '../src/lib/auth.js'
 
 const prisma = new PrismaClient()
@@ -19,14 +19,11 @@ const IDEA_TOPICS = [
   { name: 'Process improvements', description: 'Where tooling, workflow or collaboration could be smoother', icon: '⚙️' }
 ]
 
-const DEMO_PASSWORD = '123456'
-
 async function upsertUser(username, name, role) {
-  const passwordHash = await bcrypt.hash(DEMO_PASSWORD, 10)
   return prisma.user.upsert({
     where: { username },
     update: {},
-    create: { username, passwordHash, name, email: `${username}@example.com`, role, status: 1 }
+    create: { username, name, email: `${username}@example.com`, role, status: 1 }
   })
 }
 
@@ -142,7 +139,7 @@ async function main() {
     console.log(`  ✅ demo project: ${project.code}`)
   }
 
-  console.log('\n🎉 Seed done. Demo accounts (password 123456):')
+  console.log('\n🎉 Seed done. Demo accounts (sign in with dev login, DEV_LOGIN=true):')
   console.log('  admin (ADMIN) · manager (MANAGER) · fde001 (FDE_ENGINEER)')
 }
 

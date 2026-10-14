@@ -26,10 +26,6 @@
                  @click="pickPreset(i)" />
           </div>
           <el-divider />
-          <div class="sec-row">
-            <span>{{ $t('profile.password') }}</span>
-            <el-button link type="primary" @click="$router.push('/admin/change-password')">{{ $t('profile.change_password') }}</el-button>
-          </div>
           <!-- v2.5.5(#912) 通知按类型开关在通知中心 -->
           <div class="sec-row">
             <span>{{ $t('common.notification_settings') }}</span>

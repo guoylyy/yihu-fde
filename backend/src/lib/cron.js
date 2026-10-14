@@ -1,4 +1,7 @@
 // 后台定时任务
+import { syncDirectory } from '../services/directorySync.js'
+import { syncYihuOneModels } from './yihuOneLlm.js'
+import { platformEnabled } from './yihuOne.js'
 import { releaseStaleRuns } from '../services/devDispatch.js'   // v2.9.0(#1162)
 import { syncAllRepositories } from '../services/repoSync.js'
 import { computeAllActivityScores } from '../services/projectActivity.js'
@@ -10,6 +13,22 @@ export function startCronJobs() {
   if (started) return
   started = true
   console.log('[cron] 启动定时任务')
+
+  // 以虎 One 通讯录: 启动 30s 后全量一次(含团队), 之后每小时增量、每天全量(凌晨 3 点后第一次)
+  let lastFullDay = null
+  const directoryTick = () => {
+    const now = new Date()
+    const full = lastFullDay === null || (now.getHours() >= 3 && lastFullDay !== now.toDateString())
+    if (full) lastFullDay = now.toDateString()
+    return syncDirectory({ full })
+  }
+  setTimeout(() => runWithCatch('directorySync', directoryTick), 30 * 1000)
+  setInterval(() => runWithCatch('directorySync', directoryTick), 60 * 60 * 1000)
+
+  // 以虎 One 模型清单: 启动 60s 后同步一次, 之后每天一次(平台上加减了模型这里跟着变)
+  const modelSync = () => platformEnabled() ? syncYihuOneModels({}) : null
+  setTimeout(() => runWithCatch('modelSync', modelSync), 60 * 1000)
+  setInterval(() => runWithCatch('modelSync', modelSync), 24 * 60 * 60 * 1000)
 
   // v2.9.0(#1162) 派工: 机器人失联释放 —— 每 10 分钟扫一次, 心跳超 2 小时的运行退回队列供其他机器人接手
   setTimeout(() => runWithCatch('devRunRelease', () => releaseStaleRuns()), 45 * 1000)

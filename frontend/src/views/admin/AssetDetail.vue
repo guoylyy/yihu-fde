@@ -135,7 +135,7 @@
         <el-tab-pane name="links">
           <template #label>{{ $t('common.link') }}<span v-if="asset.links?.length" class="tab-count">{{ asset.links.length }}</span></template>
           <div class="links-head">
-            <span class="muted">{{ $t('assetDetail.skill_package_how_integrate_knowledge_article') }}</span>
+            <span class="muted">{{ $t('assetDetail.links_hint') }}</span>
             <el-button v-if="can('asset.manage')" size="small" :icon="Plus" @click="openLink">{{ $t('assetDetail.add_link') }}</el-button>
           </div>
           <div v-if="asset.links?.length" class="link-list">
@@ -172,7 +172,7 @@
       <el-form label-width="70px">
         <el-form-item :label="$t('common.type')">
           <el-select v-model="linkDialog.type" style="width: 100%" @change="searchTargets('')">
-            <el-option v-for="(t, k) in linkTypeText" :key="k" :label="t" :value="k" />
+            <el-option v-for="k in NEW_LINK_TYPES" :key="k" :label="linkTypeText[k]" :value="k" />
           </el-select>
         </el-form-item>
         <el-form-item :label="$t('assetDetail.object')">
@@ -226,6 +226,8 @@ const maturityHint = {
 const modeText = { REFERENCE: $t('common.adapt'), COPY: $t('common.copy_directory'), INSTALL: $t('common.install') }
 const linkTypeText = { SKILL_PACKAGE: $t('assetDetail.skill_package'), KNOWLEDGE: $t('assetDetail.knowledge_article'), ASSET: $t('common.assets') }
 const linkTagType = { SKILL_PACKAGE: 'success', KNOWLEDGE: 'info', ASSET: 'primary' }
+// 新建关联只能选这两类; 老数据里的 Skill 关联照常展示(Skill 已改到以虎 One 的 Skill 中心)
+const NEW_LINK_TYPES = ['KNOWLEDGE', 'ASSET']
 
 const authText = computed(() => ({ INTERNAL: $t('assetDetail.in_house_reusable_as'), CLIENT_CLEARED: $t('common.customer_approved_reuse'), RESTRICTED: $t('common.reference_only_customer_code') }[asset.value?.authorization]))
 const authClass = computed(() => ({ INTERNAL: 'internal', CLIENT_CLEARED: 'cleared', RESTRICTED: 'restricted' }[asset.value?.authorization]))
@@ -291,9 +293,9 @@ async function removeUsage(row) {
   } catch (e) { ElMessage.error(e.message || $t('assetDetail.withdraw_failed')) }
 }
 
-const linkDialog = reactive({ visible: false, type: 'SKILL_PACKAGE', targetId: '', note: '', options: [] })
+const linkDialog = reactive({ visible: false, type: 'KNOWLEDGE', targetId: '', note: '', options: [] })
 function openLink() {
-  Object.assign(linkDialog, { visible: true, type: 'SKILL_PACKAGE', targetId: '', note: '', options: [] })
+  Object.assign(linkDialog, { visible: true, type: 'KNOWLEDGE', targetId: '', note: '', options: [] })
   searchTargets('')
 }
 async function searchTargets(kw) {

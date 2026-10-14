@@ -90,14 +90,14 @@ const MODULE_LABELS = {
   apiKey: 'API Key',
   audit: $t('rolePermissions.audit_log'), idea: $t('common.ideas'), me: $t('common.my_workbench'), rolePermission: $t('common.role_permissions'),
   team: $t('common.teams'),
-  notification: $t('rolePermissions.notifications'), skillPackage: $t('common.skill_packages'), asset: $t('common.asset_library')
+  notification: $t('rolePermissions.notifications'), asset: $t('common.asset_library')
 }
 
 const ACTION_LABELS = {
   access: $t('rolePermissions.module_access'), view: $t('common.view'), create: $t('common.new'), edit: $t('common.edit'), delete: $t('common.delete_2'),
   approve: $t('common.approvals'),
   submit: $t('common.submit'), issue: $t('rolePermissions.issue_publish'), export: $t('rolePermissions.export'),
-  manage: $t('rolePermissions.manage'), manageAll: $t('rolePermissions.manage_all'), resetPassword: $t('common.reset_password'),
+  manage: $t('rolePermissions.manage'), manageAll: $t('rolePermissions.manage_all'),
   changeStatus: $t('rolePermissions.change_status'), manageMembers: $t('rolePermissions.member_management'),
   grant: $t('rolePermissions.grant'), batch: $t('rolePermissions.bulk_actions'), import: $t('rolePermissions.import'), convert: $t('rolePermissions.convert'), assign: $t('rolePermissions.assign'),
   list: $t('common.list'), generate: $t('common.generate'), withdraw: $t('rolePermissions.withdraw'), reject: $t('common.reject'),

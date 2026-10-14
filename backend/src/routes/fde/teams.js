@@ -1,8 +1,8 @@
-// FDE 平台 - 团队管理 (v1.5.6)
-// 组织维度的人员分组, 一人可属多个团队。动因: 即时消息通知需要按"用户所属团队"
-// 定位接收群, 用户没设团队就无法精准触达。
-// 权限: 列表/详情任何登录用户可读(个人中心查看/人员卡片展示要用); 增删改/成员调整需 team.manage。
-// 团队归属由管理员设置: 团队管理页全量设成员, 或用户管理编辑单人的 teamIds; 本人只读。
+// FDE 平台 - 团队 (v1.5.6)
+// 团队 = 以虎 One 的部门: 由通讯录同步(services/directorySync.js)按平台部门生成, 名称和成员以平台为准。
+// 本系统只能补充团队负责人、说明、排序和群机器人 Webhook(即时消息按团队路由时用);
+// 接入平台前手建、没有对应部门的团队可以删除。
+// 权限: 列表/详情任何登录用户可读(个人中心查看/人员卡片展示要用); 修改需 team.manage。
 import express from 'express'
 import prisma from '../../lib/prisma.js'
 import { internalAuth, requirePermission } from '../../lib/auth.js'
@@ -71,18 +71,10 @@ router.get('/:id', async (req, res) => {
   }
 })
 
-async function validatePayload(body, existingId = null) {
-  const { name, description, leaderId, chatWebhookUrl, status, sortOrder } = body || {}
+/** 可改的只有平台没有的信息; 名称、成员、启停由通讯录同步决定 */
+async function validatePayload(body) {
+  const { description, leaderId, chatWebhookUrl, sortOrder } = body || {}
   const data = {}
-  if (name !== undefined) {
-    if (!String(name).trim()) return { error: '团队名称不能为空' }
-    if (String(name).trim().length > 50) return { error: '团队名称不超过 50 字' }
-    const exist = await prisma.team.findFirst({
-      where: { name: String(name).trim(), deletedAt: null, ...(existingId ? { id: { not: existingId } } : {}) }
-    })
-    if (exist) return { error: `团队「${String(name).trim()}」已存在` }
-    data.name = String(name).trim()
-  }
   if (description !== undefined) data.description = description || null
   if (leaderId !== undefined) {
     if (leaderId) {
@@ -94,41 +86,19 @@ async function validatePayload(body, existingId = null) {
     }
   }
   if (chatWebhookUrl !== undefined) data.chatWebhookUrl = chatWebhookUrl || null
-  if (status !== undefined) data.status = Number(status) === 0 ? 0 : 1
   if (sortOrder !== undefined) data.sortOrder = Number(sortOrder) || 0
   return { data }
 }
 
 /**
- * POST /api/fde/teams  { name, description?, leaderId?, chatWebhookUrl?, sortOrder? }
- */
-router.post('/', requirePermission('team.manage'), async (req, res) => {
-  try {
-    if (!req.body?.name) return res.status(400).json({ code: 9002, message: '团队名称不能为空' })
-    const { data, error } = await validatePayload(req.body)
-    if (error) return res.status(400).json({ code: 9002, message: error })
-    const team = await prisma.team.create({ data })
-    logInternalAction(req, 'TEAM_CREATE', {
-      resourceType: 'TEAM', resourceId: team.id,
-      details: { name: team.name }
-    })
-    res.json({ code: 0, data: team })
-  } catch (e) {
-    if (e.code === 'P2002') return res.status(400).json({ code: 9003, message: '团队名称已存在' })
-    console.error('[fde/teams POST /]', e)
-    res.status(500).json({ code: 9001, message: e.message })
-  }
-})
-
-/**
- * PUT /api/fde/teams/:id  { name?, description?, leaderId?, chatWebhookUrl?, status?, sortOrder? }
+ * PUT /api/fde/teams/:id  { description?, leaderId?, chatWebhookUrl?, sortOrder? }
  */
 router.put('/:id', requirePermission('team.manage'), async (req, res) => {
   try {
     const id = BigInt(req.params.id)
     const existing = await prisma.team.findFirst({ where: { id, deletedAt: null } })
     if (!existing) return res.status(404).json({ code: 9004, message: '团队不存在' })
-    const { data, error } = await validatePayload(req.body, id)
+    const { data, error } = await validatePayload(req.body)
     if (error) return res.status(400).json({ code: 9002, message: error })
     const team = await prisma.team.update({ where: { id }, data })
     logInternalAction(req, 'TEAM_UPDATE', {
@@ -137,63 +107,25 @@ router.put('/:id', requirePermission('team.manage'), async (req, res) => {
     })
     res.json({ code: 0, data: team })
   } catch (e) {
-    if (e.code === 'P2002') return res.status(400).json({ code: 9003, message: '团队名称已存在' })
     console.error('[fde/teams PUT /:id]', e)
     res.status(500).json({ code: 9001, message: e.message })
   }
 })
 
 /**
- * PUT /api/fde/teams/:id/members  { userIds: [] }
- * 全量设置团队成员(管理员视角)
- */
-router.put('/:id/members', requirePermission('team.manage'), async (req, res) => {
-  try {
-    const id = BigInt(req.params.id)
-    const team = await prisma.team.findFirst({ where: { id, deletedAt: null } })
-    if (!team) return res.status(404).json({ code: 9004, message: '团队不存在' })
-
-    const userIds = [...new Set((req.body?.userIds || []).map(String))].map(BigInt)
-    const validCount = await prisma.user.count({ where: { id: { in: userIds }, deletedAt: null } })
-    if (validCount !== userIds.length) {
-      return res.status(400).json({ code: 9002, message: '成员列表里存在无效用户' })
-    }
-
-    await prisma.$transaction([
-      prisma.teamMembership.deleteMany({ where: { teamId: id, userId: { notIn: userIds } } }),
-      ...userIds.map(userId => prisma.teamMembership.upsert({
-        where: { teamId_userId: { teamId: id, userId } },
-        create: { teamId: id, userId },
-        update: {}
-      }))
-    ])
-    logInternalAction(req, 'TEAM_SET_MEMBERS', {
-      resourceType: 'TEAM', resourceId: id,
-      details: { name: team.name, memberCount: userIds.length }
-    })
-    res.json({ code: 0, message: 'ok' })
-  } catch (e) {
-    console.error('[fde/teams PUT /:id/members]', e)
-    res.status(500).json({ code: 9001, message: e.message })
-  }
-})
-
-/**
- * DELETE /api/fde/teams/:id  软删团队, 同时清空成员关系
+ * DELETE /api/fde/teams/:id  只能删手建的团队(没有对应平台部门); 平台部门生成的团队由同步管理
  */
 router.delete('/:id', requirePermission('team.manage'), async (req, res) => {
   try {
     const id = BigInt(req.params.id)
     const existing = await prisma.team.findFirst({ where: { id, deletedAt: null } })
     if (!existing) return res.status(404).json({ code: 9004, message: '团队不存在' })
+    if (existing.platformDeptId != null) return res.status(400).json({ code: 9002, message: '这个团队对应以虎 One 的部门，由通讯录同步管理，不能删除' })
     await prisma.$transaction([
       prisma.teamMembership.deleteMany({ where: { teamId: id } }),
       prisma.team.update({ where: { id }, data: { deletedAt: new Date(), status: 0 } })
     ])
-    logInternalAction(req, 'TEAM_DELETE', {
-      resourceType: 'TEAM', resourceId: id,
-      details: { name: existing.name }
-    })
+    logInternalAction(req, 'TEAM_DELETE', { resourceType: 'TEAM', resourceId: id, details: { name: existing.name } })
     res.json({ code: 0, message: '已删除' })
   } catch (e) {
     console.error('[fde/teams DELETE /:id]', e)

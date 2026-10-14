@@ -3,10 +3,13 @@
 import express from 'express'
 import { editionName, enabledModuleList } from '../../config/edition.js'
 import { getBrand } from '../../config/brand.js'
+import { appInfo } from '../../lib/yihuOne.js'
 
 const router = express.Router()
 
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
+  // 外观跟随以虎 One: 先刷新应用信息缓存(10 分钟内用缓存, 取不到用上次的或默认)
+  await appInfo()
   res.json({
     code: 0,
     data: {

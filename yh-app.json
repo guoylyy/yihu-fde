@@ -12,8 +12,10 @@
   "database": true,
   "memory": "768m",
   "env": {
-    "PASSWORD_LOGIN": "false",
     "OIDC_DEFAULT_ROLE": "FDE_ENGINEER"
   },
-  "deploy": { "branch": "release", "mode": "manual" }
+  "deploy": {
+    "branch": "release",
+    "mode": "manual"
+  }
 }

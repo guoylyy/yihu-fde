@@ -6,8 +6,11 @@
         <p class="hint" v-if="isAdmin">{{ $t('apiKeys.credentials_for_mcp_agent_integrations_key') }}</p>
         <p class="hint" v-else>{{ $t('apiKeys.credentials_for_mcp_agent_integrations_key_2') }}</p>
       </div>
-      <el-button type="primary" :icon="Plus" @click="openCreate">{{ $t('apiKeys.create_api_key') }}</el-button>
+      <el-button @click="$router.push('/admin/agents')">{{ $t('apiKeys.go_agents') }}</el-button>
     </div>
+
+    <!-- 个人 Key 由以虎 One 签发; 这里只保留老的个人 Key 和 Agent 专属 Key 的查看 / 改名 / 吊销 -->
+    <el-alert type="info" :closable="false" show-icon :title="$t('apiKeys.personal_keys_from_platform')" />
 
     <el-card shadow="never" class="list-card" v-loading="loading">
       <el-table :data="list" stripe>
@@ -57,50 +60,6 @@
       </el-table>
     </el-card>
 
-    <!-- 创建 -->
-    <el-dialog v-model="createVisible" :title="$t('apiKeys.create_api_key')" width="480px" @closed="resetCreate">
-      <el-form :model="form" label-width="90px">
-        <el-form-item :label="$t('common.name')" required>
-          <el-input v-model="form.name" :placeholder="$t('apiKeys.purpose_e_g_coze_agent_sam')" maxlength="100" />
-        </el-form-item>
-        <el-form-item v-if="isAdmin" :label="$t('apiKeys.bound_user')" required>
-          <el-select v-model="form.userId" filterable :placeholder="$t('apiKeys.key_acts_in_system_as_this')" style="width: 100%;">
-            <el-option v-for="u in userOptions" :key="u.id" :value="u.id"
-              :label="`${u.name} (${u.username}) - ${roleLabel(u.role)}`" />
-          </el-select>
-        </el-form-item>
-        <el-alert v-if="!isAdmin" type="info" :closable="false" show-icon>
-          {{ $t('apiKeys.key_bound_your_account_with_exactly') }}
-        </el-alert>
-        <el-alert v-else type="info" :closable="false" show-icon>
-          {{ $t('apiKeys.when_setting_up_agent_platform_for') }}
-        </el-alert>
-      </el-form>
-      <template #footer>
-        <el-button @click="createVisible = false">{{ $t('common.cancel') }}</el-button>
-        <el-button type="primary" :loading="saving" @click="handleCreate">{{ $t('common.created') }}</el-button>
-      </template>
-    </el-dialog>
-
-    <!-- 创建成功：明文只显示这一次 -->
-    <el-dialog v-model="resultVisible" :title="$t('apiKeys.api_key_created')" width="560px" :close-on-click-modal="false">
-      <el-alert type="warning" :closable="false" show-icon class="once-alert">
-        {{ $t('apiKeys.plaintext_key_shown_only_once_cant') }}
-      </el-alert>
-      <div class="key-box">
-        <code class="key-text">{{ createdKey }}</code>
-        <el-button type="primary" :icon="CopyDocument" @click="copyKey">{{ $t('common.copy') }}</el-button>
-      </div>
-      <div class="key-usage">
-        <p>{{ $t('apiKeys.integration_mcp_endpoint') }}</p>
-        <pre>POST /api/mcp
-Authorization: Bearer {{ createdKey }}</pre>
-      </div>
-      <template #footer>
-        <el-button type="primary" @click="resultVisible = false">{{ $t('common.ive_saved_it_close') }}</el-button>
-      </template>
-    </el-dialog>
-
     <!-- 改名（仅修改用途备注, Key 本体不可改） -->
     <el-dialog v-model="renameVisible" :title="$t('apiKeys.rename_2')" width="420px">
       <el-form label-width="60px" @submit.prevent>
@@ -119,12 +78,10 @@ Authorization: Bearer {{ createdKey }}</pre>
 <script setup>
 import { $t } from '@/i18n'
 import { ref, reactive, onMounted } from 'vue'
-import { Plus, CopyDocument } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { fde } from '@/api/index.js'
 import { can } from '@/api/permissions.js'
 
-import { roleLabel } from '@/api/roles.js'  // v1.3.2 动态角色
 
 // 非管理员（FDE 工程师）只能管理自己的 Key: 列表只查自己, 创建默认绑定本人, 无选人入口
 // 2026-07-29: AGENT 级 Key 下线, Agent 平台改为透传用户登录 Token; 存量 AGENT Key 仅展示(标已停用)
@@ -132,14 +89,6 @@ const isAdmin = can('apiKey.manageAll')
 
 const list = ref([])
 const loading = ref(false)
-const userOptions = ref([])
-
-const createVisible = ref(false)
-const saving = ref(false)
-const form = reactive({ name: '', userId: null })
-
-const resultVisible = ref(false)
-const createdKey = ref('')
 
 function formatDateTime(v) {
   if (!v) return '—'
@@ -157,47 +106,6 @@ async function load() {
   finally { loading.value = false }
 }
 
-async function loadUsers() {
-  try {
-    const d = await fde.users.list({ page: 1, page_size: 200 })
-    userOptions.value = (d.list || d.items || []).filter(u => u.status === 1)
-  } catch (e) { ElMessage.error($t('apiKeys.failed_load_users') + e.message) }
-}
-
-function openCreate() {
-  createVisible.value = true
-  if (isAdmin && !userOptions.value.length) loadUsers()
-}
-
-function resetCreate() {
-  Object.assign(form, { name: '', userId: null })
-}
-
-async function handleCreate() {
-  if (!form.name.trim()) return ElMessage.warning($t('apiKeys.enter_name_purpose'))
-  if (isAdmin && !form.userId) return ElMessage.warning($t('apiKeys.choose_bound_user'))
-  saving.value = true
-  try {
-    // 非管理员不传 userId, 后端默认绑定本人
-    const payload = { name: form.name.trim() }
-    if (isAdmin) payload.userId = form.userId
-    const d = await fde.apiKeys.create(payload)
-    createdKey.value = d.apiKey
-    createVisible.value = false
-    resultVisible.value = true
-    load()
-  } catch (e) { ElMessage.error(e.message || $t('common.create_failed')) }
-  finally { saving.value = false }
-}
-
-async function copyKey() {
-  try {
-    await navigator.clipboard.writeText(createdKey.value)
-    ElMessage.success($t('common.copied_clipboard'))
-  } catch {
-    ElMessage.warning($t('common.copy_failed_please_select_copy_manually'))
-  }
-}
 
 async function handleRevoke(row) {
   try {

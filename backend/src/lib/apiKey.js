@@ -3,7 +3,7 @@
 import crypto from 'node:crypto'
 import prisma from './prisma.js'
 import { verifyToken } from './auth.js'
-import { resolveOidcAccessToken } from './oidc.js'
+import { resolvePlatformToken } from './identity.js'
 
 const KEY_PREFIX = 'fde_'
 // 旧版签发的 Key 前缀, 照常认
@@ -100,9 +100,9 @@ async function userPayload(user, authVia) {
   }
 }
 
-/** 统一登录身份提供方(如以虎 One)签发的 access_token: 其 AI 助手调 MCP 时带的就是它 */
+/** 以虎 One 转发来的 access_token: 平台 AI 助手、以及用户的个人 API Key 经平台 MCP 网关调用时带的就是它 */
 async function resolveOidcToken(raw) {
-  const user = await resolveOidcAccessToken(raw)
+  const user = await resolvePlatformToken(raw)
   return user ? userPayload(user, 'OIDC_TOKEN') : null
 }
 
@@ -127,7 +127,7 @@ export function mcpAuth(req, res, next) {
           code: 1002,
           message: isApiKey
             ? 'API Key 无效或已吊销'
-            : '凭证无效：请携带个人 API Key（fde_ 前缀）、本系统登录 Token 或统一登录(OIDC) access_token（Authorization: Bearer <token>）'
+            : '凭证无效：请经以虎 One 接入（平台 AI 助手或以虎 One 个人 API Key），或携带 Agent 的 API Key（fde_ 前缀）'
         })
       }
       if (payload.apiKeyScope === 'AGENT') {

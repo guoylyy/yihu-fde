@@ -33,7 +33,6 @@ import engineersRouter from './routes/fde/engineers.js'
 import engineerStatsRouter from './routes/fde/engineerStats.js'
 import engineerProfilesRouter from './routes/fde/engineer-profiles.js'
 import skillsRouter from './routes/fde/skills.js'
-import skillPackagesRouter from './routes/fde/skill-packages.js'
 import agentProfilesRouter from './routes/fde/agent-profiles.js'
 import agentPresenceRouter from './routes/fde/agent-presence.js'
 import agentConversationsRouter from './routes/fde/agent-conversations.js'
@@ -53,7 +52,9 @@ import notificationsRouter from './routes/fde/notifications.js'
 import auditLogsRouter from './routes/fde/audit-logs.js'
 import llmConfigsRouter from './routes/fde/llm-configs.js'
 import systemSettingsRouter from './routes/fde/system-settings.js'
+import cardsRouter from './routes/fde/cards.js'
 import { loadSettings } from './lib/settings.js'
+import { usageMiddleware } from './lib/usage.js'
 
 // Prisma 的 BigInt 主键默认无法 JSON.stringify
 BigInt.prototype.toJSON = function () { return this.toString() }
@@ -87,6 +88,9 @@ app.use(editionGuard)
 app.use('/api/auth', authRouter)
 app.use('/api/public/edition', publicEditionRouter)
 
+// 关键操作的使用数据上报到以虎 One(请求成功后异步入队, 见 lib/usage.js)
+app.use('/api/fde', usageMiddleware)
+
 app.use('/api/fde/me', meRouter)
 app.use('/api/fde/customers', customersRouter)
 app.use('/api/fde/projects', projectsRouter)
@@ -106,7 +110,6 @@ app.use('/api/fde/engineers', engineersRouter)
 app.use('/api/fde/engineer-stats', engineerStatsRouter)
 app.use('/api/fde/engineer-profiles', engineerProfilesRouter)
 app.use('/api/fde/skills', skillsRouter)
-app.use('/api/fde/skill-packages', skillPackagesRouter)
 app.use('/api/fde/agent-profiles', agentProfilesRouter)
 app.use('/api/fde/agent-presence', agentPresenceRouter)
 app.use('/api/fde/agent-conversations', agentConversationsRouter)
@@ -126,6 +129,7 @@ app.use('/api/fde/notifications', notificationsRouter)
 app.use('/api/fde/audit-logs', auditLogsRouter)
 app.use('/api/fde/llm-configs', llmConfigsRouter)
 app.use('/api/fde/system-settings', systemSettingsRouter)
+app.use('/api/fde/cards', cardsRouter)
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() })
@@ -166,7 +170,7 @@ loadRoles()
 // 系统设置(品牌/访问地址)要在接请求前生效; 读不到库就按环境变量起
 loadSettings()
   .then(n => { if (n) console.log(`[settings] ${n} system settings applied`) })
-  .catch(e => console.error('[settings] load failed, using environment variables:', e.message))
+  .catch(e => console.error('[settings] load failed, using defaults:', e.message))
   .finally(() => {
     app.listen(PORT, () => {
       console.log(`Backend listening on http://localhost:${PORT} (storage: ${STORAGE_DRIVER})`)

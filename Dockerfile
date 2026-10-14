@@ -1,5 +1,5 @@
-# Single-container image for running on Yihu One (yh-app.json): the backend also serves the built frontend.
-# Standalone deployments keep using docker-compose.yml (backend/ and frontend/ images).
+# The image Yihu One builds for this app (see yh-app.json): one container where the backend also serves the built frontend.
+# FDE runs only as a Yihu One app; there is no standalone deployment.
 #
 # Slow networks: docker build --build-arg NPM_REGISTRY=https://registry.npmmirror.com \
 #   --build-arg PRISMA_ENGINES_MIRROR=https://registry.npmmirror.com/-/binary/prisma .

@@ -5,9 +5,9 @@
 //   OPTIONAL 可选   —— 默认关闭, 用户可按类型开启。判据: 只是进展告知, 不看也不影响工作(审批通过、已入驻、客户评价)
 //   NOISE    噪音   —— 默认不单独送, 合并进每日一条「动态摘要」。判据: 角色群发的动态/统计/已下线模块的提醒, 逐条推没人看
 //
-// 用户偏好 users.notification_prefs: { [type]: { enabled?: boolean, site?: boolean, chat?: boolean, mail?: boolean } }
+// 用户偏好 users.notification_prefs: { [type]: { enabled?: boolean, site?: boolean, chat?: boolean, platform?: boolean } }
 //   enabled=false 一律不送; enabled=true 强制即时送(覆盖档位默认); 不设则按档位默认。
-//   site/chat/mail 是旧版按通道开关, 继续兼容(见 notify.js resolveChannels; 旧数据的 feishu 视同 chat)。
+//   site/chat/platform 是按通道开关(见 notify.js resolveChannels; 旧数据的 feishu 视同 chat, mail 视同 platform)。
 // 未登记的类型: 默认按 MUST 即时送并打一条 warn, 保证新增/漏登类型不会被静默吞掉。
 
 export const TIERS = {
@@ -54,7 +54,6 @@ export const NOTIFICATION_CATALOG = {
   system:               O('后台异常告警(如文件上传失败)', '系统', '仅管理员, 默认关, 排障时开'),
   // ===== 账号 / 人事 =====
   USER_INVITED:         M('欢迎加入 / 账号开通', '账号', '一次性, 含初始信息'),
-  PASSWORD_RESET:       M('密码已重置', '账号', '安全事件'),
   ROLE_CHANGED:         M('我的角色变更', '账号', '影响权限'),
   ACCOUNT_DISABLED:     M('账号被停用', '账号', '安全事件'),
   ENGINEER_APPLICATION: M('新的工程师申请待审核', '账号', '管理员要审核'),
@@ -96,7 +95,7 @@ export function listCatalogForSettings() {
 }
 
 /**
- * 校验并规范化用户提交的偏好: 只接受目录内类型, 只保留 enabled/site/chat/mail 四个布尔(feishu 作为 chat 的旧名照收)
+ * 校验并规范化用户提交的偏好: 只接受目录内类型, 只保留 enabled/site/chat/platform 四个布尔(feishu / mail 作为旧名照收)
  * @returns {{ prefs: object, rejected: string[] }}
  */
 export function normalizePrefsInput(input, existing = null) {
@@ -108,7 +107,7 @@ export function normalizePrefsInput(input, existing = null) {
     if (v === null) { delete base[type]; continue }
     if (typeof v !== 'object') { rejected.push(type); continue }
     const next = { ...(base[type] || {}) }
-    for (const k of ['enabled', 'site', 'chat', 'feishu', 'mail']) {
+    for (const k of ['enabled', 'site', 'chat', 'platform', 'feishu', 'mail']) {
       if (k in v) {
         const key = k === 'feishu' ? 'chat' : k
         if (typeof v[k] === 'boolean') next[key] = v[k]

@@ -2,32 +2,9 @@
   "$comment": "Tool catalog for third-party agents. Keep in sync with backend/src/mcp/tools.js (guarded by test/lib/mcp-tools-coverage.test.js).",
   "auth": {
     "type": "bearer",
-    "login_tool": "login"
+    "note": "经以虎 One 接入: 平台 AI 助手自动带上用户身份; 外部智能体用用户在以虎 One 个人中心生成的 API Key 连平台的 MCP 网关(<平台地址>/api/mcp, 工具名带 fde__ 前缀)。需要独立身份的机器人在 FDE「Agent 协作」里注册 Agent, 用 Agent 专属 Key(fde_ 前缀)直连 FDE 的 /api/mcp。"
   },
   "tools": [
-    {
-      "name": "login",
-      "description": "用户名密码登录，获取 JWT token。会话初始化用。返回 data.token 与 data.user（含 id/name/role/engineerId）。",
-      "method": "POST",
-      "path": "/api/auth/login",
-      "body": {
-        "type": "object",
-        "required": [
-          "username",
-          "password"
-        ],
-        "properties": {
-          "username": {
-            "type": "string",
-            "description": "登录用户名"
-          },
-          "password": {
-            "type": "string",
-            "description": "密码"
-          }
-        }
-      }
-    },
     {
       "name": "upload_file",
       "description": "通用文件上传（七牛云），返回文件 URL。票据照片、报销发票/附件都先走这里。",
@@ -555,42 +532,6 @@
       "path": "/api/fde/assets"
     },
     {
-      "name": "list_skills",
-      "description": "查询平台 Skills 能力包列表（按名称/描述/分类/触发词模糊搜索）。无 skillPackage.manage 权限只返回启用中的。Agent 找能力时先用它检索。",
-      "method": "GET",
-      "path": "/api/fde/skill-packages"
-    },
-    {
-      "name": "get_skill",
-      "description": "读一个 Skill 的全文（Markdown, 含 frontmatter）。先用 list_skills 搜到 id 再取; 传 log=1 记录一条加载日志(调用留痕)。",
-      "method": "GET",
-      "path": "/api/fde/skill-packages/1"
-    },
-    {
-      "name": "create_skill",
-      "description": "新建平台 Skill（需 skillPackage.manage 权限）。name 为 kebab-case 唯一名; content 为 SKILL.md 原文(含 frontmatter, 缺失元数据自动回填)。403 说明无维护权限, 请转交经理/管理员。",
-      "method": "POST",
-      "path": "/api/fde/skill-packages"
-    },
-    {
-      "name": "update_skill",
-      "description": "编辑平台 Skill（需 skillPackage.manage 权限）。content 变更时版本自动 +1。传入的字段整体覆盖, 不传的不动。",
-      "method": "PUT",
-      "path": "/api/fde/skill-packages/1"
-    },
-    {
-      "name": "delete_skill",
-      "description": "删除平台 Skill（软删, 需 skillPackage.manage 权限）。不可逆动作 —— 调用前必须拿到用户明确确认。",
-      "method": "DELETE",
-      "path": "/api/fde/skill-packages/1"
-    },
-    {
-      "name": "match_skills",
-      "description": "按任务上下文匹配平台 Skills（触发词/描述命中打分排序，返回全文可直接注入上下文）。Agent 接到任务时先调它：命中即按 skill 内容执行；调用即留 SEARCH 日志。",
-      "method": "GET",
-      "path": "/api/fde/skill-packages/match"
-    },
-    {
       "name": "claim_dev_run",
       "description": "v2.9.0 派工模式·领活。机器人(用专属 Key)每轮先调这个: 服务端在进行中的派工单里挑第一条 PENDING 且前置任务都完成的运行原子领取, 领取即把任务置 IN_PROGRESS, 返回 run(运行 id/尝试次数) + context(项目/里程碑完成定义/仓库/任务描述与子任务/上下游/派工备注/howto)。没活返回 run=null, 本轮结束即可(再去巡检 QUEUED 兜底)。手上已有未完成的运行会直接返回它(resumed=true), 一台机器一次只干一件。projectId 可选, 只领某项目的活。经理演练时可传 agentProfileId 代领。",
       "method": "POST",
@@ -697,6 +638,48 @@
       "description": "上报本 Agent 的巡检状态（心跳）。巡检每轮开始调用一次：projectId 传当前巡检项目（全局巡检不传），activity 一句话在干嘛。status: PATROLLING 巡检中 / IDLE 空闲 / OFFLINE 下线。重复上报刷新心跳（幂等）。v2.12(#1252) 起支持任务颗粒度：领到任务时带 taskId（+phase/progress 可选），任务完成/放弃时 taskId 传 null 清空；不带 taskId 的纯心跳调用仍兼容。",
       "method": "POST",
       "path": "/api/fde/agent-presence"
+    },
+    {
+      "name": "get_my_open_task_count",
+      "description": "我手上还有几个没做完的任务（待办、等候生产、生产中的任务数）。回答「我还有几个任务」「待办多少」。返回 { total }，适合放首页数字卡片。",
+      "method": "GET",
+      "path": "/api/fde/cards/my-open-task-count"
+    },
+    {
+      "name": "list_my_open_tasks",
+      "description": "我的待办任务清单（生产中的在前，再按截止日）：标题、项目、状态、截止日。回答「我今天做什么」「我的任务」「待办」。返回 { list }，适合放首页列表卡片；要筛选/分页用 list_my_tasks。",
+      "method": "GET",
+      "path": "/api/fde/cards/my-tasks"
+    },
+    {
+      "name": "get_my_week_hours",
+      "description": "我本周报了多少工时（小时，不含已驳回）。回答「我这周报了多少工时」「本周工时」。返回 { total }，适合放首页数字卡片。",
+      "method": "GET",
+      "path": "/api/fde/cards/my-week-hours"
+    },
+    {
+      "name": "list_my_weekly_hours",
+      "description": "我最近几周每周的工时（报工趋势）。返回 { list: [{ week, hours }] }，week 是周一日期；放首页折线卡片时 x = week、y = hours。",
+      "method": "GET",
+      "path": "/api/fde/cards/my-hours-trend"
+    },
+    {
+      "name": "list_pending_timesheet_approvals",
+      "description": "等我审批的工时（项目经理 / 管理员；范围是我能看到的项目）：谁、哪天、几小时、哪个项目。回答「有哪些工时待审批」「待我审批」。返回 { total, list }；没有审批权限返回空。审批用 approve_timesheet。",
+      "method": "GET",
+      "path": "/api/fde/cards/pending-approvals"
+    },
+    {
+      "name": "list_project_health",
+      "description": "进行中项目的交付健康度（风险 / 关注 / 正常）和进度，有风险的在前。回答「哪些项目有风险」「项目健康度」「项目进展」。返回 { list }，适合放首页列表卡片。",
+      "method": "GET",
+      "path": "/api/fde/cards/project-health"
+    },
+    {
+      "name": "list_overdue_tasks",
+      "description": "已过截止日还没完成的任务（我能看到的项目里），逾期最久的在前：标题、项目、截止日、逾期天数。回答「哪些任务逾期了」「延期任务」。返回 { list }。",
+      "method": "GET",
+      "path": "/api/fde/cards/overdue-tasks"
     }
   ]
 }

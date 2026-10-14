@@ -2,6 +2,8 @@
 
 Thanks for helping improve FDE Platform. Issues and pull requests are welcome.
 
+FDE runs only as an app on [Yihu One](https://github.com/guoylyy/yihu-one): sign-in, people, branding, models and personal messages come from the platform (`backend/src/lib/yihuOne.js`). Don't add a second way to do those here; if FDE needs something the platform doesn't offer yet, add it to Yihu One's open API. Yihu One rolls back code but not the database, so migrations must stay backward compatible: add columns first, drop them in a later release.
+
 ## Workflow
 
 1. Open an issue (or comment on one) describing the change.
@@ -35,7 +37,7 @@ The frontend is translated with vue-i18n. Add new strings to `frontend/src/local
 ## Tests
 
 ```bash
-cd backend && RATELIMIT_RELAX=true npm test   # integration tests call the backend on :3005 (seeded)
+cd backend && RATELIMIT_RELAX=true npm test   # integration tests call the backend on :3005 (seeded, DEV_LOGIN=true)
 cd frontend && npm test
 ```
 

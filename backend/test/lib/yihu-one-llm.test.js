@@ -77,7 +77,7 @@ describe('fetchYihuOneModels', () => {
 })
 
 describe('chatComplete 用以虎 One 的模型', () => {
-  test('请求发到平台, Bearer 带平台凭证, 不需要存密钥', async () => {
+  test('请求发到平台, Basic 带平台凭证, 不需要存密钥', async () => {
     const saved = { ...process.env }
     Object.assign(process.env, { OIDC_ISSUER: 'https://one.example.com', OIDC_INTERNAL_URL: base, OIDC_CLIENT_ID: 'fde', OIDC_CLIENT_SECRET: 's3cret' })
     try {
@@ -87,7 +87,7 @@ describe('chatComplete 用以虎 One 的模型', () => {
       })
       assert.equal(text, 'hi from platform')
       const req = platform.requests.find(r => r.url === '/api/open/llm/chat/completions')
-      assert.equal(req.auth, 'Bearer fde:s3cret')
+      assert.equal(req.auth, 'Basic ' + Buffer.from('fde:s3cret').toString('base64'))
       assert.equal(JSON.parse(req.body).model, 'deepseek-chat')
     } finally {
       for (const k of ['OIDC_ISSUER', 'OIDC_INTERNAL_URL', 'OIDC_CLIENT_ID', 'OIDC_CLIENT_SECRET']) {

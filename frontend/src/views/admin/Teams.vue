@@ -3,14 +3,18 @@
     <div class="page-header">
       <div>
         <h2 class="page-title">{{ $t('common.team_management') }}</h2>
-        <p class="hint">{{ $t('teams.team_company_or_business_unit_sub') }}</p>
+        <p class="hint">{{ $t('teams.synced_from_platform') }}</p>
       </div>
-      <el-button type="primary" @click="openCreate"><el-icon><Plus /></el-icon>{{ $t('teams.new_team') }}</el-button>
     </div>
 
     <el-card shadow="never" class="table-card">
       <el-table :data="list" v-loading="loading" stripe>
-        <el-table-column prop="name" :label="$t('teams.team_name')" width="180" show-overflow-tooltip />
+        <el-table-column :label="$t('teams.team_name')" min-width="200" show-overflow-tooltip>
+          <template #default="{ row }">
+            {{ row.name }}
+            <div class="muted-hint">{{ row.platformDeptId != null ? $t('teams.platform_department') : $t('teams.manual_team') }}</div>
+          </template>
+        </el-table-column>
         <el-table-column :label="$t('common.owner')" width="120">
           <template #default="{ row }">
             <span v-if="row.leader">{{ row.leader.name }}</span>
@@ -38,9 +42,7 @@
           <template #default="{ row }">
             <el-button size="small" link type="primary" @click="openEdit(row)">{{ $t('common.edit') }}</el-button>
             <el-button size="small" link type="primary" @click="openMembers(row)">{{ $t('common.members') }}</el-button>
-            <el-button v-if="row.status === 1" size="small" link type="info" @click="toggleStatus(row)">{{ $t('common.disable') }}</el-button>
-            <el-button v-else size="small" link type="success" @click="toggleStatus(row)">{{ $t('common.enabled') }}</el-button>
-            <el-popconfirm :title="$t('teams.delete_this_team_member_assignments_cleared')" @confirm="handleDelete(row)">
+            <el-popconfirm v-if="row.platformDeptId == null" :title="$t('teams.delete_this_team_member_assignments_cleared')" @confirm="handleDelete(row)">
               <template #reference>
                 <el-button size="small" link type="danger">{{ $t('common.delete_2') }}</el-button>
               </template>
@@ -52,16 +54,13 @@
 
     <el-alert type="info" :closable="false" style="margin-top: 4px;">
       <template #title>
-        {{ $t('teams.administrators_set_team_membership_adjust_whole') }}
+        {{ $t('teams.sync_note') }}
       </template>
     </el-alert>
 
     <!-- 新建/编辑 -->
-    <el-dialog v-model="dialogVisible" :title="editing ? $t('teams.edit_team', { p0: form.name }) : $t('teams.new_team')" width="560px">
-      <el-form :model="form" :rules="rules" ref="formRef" label-width="110px">
-        <el-form-item :label="$t('teams.team_name')" prop="name">
-          <el-input v-model="form.name" maxlength="50" show-word-limit :placeholder="$t('teams.e_g_delivery_team_1_east')" />
-        </el-form-item>
+    <el-dialog v-model="dialogVisible" :title="$t('teams.edit_team', { p0: form.name })" width="560px">
+      <el-form :model="form" label-width="110px">
         <el-form-item :label="$t('common.owner')">
           <el-select v-model="form.leaderId" filterable clearable :placeholder="$t('common.optional')" style="width: 100%;">
             <el-option v-for="u in userOptions" :key="String(u.id)" :value="String(u.id)" :label="`${u.name} (${u.username})`" />
@@ -84,19 +83,14 @@
       </template>
     </el-dialog>
 
-    <!-- 成员管理 -->
-    <el-dialog v-model="membersVisible" :title="$t('common.members_3', { p0: currentTeam?.name || '' })" width="640px">
-      <el-transfer
-        v-model="memberIds"
-        v-loading="membersLoading"
-        :data="transferData"
-        filterable
-        :filter-placeholder="$t('common.search_name_username')"
-        :titles="[$t('teams.not_joined'), $t('teams.team_members')]"
-      />
+    <!-- 成员(来自以虎 One 部门, 只读) -->
+    <el-dialog v-model="membersVisible" :title="$t('common.members_3', { p0: currentTeam?.name || '' })" width="520px">
+      <div v-loading="membersLoading">
+        <el-tag v-for="m in members" :key="String(m.id)" class="member-tag" effect="plain">{{ m.name }} · {{ roleLabel(m.role) }}</el-tag>
+        <el-empty v-if="!membersLoading && !members.length" :image-size="60" />
+      </div>
       <template #footer>
-        <el-button @click="membersVisible = false">{{ $t('common.cancel') }}</el-button>
-        <el-button type="primary" :loading="submitting" @click="handleSaveMembers">{{ $t('common.save') }}</el-button>
+        <el-button @click="membersVisible = false">{{ $t('common.close') }}</el-button>
       </template>
     </el-dialog>
   </div>
@@ -104,9 +98,8 @@
 
 <script setup>
 import { $t } from '@/i18n'
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Plus } from '@element-plus/icons-vue'
 import { fde } from '@/api/index.js'
 import { roleLabel } from '@/api/roles.js'
 
@@ -130,23 +123,12 @@ async function loadUsers() {
   } catch (e) { ElMessage.error(e.message) }
 }
 
-// ---- 新建/编辑 ----
+// ---- 编辑负责人 / 群机器人 / 排序 / 备注(名称和成员来自以虎 One) ----
 const dialogVisible = ref(false)
-const editing = ref(false)
 const submitting = ref(false)
-const formRef = ref(null)
 const form = reactive({ id: null, name: '', description: '', leaderId: '', chatWebhookUrl: '', sortOrder: 0 })
-const rules = {
-  name: [{ required: true, message: $t('teams.enter_team_name'), trigger: 'blur' }]
-}
 
-function openCreate() {
-  editing.value = false
-  Object.assign(form, { id: null, name: '', description: '', leaderId: '', chatWebhookUrl: '', sortOrder: 0 })
-  dialogVisible.value = true
-}
 function openEdit(row) {
-  editing.value = true
   Object.assign(form, {
     id: row.id,
     name: row.name,
@@ -159,35 +141,20 @@ function openEdit(row) {
 }
 
 async function handleSubmit() {
-  try { await formRef.value.validate() } catch { return }
   submitting.value = true
   try {
     const payload = {
-      name: form.name,
       description: form.description,
       leaderId: form.leaderId || null,
       chatWebhookUrl: form.chatWebhookUrl,
       sortOrder: form.sortOrder
     }
-    if (editing.value) {
-      await fde.teams.update(form.id, payload)
-      ElMessage.success($t('common.updated'))
-    } else {
-      await fde.teams.create(payload)
-      ElMessage.success($t('teams.team_created_click_members_add_people'))
-    }
+    await fde.teams.update(form.id, payload)
+    ElMessage.success($t('common.updated'))
     dialogVisible.value = false
     await load()
   } catch (e) { ElMessage.error(e.message) }
   finally { submitting.value = false }
-}
-
-async function toggleStatus(row) {
-  try {
-    await fde.teams.update(row.id, { status: row.status === 1 ? 0 : 1 })
-    ElMessage.success(row.status === 1 ? $t('common.disabled_2') : $t('common.enabled_2'))
-    await load()
-  } catch (e) { ElMessage.error(e.message) }
 }
 
 async function handleDelete(row) {
@@ -198,37 +165,21 @@ async function handleDelete(row) {
   } catch (e) { ElMessage.error(e.message) }
 }
 
-// ---- 成员管理 ----
+// ---- 成员(只读) ----
 const membersVisible = ref(false)
 const membersLoading = ref(false)
 const currentTeam = ref(null)
-const memberIds = ref([])
-const transferData = computed(() => userOptions.value.map(u => ({
-  key: String(u.id),
-  label: `${u.name} (${roleLabel(u.role)})`
-})))
+const members = ref([])
 
 async function openMembers(row) {
   currentTeam.value = row
-  memberIds.value = []
+  members.value = []
   membersVisible.value = true
   membersLoading.value = true
   try {
-    const team = await fde.teams.detail(row.id)
-    memberIds.value = (team.members || []).map(m => String(m.id))
+    members.value = (await fde.teams.detail(row.id)).members || []
   } catch (e) { ElMessage.error(e.message) }
   finally { membersLoading.value = false }
-}
-
-async function handleSaveMembers() {
-  submitting.value = true
-  try {
-    await fde.teams.setMembers(currentTeam.value.id, memberIds.value)
-    ElMessage.success($t('teams.members_updated'))
-    membersVisible.value = false
-    await load()
-  } catch (e) { ElMessage.error(e.message) }
-  finally { submitting.value = false }
 }
 
 onMounted(() => { load(); loadUsers() })
@@ -242,4 +193,5 @@ onMounted(() => { load(); loadUsers() })
 .table-card { border-radius: 8px; }
 .muted { color: #b0aeaa; }
 .muted-hint { font-size: 12px; color: #909399; line-height: 1.5; margin-top: 4px; }
+.member-tag { margin: 0 6px 6px 0; }
 </style>

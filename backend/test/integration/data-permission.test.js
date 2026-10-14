@@ -6,17 +6,16 @@
 //   fde001 → FDE_ENGINEER（看自己参与的 + 全部能看到的）
 import { test, describe, before } from 'node:test'
 import assert from 'node:assert/strict'
-import { api, login, uniqName, TAG, ADMIN_PWD } from './helpers.js'
+import { api, login, uniqName, TAG } from './helpers.js'
 
-// 本地 seed 账号（admin/fde001）密码统一走 TEST_ADMIN_PASSWORD，缺省 123456
-const PWD = ADMIN_PWD
+// 本地 seed 账号（admin/fde001）, 开发登录
 
 describe('数据级权限 - 4 阶段权限模型', () => {
   let adminT, fdeT, admin, fde
 
   before(async () => {
-    adminT = await login('admin', PWD)
-    fdeT = await login('fde001', PWD)
+    adminT = await login('admin')
+    fdeT = await login('fde001')
     admin = api(adminT)
     fde = api(fdeT)
   })
