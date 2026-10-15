@@ -11,6 +11,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { signToken } from '../lib/auth.js'
 import { mcpAuth } from '../lib/apiKey.js'
 import { TOOLS } from './tools.js'
+import { standardTools } from './standardTools.js'
 import prisma from '../lib/prisma.js'
 import { APP_VERSION } from '../lib/version.js'
 
@@ -133,6 +134,21 @@ function buildServer(user) {
           const data = await callApi(user, built)
           logAgentActivity(user, def.name, built, data)
           return toToolResult(data, { card: def.card })
+        } catch (e) {
+          return { content: [{ type: 'text', text: `工具执行失败: ${e.message}` }], isError: true }
+        }
+      }
+    )
+  }
+
+  // 以虎 One 的标准工具(老板简报、管理层首页): 只读, 组合已有接口(见 standardTools.js)
+  for (const def of standardTools(callApi)) {
+    server.registerTool(
+      def.name,
+      { description: def.description, inputSchema: def.schema, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true } },
+      async (args) => {
+        try {
+          return { content: [{ type: 'text', text: JSON.stringify(await def.run(user, args || {})) }] }
         } catch (e) {
           return { content: [{ type: 'text', text: `工具执行失败: ${e.message}` }], isError: true }
         }
