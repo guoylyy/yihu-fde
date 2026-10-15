@@ -5,9 +5,9 @@
 **Open-source delivery management for engineering teams and the AI agents that work with them, built as an app for [Yihu One](https://github.com/guoylyy/yihu-one).**
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.2.2%20beta-orange.svg)](https://github.com/guoylyy/yihu-fde/releases)
+[![Version](https://img.shields.io/badge/version-0.3.0%20beta-orange.svg)](https://github.com/guoylyy/yihu-fde/releases)
 ![Node](https://img.shields.io/badge/node-20%2B-brightgreen.svg)
-![MCP](https://img.shields.io/badge/MCP-111%20tools-8a2be2.svg)
+![MCP](https://img.shields.io/badge/MCP-115%20tools-8a2be2.svg)
 ![Yihu One](https://img.shields.io/badge/runs%20on-Yihu%20One-d2521e.svg)
 
 UI in English · 简体中文
@@ -34,7 +34,7 @@ FDE Platform puts both on the same production line: **idea → project → miles
 
 ### 🤖 Work with agents, not around them
 
-- **Built-in MCP server** (Streamable HTTP, 111 tools). The Yihu One assistant uses it as the signed-in user, and people connect their own Claude Code or Cursor through the Yihu One MCP gateway with one Yihu One API key. Read-only tools are marked, so clients ask for confirmation only on writes.
+- **Built-in MCP server** (Streamable HTTP, 115 tools). The Yihu One assistant uses it as the signed-in user, and people connect their own Claude Code or Cursor through the Yihu One MCP gateway with one Yihu One API key. Read-only tools are marked, so clients ask for confirmation only on writes.
 - **Agent profiles:** robots that need their own identity get an owner, a dedicated `fde_` key, an activity log and a lifecycle
 - **Dispatch to robots:** click "dispatch" on the roadmap and an agent picks up ready tasks in dependency order (`peek → claim → develop → complete`); progress streams back to the board
 - **Developer onboarding kit:** one download gives a new engineer a `.mcp.json` for the Yihu One gateway, the `fde-tasks` skill and a `CLAUDE.md` template. A five-step checklist tracks them to their first delivered task.

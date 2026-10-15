@@ -22,7 +22,7 @@ FDE 作为以虎 One 的应用运行，智能体都经以虎 One 拿到身份：
 |---|---|
 | 传输 | MCP Streamable HTTP，无状态模式（仅 POST，无需会话管理；返回纯 JSON，兼容不支持 SSE 的平台） |
 | 协议版本 | 2025-03-26 |
-| 工具数量 | 111 个（`tools/list` 自描述，含参数 JSON Schema） |
+| 工具数量 | 115 个（`tools/list` 自描述，含参数 JSON Schema） |
 | 首页卡片 | `get_my_open_task_count`、`list_my_open_tasks`、`get_my_week_hours`、`list_my_weekly_hours`、`list_pending_timesheet_approvals`、`list_project_health`、`list_overdue_tasks` 返回结构化结果，可以直接放到以虎 One 首页的数据卡片上 |
 
 ## 快速开始
