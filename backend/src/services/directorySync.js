@@ -1,10 +1,11 @@
 // 以虎 One 通讯录同步: 人以平台为准
-//   - 已在本系统开通的人: 姓名、邮箱、手机按平台更新; 平台上停用 → 本系统停用(platformDisabled), 恢复 → 自动启用
+//   - 已在本系统开通的人: 姓名、邮箱、手机、头像按平台更新(平台提供了哪些记在 platformFields, 个人中心里只读); 平台上停用 → 本系统停用(platformDisabled), 恢复 → 自动启用
 //   - 团队 = 平台部门(只建有本系统成员的部门): 名称取部门路径, 成员按平台部门归属; 平台上没有了的团队停用
 //     以前手建的团队: 同名的认领为对应部门, 其余不动(管理员可在团队页删除)
 // 每小时增量(updatedSince), 每天一次全量(全量才重建团队, 部门归属要看全体)
 import prisma from '../lib/prisma.js'
 import { listDirectory, platformEnabled } from '../lib/yihuOne.js'
+import { platformProfile } from '../lib/identity.js'
 
 const LAST_KEY = 'directory.lastSyncAt'
 const TEAM_NAME_MAX = 50
@@ -24,9 +25,13 @@ export function teamNameFor(dept, taken) {
 /** 一个平台用户对本系统账号要做的改动(纯函数); 不用改返回 null */
 export function userChanges(user, pu) {
   const data = {}
-  if (pu.name && pu.name.slice(0, 50) !== user.name) data.name = pu.name.slice(0, 50)
-  if (pu.email && pu.email !== user.email) data.email = pu.email.slice(0, 100)
-  if (pu.mobile && pu.mobile !== user.phone) data.phone = pu.mobile.slice(0, 20)
+  const p = platformProfile({ ...pu, username: null })
+  for (const k of ['name', 'email', 'phone', 'avatarUrl']) if (p.data[k] !== undefined && p.data[k] !== user[k]) data[k] = p.data[k]
+  // 老版本平台的通讯录不带头像: 不知道就不动(头像和它的只读标记都留着登录时的)
+  const known = 'avatar' in pu ? p.fields : [...p.fields, ...((user.platformFields || []).includes('avatarUrl') ? ['avatarUrl'] : [])]
+  const fields = ['name', 'email', 'phone', 'avatarUrl'].filter(k => known.includes(k))
+  const cur = Array.isArray(user.platformFields) ? user.platformFields : []
+  if (fields.join() !== ['name', 'email', 'phone', 'avatarUrl'].filter(k => cur.includes(k)).join()) data.platformFields = fields
   if (!pu.active && user.status === 1) Object.assign(data, { status: 0, platformDisabled: true })
   if (pu.active && user.platformDisabled) Object.assign(data, { status: 1, platformDisabled: false })
   return Object.keys(data).length ? data : null
@@ -86,7 +91,7 @@ export async function syncDirectory({ full = false } = {}) {
     const { list } = await listDirectory({ updatedSince: since })
     const users = await prisma.user.findMany({
       where: { oidcSubject: { in: list.map(p => String(p.id)) }, deletedAt: null },
-      select: { id: true, name: true, email: true, phone: true, status: true, platformDisabled: true, oidcSubject: true }
+      select: { id: true, name: true, email: true, phone: true, avatarUrl: true, platformFields: true, status: true, platformDisabled: true, oidcSubject: true }
     })
     const userBySub = new Map(users.map(u => [u.oidcSubject, u]))
     let updated = 0, disabled = 0, enabled = 0

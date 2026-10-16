@@ -49,7 +49,7 @@ FDE Platform puts both on the same production line: **idea → project → miles
 ### 🔌 Built into Yihu One
 
 - **One sign-in:** people use their Yihu One account. There are no local passwords.
-- **People from the platform:** names, emails and departments sync from the Yihu One directory every hour. People disabled on the platform are disabled here, and teams mirror platform departments.
+- **People from the platform:** there are no local accounts. The first platform admin who opens FDE becomes its admin, and everyone else gets an account the first time they open it (or an admin adds them from the Yihu One directory ahead of time). Names, emails, phones and avatars come from Yihu One at sign-in and in the hourly directory sync, and they are read-only in FDE's profile page; only what the platform doesn't have (say, an avatar) can be filled in locally. People disabled on the platform are disabled here, and teams mirror platform departments.
 - **Home page cards:** seven read-only tools (my open tasks, my hours this week, approvals waiting for me, project health, overdue tasks and more) can sit on each person's Yihu One home page.
 - **Messages where people already are:** task assignments, approvals and mentions also reach people on DingTalk, Feishu or WeCom through Yihu One.
 - **Usage on the platform:** key actions show up in Yihu One's usage statistics, marked when they came from AI.

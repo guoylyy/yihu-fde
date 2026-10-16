@@ -28,6 +28,9 @@ model User {
   role               String    @db.VarChar(32)
   status             Int       @default(1) // 1=active 0=disabled
   avatarUrl          String?   @map("avatar_url") @db.VarChar(500) // v1.2.8 个人中心
+  // 资料里哪些字段来自以虎 One(登录 / 通讯录同步时写): ["name","email","phone","avatarUrl"] 的子集。
+  // 这些字段以平台为准, 个人中心里只读; 平台上没有的(如没有头像)才能在本系统自己填
+  platformFields     Json?     @map("platform_fields")
   bio                String?   @db.VarChar(500) // 自我介绍
   lastLoginAt        DateTime? @map("last_login_at")
   // v1.4.3 使用监控: 最近活跃时间(埋点中间件节流更新, 在线判定依据)

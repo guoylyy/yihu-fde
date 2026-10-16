@@ -3,7 +3,8 @@
 // 规则(以虎 One 只说明「他是谁」, 「能做什么」由本系统的三个角色决定):
 //   1. 只服务本应用所属的空间: 其他空间的人进不来(多空间按空间分数据之前)
 //   2. 按平台用户 id 找人; 找不到时按邮箱关联唯一的未绑定账号; 再没有就自动开通
-//   3. 姓名、邮箱、手机、头像每次以平台为准
+//   3. 姓名、邮箱、手机、头像每次以平台为准(登录、通讯录同步、从通讯录开通都一样, 见 platformProfile);
+//      平台上有的字段在个人中心里只读, 平台上没有的(如没有头像)才能在本系统自己填
 //   4. 角色: 平台管理员 = 本系统管理员(每次都同步); 管理员在本系统设过的(MANUAL)不动;
 //      其余按规则 —— 打开「部门负责人自动成为项目经理」时负责人是项目经理, 否则默认角色
 //   5. 本系统停用的账号进不来; 因平台停用而停用的, 平台恢复后自动启用
@@ -42,13 +43,22 @@ export function spaceAllowed(pu, home) {
   return pu.space.code === home.code
 }
 
-/** 平台资料 → 本系统字段(只取能放下的) */
+/**
+ * 平台资料 → 本系统字段(纯函数, 只取能放下的)。data 是要写的值, fields 是平台提供了哪些(写进 users.platform_fields)
+ * 登录(/api/sso/userinfo)、通讯录同步、从通讯录开通共用
+ */
+export function platformProfile(pu) {
+  const data = {}
+  const name = String(pu.name || pu.username || '').slice(0, 50)
+  if (name) data.name = name
+  if (pu.email) data.email = String(pu.email).slice(0, 100)
+  if (pu.mobile) data.phone = String(pu.mobile).slice(0, 20)
+  if (pu.avatar && String(pu.avatar).length <= 500) data.avatarUrl = String(pu.avatar)
+  return { data, fields: Object.keys(data) }
+}
 function profileOf(pu) {
-  const out = { name: String(pu.name || pu.username || '').slice(0, 50) || undefined }
-  if (pu.email) out.email = String(pu.email).slice(0, 100)
-  if (pu.mobile) out.phone = String(pu.mobile).slice(0, 20)
-  if (pu.avatar && String(pu.avatar).length <= 500) out.avatarUrl = String(pu.avatar)
-  return out
+  const { data, fields } = platformProfile(pu)
+  return { ...data, platformFields: fields }
 }
 
 async function ensureEngineer(user) {

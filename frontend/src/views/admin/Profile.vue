@@ -8,7 +8,8 @@
             <div class="avatar-wrap">
               <img v-if="form.avatarUrl" :src="form.avatarUrl" class="p-avatar" />
               <div v-else class="p-avatar p-avatar-fallback">{{ (profile?.name || '?').slice(0, 1) }}</div>
-              <el-upload :show-file-list="false" :auto-upload="false" accept="image/*" @change="onAvatarPick">
+              <div v-if="locked('avatarUrl')" class="muted-sm" style="margin-top: 10px;">{{ $t('profile.from_platform') }}</div>
+              <el-upload v-else :show-file-list="false" :auto-upload="false" accept="image/*" @change="onAvatarPick">
                 <el-button size="small" style="margin-top: 10px;" :loading="avatarUploading">{{ $t('common.p0', { p0: form.avatarUrl ? $t('profile.change_avatar') : $t('profile.upload_avatar') }) }}</el-button>
               </el-upload>
             </div>
@@ -19,7 +20,7 @@
             </div>
           </div>
           <!-- v1.2.9: 预设卡通头像(男女各半), 也可自行上传(上传走七牛云) -->
-          <div class="preset-avatars">
+          <div v-if="!locked('avatarUrl')" class="preset-avatars">
             <span class="preset-label">{{ $t('profile.pick_cartoon_avatar') }}</span>
             <img v-for="i in 10" :key="i" :src="withBase(`/avatars/cartoon-${i}.svg`)"
                  :class="['preset-avatar', { active: form.avatarUrl === withBase(`/avatars/cartoon-${i}.svg`) }]"
@@ -45,10 +46,12 @@
           <template #header><span class="block-title">{{ $t('profile.basic_info') }}</span></template>
           <el-form label-width="90px" style="max-width: 520px;">
             <el-form-item :label="$t('common.phone_2')">
-              <el-input v-model="form.phone" :placeholder="$t('profile.for_teammates_notifications')" maxlength="20" />
+              <el-input v-model="form.phone" :disabled="locked('phone')" :placeholder="$t('profile.for_teammates_notifications')" maxlength="20" />
+              <div v-if="locked('phone')" class="muted-sm">{{ $t('profile.from_platform') }}</div>
             </el-form-item>
             <el-form-item :label="$t('common.email')">
-              <el-input v-model="form.email" :placeholder="$t('profile.work_email')" maxlength="100" />
+              <el-input v-model="form.email" :disabled="locked('email')" :placeholder="$t('profile.work_email')" maxlength="100" />
+              <div v-if="locked('email')" class="muted-sm">{{ $t('profile.from_platform') }}</div>
             </el-form-item>
             <!-- v1.5.6 所属团队: 只读展示, 归属由管理员在「用户管理」设置; 即时消息通知按团队定位 -->
             <el-form-item :label="$t('common.team')">
@@ -87,6 +90,8 @@ const avatarUploading = ref(false)
 const profile = ref(null)
 const myTeams = ref([])   // v1.5.6 所属团队(只读, 管理员在用户管理设置)
 const form = reactive({ phone: '', email: '', avatarUrl: '', bio: '' })
+// 来自以虎 One 的资料只读(平台上有的以平台为准, 没有的才能在这里填)
+const locked = (k) => Array.isArray(profile.value?.platformFields) && profile.value.platformFields.includes(k)
 
 import { roleLabel } from '@/api/roles.js'  // v1.3.2 动态角色
 
@@ -126,7 +131,9 @@ async function pickPreset(i) {
 async function save(silent = false) {
   saving.value = true
   try {
-    const updated = await fde.updateProfile({ phone: form.phone, email: form.email, avatarUrl: form.avatarUrl, bio: form.bio })
+    const body = { bio: form.bio }
+    for (const k of ['phone', 'email', 'avatarUrl']) if (!locked(k)) body[k] = form[k]
+    const updated = await fde.updateProfile(body)
     // 同步本地缓存, 让顶栏头像即时生效
     try {
       const u = JSON.parse(localStorage.getItem('fde_internal_user') || '{}')

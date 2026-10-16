@@ -45,7 +45,7 @@ router.get('/', async (req, res) => {
     const userId = BigInt(req.user.userId)
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, username: true, name: true, phone: true, email: true, role: true, status: true, lastLoginAt: true, avatarUrl: true, bio: true }
+      select: { id: true, username: true, name: true, phone: true, email: true, role: true, status: true, lastLoginAt: true, avatarUrl: true, bio: true, platformFields: true }
     })
     if (!user) return res.status(404).json({ code: 2004, message: '用户不存在' })
 
@@ -154,15 +154,20 @@ router.get('/', async (req, res) => {
 
 /**
  * PUT /api/fde/me/profile  (v1.2.8 个人中心)
- * 自助维护: 头像/手机/邮箱/自我介绍 (姓名与角色由管理员管)
+ * 自助维护: 自我介绍; 头像 / 手机 / 邮箱只有以虎 One 上没有时才能自己填(有的以平台为准, 见 platformFields)
+ * 姓名以平台为准, 角色由本系统管理员设
  */
 router.put('/profile', async (req, res) => {
   try {
     const { phone, email, avatarUrl, bio } = req.body
+    const me = await prisma.user.findUnique({ where: { id: BigInt(req.user.userId) }, select: { phone: true, email: true, avatarUrl: true, platformFields: true } })
+    const locked = new Set(Array.isArray(me?.platformFields) ? me.platformFields : [])
     const data = {}
-    if (phone !== undefined) data.phone = phone || null
-    if (email !== undefined) data.email = email || null
-    if (avatarUrl !== undefined) data.avatarUrl = avatarUrl || null
+    for (const [k, v] of [['phone', phone], ['email', email], ['avatarUrl', avatarUrl]]) {
+      if (v === undefined || (v || null) === (me?.[k] ?? null)) continue
+      if (locked.has(k)) return res.status(400).json({ code: 1006, message: '这项资料来自以虎 One，请在以虎 One（或钉钉 / 飞书 / 企业微信）里修改' })
+      data[k] = v || null
+    }
     if (bio !== undefined) {
       if (bio && bio.length > 500) return res.status(400).json({ code: 9002, message: '自我介绍不超过 500 字' })
       data.bio = bio || null
@@ -170,7 +175,7 @@ router.put('/profile', async (req, res) => {
     const user = await prisma.user.update({
       where: { id: BigInt(req.user.userId) },
       data,
-      select: { id: true, username: true, name: true, phone: true, email: true, role: true, avatarUrl: true, bio: true }
+      select: { id: true, username: true, name: true, phone: true, email: true, role: true, avatarUrl: true, bio: true, platformFields: true }
     })
     res.json({ code: 0, data: user })
   } catch (e) {

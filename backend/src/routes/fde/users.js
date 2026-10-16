@@ -9,6 +9,7 @@ import { recordActivity } from '../../lib/activity.js'
 import { pushNotification } from '../../lib/notify.js'
 import { getTeamsByUserIds, getTeamsByUserId } from '../../lib/teams.js'
 import { listDirectory, platformEnabled } from '../../lib/yihuOne.js'
+import { platformProfile } from '../../lib/identity.js'
 
 // v1.5.6: 人员列表统一带出所属团队
 async function attachTeams(users) {
@@ -170,11 +171,10 @@ router.post('/', requirePermission('user.create'), async (req, res) => {
     }
     const base = String(pu.username || pu.jobNumber || `user${pu.id}`).toLowerCase().replace(/[^a-z0-9._-]+/g, '').slice(0, 40) || `user${pu.id}`
     const username = (await prisma.user.findUnique({ where: { username: base } })) ? `${base}-${pu.id}` : base
+    const { data: profile, fields } = platformProfile(pu)
     const user = await prisma.user.create({
       data: {
-        username, name: String(pu.name || username).slice(0, 50),
-        email: pu.email ? String(pu.email).slice(0, 100) : null,
-        phone: pu.mobile ? String(pu.mobile).slice(0, 20) : null,
+        username, ...profile, name: profile.name || username, platformFields: fields,
         role, roleSource: 'MANUAL', status: 1, oidcSubject: String(pu.id)
       },
       select: { id: true, username: true, name: true, phone: true, email: true, role: true, status: true, createdAt: true }

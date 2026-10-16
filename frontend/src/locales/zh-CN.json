@@ -1829,14 +1829,15 @@
     "change_password": "修改密码 →",
     "per_type_switches": "按类型开关 →",
     "manage_my_robots": "管理我的机器人 →",
-    "name_role_managed_by_administrators_in": "姓名与角色由管理员在「用户管理」维护",
+    "name_role_managed_by_administrators_in": "姓名、邮箱、手机、头像以以虎 One 为准（在以虎 One 或钉钉 / 飞书 / 企业微信里改）；角色由本系统管理员在「用户管理」设置",
     "basic_info": "基本资料",
     "for_teammates_notifications": "用于同事联系与通知",
     "work_email": "工作邮箱",
     "managed_by_administrators_in_users_instant": "由管理员在「用户管理」维护；系统按所属团队向你发送即时消息通知",
     "about_me": "自我介绍",
     "tech_stack_industry_experience_interests_shown": "擅长的技术栈 / 行业经验 / 兴趣方向, 会展示给团队同事",
-    "avatar_updated": "头像已更新"
+    "avatar_updated": "头像已更新",
+    "from_platform": "来自以虎 One"
   },
   "projects": {
     "active_projects_in_progress_healthy": "在管 {p0} 个项目 · 进行中 {p1} · 健康 {p2}",

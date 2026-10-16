@@ -1829,14 +1829,15 @@
     "change_password": "Change password →",
     "per_type_switches": "Per-type switches →",
     "manage_my_robots": "Manage my robots →",
-    "name_role_managed_by_administrators_in": "Name and role are managed by administrators in \"Users\"",
+    "name_role_managed_by_administrators_in": "Name, email, phone and avatar come from Yihu One (change them there, or in DingTalk / Feishu / WeCom); your role is set by an admin in Users",
     "basic_info": "Basic info",
     "for_teammates_notifications": "For teammates and notifications",
     "work_email": "Work email",
     "managed_by_administrators_in_users_instant": "Managed by administrators in \"Users\"; instant notifications are routed by your team",
     "about_me": "About me",
     "tech_stack_industry_experience_interests_shown": "Tech stack / industry experience / interests; shown to your teammates",
-    "avatar_updated": "Avatar updated"
+    "avatar_updated": "Avatar updated",
+    "from_platform": "From Yihu One"
   },
   "projects": {
     "active_projects_in_progress_healthy": "{p0} active projects · {p1} in progress · {p2} healthy",
