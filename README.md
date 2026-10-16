@@ -5,7 +5,7 @@
 **Open-source delivery management for engineering teams and the AI agents that work with them, built as an app for [Yihu One](https://github.com/guoylyy/yihu-one).**
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.3.0%20beta-orange.svg)](https://github.com/guoylyy/yihu-fde/releases)
+[![Version](https://img.shields.io/badge/version-0.3.1%20beta-orange.svg)](https://github.com/guoylyy/yihu-fde/releases)
 ![Node](https://img.shields.io/badge/node-20%2B-brightgreen.svg)
 ![MCP](https://img.shields.io/badge/MCP-115%20tools-8a2be2.svg)
 ![Yihu One](https://img.shields.io/badge/runs%20on-Yihu%20One-d2521e.svg)
