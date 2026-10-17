@@ -13,7 +13,7 @@
 //   OIDC_AUTO_CREATE       首次登录自动建本地账号, 默认 true
 //   OIDC_LINK_BY_EMAIL     首次登录按已验证邮箱关联已有本地账号, 默认 true
 //   OIDC_DEFAULT_ROLE      自动建号的角色, 默认 FDE_ENGINEER
-//   OIDC_ADMIN_ROLES       以虎 One 里这些角色的人永远是本系统管理员(每次登录同步), 逗号分隔, 默认 ADMIN; 置空 = 不映射
+//   OIDC_ADMIN_ROLES       以虎 One 里这些角色的人自动成为本系统管理员(本系统手动设过角色的除外), 逗号分隔, 默认 ADMIN; 置空 = 不映射
 //
 // 以虎 One 只说明「他是谁」(平台用户 id 做主键), 「他能做什么」由本系统的角色决定, 规则见 identity.js。
 import crypto from 'node:crypto'

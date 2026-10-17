@@ -5,8 +5,8 @@
 //   2. 按平台用户 id 找人; 找不到时按邮箱关联唯一的未绑定账号; 再没有就自动开通
 //   3. 姓名、邮箱、手机、头像每次以平台为准(登录、通讯录同步、从通讯录开通都一样, 见 platformProfile);
 //      平台上有的字段在个人中心里只读, 平台上没有的(如没有头像)才能在本系统自己填
-//   4. 角色: 平台管理员 = 本系统管理员(每次都同步); 管理员在本系统设过的(MANUAL)不动;
-//      其余按规则 —— 打开「部门负责人自动成为项目经理」时负责人是项目经理, 否则默认角色
+//   4. 角色: 管理员在本系统设过的(MANUAL)一律不动, 平台上怎么变都不覆盖;
+//      没设过的按规则(每次登录重算) —— 平台管理员是本系统管理员; 打开「部门负责人自动成为项目经理」时负责人是项目经理; 否则默认角色
 //   5. 本系统停用的账号进不来; 因平台停用而停用的, 平台恢复后自动启用
 import crypto from 'node:crypto'
 import prisma from './prisma.js'
@@ -30,9 +30,10 @@ export function usernameCandidates(pu) {
  * 返回 { role, roleSource }
  */
 export function computeRole(pu, current, { adminRoles, defaultRole, leaderIsManager }) {
+  // 本系统里手动设过的角色优先于一切自动规则(包括平台管理员)
+  if (current && current.roleSource === 'MANUAL') return { role: current.role, roleSource: 'MANUAL' }
   const roles = Array.isArray(pu.roles) ? pu.roles.map(String) : []
   if (adminRoles.some(r => roles.includes(r))) return { role: 'ADMIN', roleSource: 'PLATFORM_ADMIN' }
-  if (current && current.roleSource === 'MANUAL') return { role: current.role, roleSource: 'MANUAL' }
   if (leaderIsManager && Array.isArray(pu.leaderOf) && pu.leaderOf.length) return { role: 'MANAGER', roleSource: 'DEPT_LEADER' }
   return { role: defaultRole, roleSource: 'DEFAULT' }
 }

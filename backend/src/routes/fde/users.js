@@ -306,9 +306,6 @@ router.put('/:id', requirePermission('user.edit'), async (req, res) => {
     }
 
     const resp = { code: 0, message: 'ok', data: user }
-    if (oldUser.roleSource === 'PLATFORM_ADMIN' && newRole !== 'ADMIN') {
-      extraWarn = '此人是以虎 One 管理员，下次登录会恢复为本系统管理员'
-    }
     if (extraHint) resp._hint = extraHint
     if (extraWarn) resp._warn = extraWarn
     res.json(resp)

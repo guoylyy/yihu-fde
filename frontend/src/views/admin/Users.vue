@@ -113,8 +113,7 @@
             <el-option v-for="r in activeRoles" :key="r.code" :label="`${r.name} (${r.code})`" :value="r.code" />
           </el-select>
         </el-form-item>
-        <el-alert v-if="form.roleSource === 'PLATFORM_ADMIN'" type="warning" :closable="false" show-icon :title="$t('users.platform_admin_note')" />
-        <el-alert v-else type="info" :closable="false" show-icon :title="$t('users.role_manual_note')" />
+        <el-alert type="info" :closable="false" show-icon :title="$t('users.role_manual_note')" />
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">{{ $t('common.cancel') }}</el-button>

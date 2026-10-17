@@ -62,6 +62,20 @@ describe('signInPlatformUser', () => {
     assert.equal((await signInPlatformUser(pu(3), cfg)).role, 'MANAGER')
   })
 
+  test('本系统改过平台管理员的角色: 再登录不会被改回管理员', async () => {
+    const u = await signInPlatformUser(pu(8, { roles: ['ADMIN'] }), cfg)
+    assert.equal(u.role, 'ADMIN')
+    await prisma.user.update({ where: { id: u.id }, data: { role: 'FDE_ENGINEER', roleSource: 'MANUAL' } })
+    const again = await signInPlatformUser(pu(8, { roles: ['ADMIN'] }), cfg)
+    assert.deepEqual([again.role, again.roleSource], ['FDE_ENGINEER', 'MANUAL'])
+  })
+
+  test('本系统手动设成管理员的人, 平台上不是管理员也不会被降级', async () => {
+    const u = await signInPlatformUser(pu(9), cfg)
+    await prisma.user.update({ where: { id: u.id }, data: { role: 'ADMIN', roleSource: 'MANUAL' } })
+    assert.equal((await signInPlatformUser(pu(9), cfg)).role, 'ADMIN')
+  })
+
   test('部门负责人规则打开后, 负责人首次登录是项目经理', async () => {
     await saveSettings({ 'auth.leaderIsManager': true })
     const u = await signInPlatformUser(pu(4, { leaderOf: [7] }), cfg)

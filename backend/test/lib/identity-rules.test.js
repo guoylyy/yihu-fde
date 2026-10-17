@@ -8,9 +8,13 @@ import { matchAction } from '../../src/lib/usage.js'
 const rules = { adminRoles: ['ADMIN'], defaultRole: 'FDE_ENGINEER', leaderIsManager: false }
 
 describe('computeRole', () => {
-  test('平台管理员永远是本系统管理员, 即使本系统手动设过别的角色', () => {
+  test('平台管理员自动成为本系统管理员(没手动设过角色时)', () => {
     assert.deepEqual(computeRole({ roles: ['ADMIN'] }, null, rules), { role: 'ADMIN', roleSource: 'PLATFORM_ADMIN' })
-    assert.deepEqual(computeRole({ roles: ['MEMBER', 'ADMIN'] }, { role: 'MANAGER', roleSource: 'MANUAL' }, rules).role, 'ADMIN')
+    assert.deepEqual(computeRole({ roles: ['MEMBER', 'ADMIN'] }, { role: 'FDE_ENGINEER', roleSource: 'DEFAULT' }, rules).role, 'ADMIN')
+  })
+  test('本系统手动设过的角色优先于平台管理员, 不会被改回去', () => {
+    assert.deepEqual(computeRole({ roles: ['ADMIN'] }, { role: 'MANAGER', roleSource: 'MANUAL' }, rules), { role: 'MANAGER', roleSource: 'MANUAL' })
+    assert.deepEqual(computeRole({ roles: ['MEMBER'] }, { role: 'ADMIN', roleSource: 'MANUAL' }, rules), { role: 'ADMIN', roleSource: 'MANUAL' })
   })
   test('管理员在本系统设过的角色(MANUAL)登录时不改', () => {
     assert.deepEqual(computeRole({ roles: ['MEMBER'], leaderOf: [3] }, { role: 'MANAGER', roleSource: 'MANUAL' }, { ...rules, leaderIsManager: true }),

@@ -90,9 +90,11 @@ Yihu One says who someone is; FDE decides what they can do.
 | What they can do | FDE's three roles: admin, project manager, FDE engineer |
 
 On every sign-in (and every MCP call made through Yihu One):
-- **Yihu One admins are always FDE admins.** If someone stops being a platform admin, they go back to the rules below.
-- **A role an admin set in FDE is kept.** Admins change roles under **Users**, or add people from the Yihu One directory with a role before their first sign-in.
-- **Otherwise** a new account gets `OIDC_DEFAULT_ROLE` (FDE engineer). With **System settings → Accounts → Department heads are project managers** turned on, people who lead a department become project managers.
+- **A role an admin set in FDE is never changed automatically**, whatever happens on the platform. That includes someone becoming or stopping being a platform admin. Admins change roles under **Users**, or add people from the Yihu One directory with a role before their first sign-in.
+- **Otherwise the role follows the rules, recalculated at each sign-in:**
+  - Yihu One admins are FDE admins.
+  - With **System settings → Accounts → Department heads are project managers** turned on, people who lead a department are project managers.
+  - Everyone else gets `OIDC_DEFAULT_ROLE` (FDE engineer).
 - **Only one space:** people from other Yihu One spaces can't sign in (FDE doesn't separate data by space yet).
 - **Disabled stays disabled:** an account disabled in FDE can't sign in. Accounts disabled because the platform disabled them come back when the platform restores them.
 
