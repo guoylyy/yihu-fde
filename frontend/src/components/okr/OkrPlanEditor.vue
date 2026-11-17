@@ -150,6 +150,6 @@ function emitPlan(kind) {
 .okr-unit { width: 64px; }
 .okr-ed-tools { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .okr-problems { margin: 0; padding: 8px 12px 8px 26px; border-radius: 8px; background: var(--el-color-warning-light-9); color: var(--el-color-warning-dark-2); font-size: 12px; line-height: 1.7; }
-.okr-ed-actions { display: flex; justify-content: flex-end; gap: 8px; position: sticky; bottom: 0; padding: 8px 0; background: var(--el-bg-color-page); }
+.okr-ed-actions { display: flex; justify-content: flex-end; gap: 8px; position: sticky; bottom: 0; padding: 8px 0 calc(8px + env(safe-area-inset-bottom)); background: var(--el-bg-color-page); }
 .okr-late-hint { margin: 0; font-size: 12px; color: var(--el-color-danger); text-align: right; }
 </style>

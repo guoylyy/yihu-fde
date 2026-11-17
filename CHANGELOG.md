@@ -1,5 +1,9 @@
 # 更新日志
 
+## 0.4.1
+- 修 iPhone 安全区：viewport 加 viewport-fit=cover，AI 助手抽屉与底部固定栏留出 safe-area
+- yh-app.json 声明 ui.responsive
+
 ## 0.4.0
 
 ### 周 OKR（公司管理级，与项目管理无关）
