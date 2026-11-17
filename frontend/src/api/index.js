@@ -67,6 +67,11 @@ async function request(url, options = {}) {
   return data.data
 }
 
+/** 去掉空参数, 免得拼出 week=&ownerId= */
+function clean(params) {
+  return Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== ''))
+}
+
 // ============== FDE 内部 API ==============
 export const fde = {
   customers: {
@@ -538,6 +543,21 @@ export const fde = {
     create: (data) => request('/api/fde/subtasks', { method: 'POST', body: JSON.stringify(data) }),
     update: (id, data) => request(`/api/fde/subtasks/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     remove: (id) => request(`/api/fde/subtasks/${id}`, { method: 'DELETE' })
+  },
+  // 周 OKR(公司管理级, 与项目/任务/工时无关)
+  okr: {
+    cycle: (params = {}) => request('/api/okr/cycle?' + new URLSearchParams(clean(params)).toString()),
+    team: (week) => request('/api/okr/team?' + new URLSearchParams(clean({ week })).toString()),
+    history: (params = {}) => request('/api/okr/history?' + new URLSearchParams(clean(params)).toString()),
+    savePlan: (week, objectives) => request(`/api/okr/plan?week=${encodeURIComponent(week)}`, { method: 'POST', body: JSON.stringify({ objectives }) }),
+    submitPlan: (week, objectives) => request(`/api/okr/plan/submit?week=${encodeURIComponent(week)}`, { method: 'POST', body: JSON.stringify({ objectives }) }),
+    addUpdate: (objectiveId, data) => request(`/api/okr/objectives/${objectiveId}/updates`, { method: 'POST', body: JSON.stringify(data) }),
+    patchKr: (krId, data) => request(`/api/okr/krs/${krId}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    selfScore: (data) => request('/api/okr/self-score', { method: 'POST', body: JSON.stringify(data) }),
+    managerScore: (data) => request('/api/okr/manager-score', { method: 'POST', body: JSON.stringify(data) }),
+    miss: (objectiveId, data) => request(`/api/okr/objectives/${objectiveId}/miss`, { method: 'POST', body: JSON.stringify(data) }),
+    close: (week) => request('/api/okr/cycle/close', { method: 'POST', body: JSON.stringify(week ? { week } : {}) }),
+    reopen: (week, reason) => request('/api/okr/cycle/reopen', { method: 'POST', body: JSON.stringify({ week, reason }) })
   },
   reports: {
     projects: (params = {}) => {

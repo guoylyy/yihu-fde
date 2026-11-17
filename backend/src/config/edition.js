@@ -88,6 +88,7 @@ export const PERM_PREFIX_MODULE = {
   engineer: 'engineers', engineer_stats: 'engineers', skill: 'engineers',
   asset: 'assets',   // v2.7(#1140) 项目资产库
   idea: 'ideas',     // v2.10.0(#1180) 创意中心
+  okr: 'okr',        // 周 OKR(公司管理级)
   // 客户
   customer: 'customers',
   // 平台自身

@@ -1135,5 +1135,56 @@ export const TOOLS = [
     description: '已过截止日还没完成的任务（我能看到的项目里），逾期最久的在前：标题、项目、截止日、逾期天数。回答「哪些任务逾期了」「延期任务」。返回 { list }。',
     schema: { limit: z.number().int().min(1).max(20).optional().describe('最多几条，默认 8') },
     build: (a) => ({ method: 'GET', path: '/api/fde/cards/overdue-tasks', query: a })
+  },
+
+  // ============ 周 OKR(公司管理级, 与项目/任务/工时无关) ============
+  // 助手只写「进展 / KR 数值 / 自评」, 写入一律标 source=ASSISTANT; 提交计划、主管评分必须本人在页面上点(接口会拒)
+  {
+    name: 'okr_my_week',
+    description: '我这周的 OKR: 每个 O(目标) 的标题、权重、状态、自评/主管分, 以及它的 KR(关键结果) 当前值/目标值/进度。用户说「今天把 XX 做完了」时先调它, 把那句话对应到具体的 O 和 KR 的 id 再写。week 可传 YYYY-Www 查别的周, 默认本周。',
+    schema: { week: z.string().optional().describe('current(默认) / prev / YYYY-Www') },
+    build: (a) => ({ method: 'GET', path: '/api/okr/my', query: a })
+  },
+  {
+    name: 'okr_append_update',
+    description: '给我这周的某个 O 追加一条进展(只增不改, 页面上带「助手」标记)。content 写做了什么; 能对应到某条 KR 就带上 KR 的 id, 有数值变化再带推进后的值(是/否型 KR 传 1=完成)。另外把用户的原话一并传上, 用于追溯。计划还没提交或本周已进入复盘时会被拒, 照错误原话转告用户即可。O 和 KR 的 id 从 okr_my_week 拿。',
+    schema: {
+      objective_id: id().describe('O 的 id(okr_my_week 返回)'),
+      content: z.string().min(1).max(2000).describe('进展内容, 一两句话'),
+      kr_id: id().optional().describe('对应的 KR id, 可选'),
+      value_after: z.coerce.number().optional().describe('该 KR 推进后的当前值, 可选; 必须同时给出 KR 的 id'),
+      user_said: z.string().max(1000).optional().describe('用户的原话')
+    },
+    build: (a) => ({
+      method: 'POST', path: `/api/okr/objectives/${a.objective_id}/updates`,
+      body: { content: a.content, krId: a.kr_id, valueAfter: a.value_after, sourceQuote: a.user_said }
+    })
+  },
+  {
+    name: 'okr_set_kr_value',
+    description: '直接把我的某条数值型 KR 推进到新值(也可顺带改状态 ON_TRACK/AT_RISK/DONE/MISSED; 是/否型 KR 只能 DONE/MISSED)。会自动记一条过程数据(值从多少到多少)。KR 的 id 从 okr_my_week 拿。',
+    schema: {
+      kr_id: id().describe('KR id'),
+      value: z.coerce.number().optional().describe('新的当前值'),
+      status: z.enum(['ON_TRACK', 'AT_RISK', 'DONE', 'MISSED']).optional(),
+      user_said: z.string().max(1000).optional().describe('用户的原话')
+    },
+    build: (a) => ({ method: 'PATCH', path: `/api/okr/krs/${a.kr_id}`, body: { currentValue: a.value, status: a.status, sourceQuote: a.user_said } })
+  },
+  {
+    name: 'okr_self_score',
+    description: '帮我给本周某个 O 自评(0–100 的整数 + 一句理由), 周中或周五复盘时可用; 每次评分都留历史。写之前把分数和理由复述给用户确认。只能自评, 主管评分助手不能代打。',
+    schema: {
+      objective_id: id(),
+      score: z.coerce.number().int().min(0).max(100),
+      comment: z.string().max(500).describe('一句理由')
+    },
+    build: (a) => ({ method: 'POST', path: '/api/okr/self-score', body: { objectiveId: a.objective_id, score: a.score, comment: a.comment } })
+  },
+  {
+    name: 'okr_team_overview',
+    description: '全公司本周 OKR 概况(仅老板/系统管理员可用, 其他角色调会 403): 应提交/已提交人数、平均完成率, 每人的提交情况(准时/迟交/未交)、O 数、KR 完成数、完成率、自评分、主管分, 以及连续两周完成率低于 60% 的人。',
+    schema: { week: z.string().optional().describe('current(默认) / prev / YYYY-Www') },
+    build: (a) => ({ method: 'GET', path: '/api/okr/team', query: a })
   }
 ]

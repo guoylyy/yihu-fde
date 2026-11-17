@@ -23,6 +23,12 @@
           <span>{{ $t('common.my_workbench') }}</span>
         </el-menu-item>
 
+        <!-- 周 OKR(公司管理级): 人人都要交, 只看模块开没开 -->
+        <el-menu-item v-if="moduleEnabled('okr')" index="/admin/okr">
+          <el-icon><Aim /></el-icon>
+          <span>{{ $t('okr.menu') }}</span>
+        </el-menu-item>
+
         <!-- v2.10.0(#1180) 创意中心: 生产流程最前端, 想法从这里进来再分到项目 -->
         <el-menu-item v-if="can('idea.view')" index="/admin/ideas">
           <el-icon><Opportunity /></el-icon>
@@ -225,6 +231,9 @@
             <BrandMark :size="16" :dark="route.path === '/admin/workbench'" class="menu-claw" />
             <span>{{ $t('common.my_workbench') }}</span>
           </el-menu-item>
+          <el-menu-item v-if="moduleEnabled('okr')" index="/admin/okr">
+            <el-icon><Aim /></el-icon><span>{{ $t('okr.menu') }}</span>
+          </el-menu-item>
           <el-menu-item v-if="can('idea.view')" index="/admin/ideas">
             <el-icon><Opportunity /></el-icon><span>{{ $t('common.ideas') }}</span>
           </el-menu-item>
@@ -290,12 +299,12 @@
 import { $t } from '@/i18n'
 import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowDown, Bell, User, Document, Avatar, Clock, UserFilled, List, DataAnalysis, Reading, Key, Setting, Connection, Checked, Guide, Files, Fold, Expand, Opportunity, OfficeBuilding } from '@element-plus/icons-vue'
+import { ArrowDown, Bell, User, Document, Avatar, Clock, UserFilled, List, DataAnalysis, Reading, Key, Setting, Connection, Checked, Guide, Files, Fold, Expand, Opportunity, OfficeBuilding, Aim } from '@element-plus/icons-vue'
 import { fde } from '@/api/index.js'
 import LangSwitch from '@/components/common/LangSwitch.vue'
 import { can as permCan, refreshMyPermissions, clearMyPermissions } from '@/api/permissions.js'
 // v2.7.0 多实例: 顶栏与页面标题跟随实例品牌
-import { getBrand, getVersion, releaseNotesUrl } from '@/api/edition.js'
+import { getBrand, getVersion, releaseNotesUrl, moduleEnabled } from '@/api/edition.js'
 const brand = getBrand()
 const appVersion = getVersion()
 import BrandMark from '@/components/common/BrandMark.vue'

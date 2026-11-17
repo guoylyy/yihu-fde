@@ -1386,3 +1386,151 @@ model IdeaLike {
   @@unique([ideaId, userId])
   @@map("idea_likes")
 }
+
+// =====================================================
+// 周 OKR (公司管理级, 与项目管理完全独立)
+// 不挂 Project / Task / 工时, 不引用这些表的外键; 人员只存 userId(逻辑外键, 不动 users 表)
+// =====================================================
+
+// 一个自然周一条(周一 00:00 – 周日 23:59, Asia/Shanghai), ISO 年-周号唯一。
+// status 是整周的节奏: PLANNING(周一) → IN_PROGRESS(周二起) → REVIEW(周五起) → CLOSED(下周一归档)。
+// 「某人已提交」是个人状态, 看他名下 O 的 submittedAt, 不放在周期上(SUBMITTED 保留为合法值, 当前不使用)。
+model OkrCycle {
+  id         BigInt    @id @default(autoincrement())
+  year       Int // ISO 年
+  weekNo     Int       @map("week_no") // ISO 周号 1-53
+  startDate  DateTime  @map("start_date") // 周一 00:00 上海时间(存 UTC 时刻)
+  endDate    DateTime  @map("end_date") // 周日 23:59:59.999 上海时间
+  status     String    @default("PLANNING") @db.VarChar(20) // PLANNING|SUBMITTED|IN_PROGRESS|REVIEW|CLOSED
+  openedAt   DateTime  @default(now()) @map("opened_at")
+  closedAt   DateTime? @map("closed_at")
+  closedBy   BigInt?   @map("closed_by") // userId; 定时任务归档为空
+  // 主管重开: 重开后不再按时间自动推进, 直到再次归档
+  reopenedAt DateTime? @map("reopened_at")
+  reopenedBy BigInt?   @map("reopened_by")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  objectives OkrObjective[]
+  updates    OkrUpdate[]
+  scores     OkrScore[]
+
+  @@unique([year, weekNo])
+  @@map("okr_cycles")
+}
+
+model OkrObjective {
+  id             BigInt    @id @default(autoincrement())
+  cycleId        BigInt    @map("cycle_id")
+  ownerId        BigInt    @map("owner_id") // userId
+  seq            Int       @default(1)
+  title          String    @db.VarChar(200)
+  description    String?   @db.Text // 可以提项目名, 纯文本, 不做关联
+  weight         Float     @default(100) // 同一周同一人合计 100(DROPPED 不计)
+  status         String    @default("ON_TRACK") @db.VarChar(20) // ON_TRACK|AT_RISK|DONE|MISSED|DROPPED
+  selfScore      Int?      @map("self_score") // 最近一次自评, 历史见 okr_scores
+  managerScore   Int?      @map("manager_score")
+  managerComment String?   @map("manager_comment") @db.VarChar(500)
+  submittedAt    DateTime? @map("submitted_at") // 空 = 草稿
+  lateSubmit     Boolean   @default(false) @map("late_submit")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  cycle      OkrCycle       @relation(fields: [cycleId], references: [id])
+  keyResults OkrKeyResult[]
+  updates    OkrUpdate[]
+  scores     OkrScore[]
+  misses     OkrMiss[]
+
+  @@index([cycleId, ownerId])
+  @@index([ownerId])
+  @@map("okr_objectives")
+}
+
+model OkrKeyResult {
+  id           BigInt   @id @default(autoincrement())
+  objectiveId  BigInt   @map("objective_id")
+  seq          Int      @default(1)
+  title        String   @db.VarChar(200)
+  metricType   String   @default("BINARY") @map("metric_type") @db.VarChar(10) // BINARY|PERCENT|NUMBER
+  unit         String?  @db.VarChar(20)
+  targetValue  Float?   @map("target_value") // BINARY 恒为 1
+  currentValue Float    @default(0) @map("current_value")
+  weight       Float    @default(100) // 同一个 O 下合计 100
+  // ON_TRACK|AT_RISK|DONE|MISSED; BINARY 只允许 DONE/MISSED(未定时为空)
+  status       String?  @db.VarChar(20)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  objective OkrObjective @relation(fields: [objectiveId], references: [id])
+  updates   OkrUpdate[]
+
+  @@index([objectiveId])
+  @@map("okr_key_results")
+}
+
+// 过程数据的唯一载体, 只增不改
+model OkrUpdate {
+  id             BigInt   @id @default(autoincrement())
+  cycleId        BigInt   @map("cycle_id")
+  objectiveId    BigInt   @map("objective_id")
+  krId           BigInt?  @map("kr_id")
+  date           DateTime @db.Date // 上海日期
+  kind           String   @default("MIDWEEK") @db.VarChar(10) // DAILY|MIDWEEK|FINAL
+  content        String   @db.Text
+  valueBefore    Float?   @map("value_before")
+  valueAfter     Float?   @map("value_after")
+  statusBefore   String?  @map("status_before") @db.VarChar(20)
+  statusAfter    String?  @map("status_after") @db.VarChar(20)
+  source         String   @default("MANUAL") @db.VarChar(10) // MANUAL|ASSISTANT
+  // 助手写入时: 用户原话(可追溯到哪一句话)与 Agent 身份
+  sourceQuote    String?  @map("source_quote") @db.VarChar(1000)
+  agentProfileId BigInt?  @map("agent_profile_id")
+  createdBy      BigInt   @map("created_by") // userId
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  cycle     OkrCycle      @relation(fields: [cycleId], references: [id])
+  objective OkrObjective  @relation(fields: [objectiveId], references: [id])
+  keyResult OkrKeyResult? @relation(fields: [krId], references: [id])
+
+  @@index([objectiveId, createdAt])
+  @@index([cycleId])
+  @@index([krId])
+  @@map("okr_updates")
+}
+
+// 每次评分一条, 历史不覆盖
+model OkrScore {
+  id          BigInt   @id @default(autoincrement())
+  cycleId     BigInt   @map("cycle_id")
+  objectiveId BigInt   @map("objective_id")
+  scorerId    BigInt   @map("scorer_id") // userId
+  role        String   @db.VarChar(10) // SELF|MANAGER
+  score       Int // 0-100
+  comment     String?  @db.VarChar(500)
+  source      String   @default("MANUAL") @db.VarChar(10) // MANUAL|ASSISTANT(只有自评可能是助手代写)
+  at          DateTime @default(now())
+
+  cycle     OkrCycle     @relation(fields: [cycleId], references: [id])
+  objective OkrObjective @relation(fields: [objectiveId], references: [id])
+
+  @@index([objectiveId, role, at])
+  @@index([cycleId])
+  @@map("okr_scores")
+}
+
+// 未达成原因(周五填), 可选顺延到下周
+model OkrMiss {
+  id               BigInt   @id @default(autoincrement())
+  objectiveId      BigInt   @map("objective_id")
+  reason           String   @db.VarChar(1000)
+  carriedToCycleId BigInt?  @map("carried_to_cycle_id")
+  carriedToObjId   BigInt?  @map("carried_to_objective_id")
+  createdBy        BigInt   @map("created_by")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  objective OkrObjective @relation(fields: [objectiveId], references: [id])
+
+  @@index([objectiveId])
+  @@map("okr_misses")
+}

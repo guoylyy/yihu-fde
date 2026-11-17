@@ -38,6 +38,8 @@ export const NOTIFICATION_CATALOG = {
   PROJECT_MEMBER_REMOVED: O('被移出项目', '任务协作', '一次性告知'),
   PROJECT_ROLE_CHANGED: O('项目内角色变更', '任务协作', '一次性告知'),
   PROJECT_STATUS_CHANGED: N('项目状态变更', '任务协作', '按角色群发的动态, 逐条推没人看, 进摘要'),
+  OKR_NOT_SUBMITTED:    M('本周 OKR 还没提交(周一提醒)', '任务协作', '周一 10:00 一次, 只发给还没交的人; 要本人去交'),
+  OKR_NOT_SUBMITTED_SUMMARY: M('本周 OKR 未提交汇总(老板)', '任务协作', '周一 10:00 一条, 列出没交的人, 老板决定要不要追'),
   DAILY_DIGEST:         M('每日动态摘要', '任务协作', '噪音类合并后的唯一出口, 每天最多一条'),
   // 通道矩阵里的旧别名(代码里已改用 *_CHANGED / MENTIONED, 登记只为不漏)
   PROJECT_STATUS:       N('项目状态变更(旧别名)', '任务协作', '同 PROJECT_STATUS_CHANGED, 进摘要'),

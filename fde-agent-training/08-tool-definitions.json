@@ -680,6 +680,36 @@
       "description": "已过截止日还没完成的任务（我能看到的项目里），逾期最久的在前：标题、项目、截止日、逾期天数。回答「哪些任务逾期了」「延期任务」。返回 { list }。",
       "method": "GET",
       "path": "/api/fde/cards/overdue-tasks"
+    },
+    {
+      "name": "okr_my_week",
+      "description": "我这周的 OKR: 每个 O 的权重、状态、评分, 以及 KR 当前值/目标值/进度。",
+      "method": "GET",
+      "path": "/api/okr/my"
+    },
+    {
+      "name": "okr_append_update",
+      "description": "给我这周的某个 O 追加一条进展(可带 kr_id 与 value_after), 记 source=ASSISTANT。",
+      "method": "POST",
+      "path": "/api/okr/objectives/{objective_id}/updates"
+    },
+    {
+      "name": "okr_set_kr_value",
+      "description": "把我的某条 KR 推进到新值/新状态, 自动留一条过程数据。",
+      "method": "PATCH",
+      "path": "/api/okr/krs/{kr_id}"
+    },
+    {
+      "name": "okr_self_score",
+      "description": "给本周某个 O 自评 0–100 + 理由; 主管评分助手不能代打。",
+      "method": "POST",
+      "path": "/api/okr/self-score"
+    },
+    {
+      "name": "okr_team_overview",
+      "description": "全公司本周 OKR 概况(仅老板/系统管理员), 其他角色调用 403。",
+      "method": "GET",
+      "path": "/api/okr/team"
     }
   ]
 }

@@ -37,6 +37,7 @@ export const MODULE_PREFIXES = [
   ['/api/fde/llm-configs', 'admin'],
   ['/api/fde/system-settings', 'admin'],
   ['/api/fde/cards', 'me'],
+  ['/api/okr', 'okr'],
   ['/api/auth', 'auth'],
   ['/api/public', 'public']
 ].sort((a, b) => b[0].length - a[0].length)
@@ -44,7 +45,7 @@ export const MODULE_PREFIXES = [
 export const MODULE_NAMES = {
   customers: 'Customers', projects: 'Projects', project_records: 'Project records',
   engineers: 'Engineers', timesheets: 'Timesheets', reports: 'Report export', me: 'Workbench',
-  tasks: 'Tasks', uploads: 'Uploads', knowledge: 'Knowledge base', assets: 'Asset library', ideas: 'Ideas',
+  tasks: 'Tasks', uploads: 'Uploads', knowledge: 'Knowledge base', assets: 'Asset library', ideas: 'Ideas', okr: 'Weekly OKR',
   notifications: 'Notifications', agent: 'Agents', onboarding: 'Developer onboarding',
   admin: 'Administration', auth: 'Authentication', public: 'Public endpoints', other: 'Other'
 }

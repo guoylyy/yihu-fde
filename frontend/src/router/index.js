@@ -4,6 +4,10 @@ import { BASE } from '@/utils/base.js'
 const routes = [
   // 公开页只有使用文档; 其余非 /admin 的地址一律进后台(见下方守卫)
   { path: '/', redirect: '/admin' },
+  // 周 OKR 的短地址(/okr 是默认页), 落到后台布局里
+  { path: '/okr', redirect: to => ({ path: '/admin/okr', query: to.query }) },
+  { path: '/okr/team', redirect: to => ({ path: '/admin/okr/team', query: to.query }) },
+  { path: '/okr/history', redirect: to => ({ path: '/admin/okr/history', query: to.query }) },
   // 使用文档: 文档是仓库里的 Markdown, 加文档见 docs/manifest.js
   {
     path: '/docs/:slug?',
@@ -26,6 +30,11 @@ const routes = [
       // 个人工作台: 登录后的默认落地页。不设权限点 —— 这里只有"我自己的事"
       // (后端 /api/fde/me/* 同样只要登录), 且它是越权访问的兜底目标, 加权限会把只读角色转晕
       { path: 'workbench', name: 'AdminWorkbench', component: () => import('@/views/admin/Workbench.vue') },
+      // 周 OKR(公司管理级, 与项目管理无关): 自己的 OKR 与历史只要登录; 团队视图要 okr.view.all(只给老板)
+      { path: 'okr', name: 'AdminOkr', component: () => import('@/views/okr/MyOkr.vue') },
+      { path: 'okr/history', name: 'AdminOkrHistory', component: () => import('@/views/okr/OkrHistory.vue') },
+      { path: 'okr/team', name: 'AdminOkrTeam', component: () => import('@/views/okr/TeamOkr.vue'),
+        meta: { requiredPerm: 'okr.view.all', requiredRoles: ['ADMIN'] } },
       { path: 'customers', name: 'AdminCustomers', component: () => import('@/views/admin/Customers.vue'),
         meta: { requiredPerm: 'customer.view', requiredRoles: ['ADMIN', 'MANAGER'] } },
       { path: 'projects', name: 'AdminProjects', component: () => import('@/views/admin/Projects.vue'),

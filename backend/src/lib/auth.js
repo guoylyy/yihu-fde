@@ -208,7 +208,13 @@ export const PERMISSIONS = {
 
   // MCP 工具补全: 主动给同事发站内通知(只进站内信箱, 不外发飞书/邮件)
   // 收紧到管理侧 —— 谁都能发就成骚扰通道了
-  'notification.send':       ['ADMIN', 'MANAGER']
+  'notification.send':       ['ADMIN', 'MANAGER'],
+
+  // 周 OKR(公司管理级): 看自己的、提交、追加进展、自评只需登录; 下面三项只给老板(ADMIN)。
+  // 公司没有组长层, MANAGER(项目经理)不是谁的上级 —— 看全公司 OKR、打主管分、归档重开都不给
+  'okr.view.all':            ['ADMIN'],
+  'okr.score.manager':       ['ADMIN'],
+  'okr.cycle.manage':        ['ADMIN']
 }
 
 // ===== 角色定义入库 (v1.3.2 动态角色) =====

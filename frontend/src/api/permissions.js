@@ -74,7 +74,10 @@ export const PERMISSIONS = {
   "system.manage": ["ADMIN"],
   "projectRecord.create": ["ADMIN","MANAGER","FDE_ENGINEER"],
   "projectRecord.manage": ["ADMIN","MANAGER"],
-  "notification.send": ["ADMIN","MANAGER"]
+  "notification.send": ["ADMIN","MANAGER"],
+  "okr.view.all": ["ADMIN"],
+  "okr.score.manager": ["ADMIN"],
+  "okr.cycle.manage": ["ADMIN"]
 }
 function getUser() {
   if (typeof localStorage === 'undefined') return null

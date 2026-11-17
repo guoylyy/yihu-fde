@@ -53,6 +53,8 @@ import auditLogsRouter from './routes/fde/audit-logs.js'
 import llmConfigsRouter from './routes/fde/llm-configs.js'
 import systemSettingsRouter from './routes/fde/system-settings.js'
 import cardsRouter from './routes/fde/cards.js'
+// 周 OKR(公司管理级, 与项目管理独立)
+import okrRouter from './routes/okr.js'
 import { loadSettings } from './lib/settings.js'
 import { APP_VERSION } from './lib/version.js'
 import { usageMiddleware } from './lib/usage.js'
@@ -131,6 +133,8 @@ app.use('/api/fde/audit-logs', auditLogsRouter)
 app.use('/api/fde/llm-configs', llmConfigsRouter)
 app.use('/api/fde/system-settings', systemSettingsRouter)
 app.use('/api/fde/cards', cardsRouter)
+
+app.use('/api/okr', okrRouter)
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', version: APP_VERSION, timestamp: new Date().toISOString() })

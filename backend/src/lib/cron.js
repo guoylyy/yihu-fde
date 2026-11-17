@@ -6,6 +6,7 @@ import { releaseStaleRuns } from '../services/devDispatch.js'   // v2.9.0(#1162)
 import { syncAllRepositories } from '../services/repoSync.js'
 import { computeAllActivityScores } from '../services/projectActivity.js'
 import { runDailyDigest } from './notificationDigest.js'
+import { okrTick, okrMondayReminder } from '../services/okr.js'
 
 let started = false
 
@@ -37,6 +38,12 @@ export function startCronJobs() {
   // v2.5.5(#912) 通知每日摘要: 噪音档通知先入队, 每小时检查一次, 8 点后把「昨天及更早」的合并成每人一条(幂等: 已合并的带 digested_at)
   setTimeout(() => runWithCatch('notificationDigest', () => runDailyDigest()), 75 * 1000)
   setInterval(() => runWithCatch('notificationDigest', () => runDailyDigest()), 60 * 60 * 1000)
+
+  // 周 OKR: 每小时一次 —— 保证本周周期存在(下周一自动生成新周期), 把过完的周归档(主管重开的不动)。幂等
+  // 紧接着跑周一提醒: 自己判断「上海周一 10:00 后 + 本周 PLANNING」, 按通知表去重, 一周每人最多一条
+  const okrHourly = () => okrTick().then(t => okrMondayReminder().then(r => ({ ...t, remind: r })))
+  setTimeout(() => runWithCatch('okrTick', okrHourly), 20 * 1000)
+  setInterval(() => runWithCatch('okrTick', okrHourly), 60 * 60 * 1000)
 
   // v1.4.x 项目活跃度评分: 启动 45s 后算一次, 之后每小时重算(基于已同步提交数据)
   setTimeout(() => runWithCatch('activityScore', () => computeAllActivityScores()), 45 * 1000)

@@ -101,7 +101,8 @@ function toToolResult(data, { card = false } = {}) {
     return { content: [{ type: 'text', text: JSON.stringify(data.data) }], structuredContent: data.data }
   }
   let text = JSON.stringify(data, null, 2)
-  if (isError && data.httpStatus === 403) {
+  // 8120 = 周 OKR 里「必须本人操作」的事(提交计划/主管评分等), 不是角色不够, 不套用下面的提示
+  if (isError && data.httpStatus === 403 && data.code !== 8120) {
     text += '\n\n提示: 403 表示该操作超出工程师权限（通常需要项目经理/管理员），不要重试，向用户解释并建议转交对应角色。'
   }
   return { content: [{ type: 'text', text }], isError }
