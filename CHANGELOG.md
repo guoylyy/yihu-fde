@@ -1,5 +1,10 @@
 # 更新日志
 
+## 0.4.2
+- 助手入口：侧栏加「AI 助手」菜单项；右下角药丸文案改为「AI 助手」，首次进入有小圆点提示
+- 未配置模型时直接禁用输入并说明原因，不再等发送后报错
+- 新增 assistant-ui 判断逻辑与 7 条单测（前端 90 条全过，后端 648 条全过）
+
 ## 0.4.1
 - 修 iPhone 安全区：viewport 加 viewport-fit=cover，AI 助手抽屉与底部固定栏留出 safe-area
 - yh-app.json 声明 ui.responsive

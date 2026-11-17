@@ -23,6 +23,13 @@
           <span>{{ $t('common.my_workbench') }}</span>
         </el-menu-item>
 
+        <!-- AI 助手: 不是路由, 点了只打开右侧抽屉(el-menu 是 router 模式, 用 el-menu-item 会被 push 成路由, 所以手写同款 li) -->
+        <li v-if="moduleEnabled('agent')" class="el-menu-item ai-menu-item" :class="{ 'ai-on': assistant.open }" role="menuitem" tabindex="0"
+          :title="sidebarCollapsed ? $t('assistant.title') : ''" @click="openAssistant" @keydown.enter.prevent="openAssistant" @keydown.space.prevent="openAssistant">
+          <el-icon><MagicStick /></el-icon>
+          <span>{{ $t('assistant.title') }}</span>
+        </li>
+
         <!-- 周 OKR(公司管理级): 人人都要交, 只看模块开没开 -->
         <el-menu-item v-if="moduleEnabled('okr')" index="/admin/okr">
           <el-icon><Aim /></el-icon>
@@ -231,6 +238,10 @@
             <BrandMark :size="16" :dark="route.path === '/admin/workbench'" class="menu-claw" />
             <span>{{ $t('common.my_workbench') }}</span>
           </el-menu-item>
+          <li v-if="moduleEnabled('agent')" class="el-menu-item ai-menu-item" :class="{ 'ai-on': assistant.open }" role="menuitem" tabindex="0"
+            @click="openAssistant" @keydown.enter.prevent="openAssistant" @keydown.space.prevent="openAssistant">
+            <el-icon><MagicStick /></el-icon><span>{{ $t('assistant.title') }}</span>
+          </li>
           <el-menu-item v-if="moduleEnabled('okr')" index="/admin/okr">
             <el-icon><Aim /></el-icon><span>{{ $t('okr.menu') }}</span>
           </el-menu-item>
@@ -301,7 +312,7 @@
 import { $t } from '@/i18n'
 import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowDown, Bell, User, Document, Avatar, Clock, UserFilled, List, DataAnalysis, Reading, Key, Setting, Connection, Checked, Guide, Files, Fold, Expand, Opportunity, OfficeBuilding, Aim } from '@element-plus/icons-vue'
+import { ArrowDown, Bell, User, Document, Avatar, Clock, UserFilled, List, DataAnalysis, Reading, Key, Setting, Connection, Checked, Guide, Files, Fold, Expand, Opportunity, OfficeBuilding, Aim, MagicStick } from '@element-plus/icons-vue'
 import { fde } from '@/api/index.js'
 import LangSwitch from '@/components/common/LangSwitch.vue'
 import { can as permCan, refreshMyPermissions, clearMyPermissions } from '@/api/permissions.js'
@@ -311,6 +322,7 @@ const brand = getBrand()
 const appVersion = getVersion()
 import BrandMark from '@/components/common/BrandMark.vue'
 import AssistantDrawer from '@/components/assistant/AssistantDrawer.vue'
+import { useAssistant } from '@/composables/useAssistant.js'
 import { openLink } from '@/utils/links.js'
 import { ElMessage } from 'element-plus'
 import { useResponsive } from '@/composables/useResponsive.js'
@@ -318,6 +330,13 @@ import { useResponsive } from '@/composables/useResponsive.js'
 const { isMobile } = useResponsive()
 // H5(#1250): 手机抽屉菜单
 const mobileMenuVisible = ref(false)
+
+// AI 助手: 侧栏入口与右下角药丸共用同一个抽屉状态
+const { state: assistant, openPanel: openAssistantPanel } = useAssistant()
+function openAssistant() {
+  mobileMenuVisible.value = false
+  openAssistantPanel()
+}
 
 const route = useRoute()
 const router = useRouter()
@@ -604,6 +623,9 @@ function onCommand(cmd) {
   height: 38px;
   line-height: 38px;
 }
+/* AI 助手菜单项: 抽屉开着时给个浅底, 不用墨底(墨底留给当前路由) */
+.menu .ai-menu-item.ai-on { background: #f0eee9; color: #1c1917; }
+.menu .ai-menu-item:focus-visible { outline: 2px solid #93c5fd; outline-offset: -2px; }
 /* VI: 一级模块用爪痕替代功能图标; 对齐 el-icon 默认右距 */
 .menu-claw {
   margin-right: 10px;

@@ -5,7 +5,9 @@
 <template>
   <button v-if="!state.open" type="button" class="ai-fab" :aria-label="$t('assistant.open')" @click="openPanel">
     <el-icon :size="20"><MagicStick /></el-icon>
-    <span class="ai-fab-text">AI</span>
+    <span class="ai-fab-text">{{ $t('assistant.fab') }}</span>
+    <!-- 首次提示: 没点开过助手时亮一个小圆点, 点开一次后消失(localStorage) -->
+    <span v-if="!state.seen" class="ai-fab-dot" aria-hidden="true" />
   </button>
 
   <transition name="ai-slide">
@@ -13,7 +15,7 @@
       <header class="ai-head">
         <div class="ai-title">
           <span class="ai-name">{{ $t('assistant.title') }}</span>
-          <span class="ai-model" :class="{ off: state.status && !state.status.available }" :title="modelTitle">{{ modelLabel }}</span>
+          <span class="ai-model" :class="{ off: !ms.canSend && ms.kind !== 'loading' }" :title="modelTitle">{{ modelLabel }}</span>
         </div>
         <el-tooltip :content="$t('assistant.history')" placement="bottom" :disabled="isMobile">
           <el-button text class="ai-icon-btn" :class="{ active: state.showHistory }" :aria-label="$t('assistant.history')" @click="toggleHistory">
@@ -27,7 +29,10 @@
           <el-icon :size="18"><Close /></el-icon>
         </el-button>
       </header>
-      <div class="ai-hint">{{ $t('assistant.hint') }}</div>
+      <!-- 模型区: 没配模型/状态拉不到时直接在顶部说明并禁用输入, 不等发送后才报错 -->
+      <div v-if="ms.kind === 'not_configured'" class="ai-hint ai-hint-off" role="alert">{{ $t('assistant.not_connected') }}</div>
+      <div v-else-if="ms.kind === 'error'" class="ai-hint ai-hint-off" role="alert">{{ $t('assistant.unavailable', { p0: ms.reason }) }}</div>
+      <div v-else class="ai-hint">{{ $t('assistant.hint') }}</div>
 
       <!-- 历史会话 -->
       <div v-if="state.showHistory" class="ai-history">
@@ -45,13 +50,10 @@
 
       <!-- 消息流 -->
       <div v-else ref="listRef" class="ai-messages">
-        <div v-if="state.status && !state.status.available" class="ai-unavailable" role="alert">
-          {{ $t('assistant.unavailable', { p0: state.status.reason }) }}
-        </div>
         <div v-if="!state.messages.length" class="ai-empty">
           <div class="ai-empty-title">{{ $t('assistant.empty_title') }}</div>
           <div class="ai-empty-desc">{{ $t('assistant.empty_desc') }}</div>
-          <button v-for="k in ['eg1', 'eg2', 'eg3']" :key="k" type="button" class="ai-eg" @click="useExample($t(`assistant.${k}`))">
+          <button v-for="k in ['eg1', 'eg2', 'eg3']" :key="k" type="button" class="ai-eg" :disabled="!ms.canSend" @click="useExample($t(`assistant.${k}`))">
             {{ $t(`assistant.${k}`) }}
           </button>
         </div>
@@ -72,10 +74,9 @@
       <footer class="ai-input">
         <el-input
           ref="inputRef" v-model="input" type="textarea" resize="none" :autosize="{ minRows: 1, maxRows: 6 }"
-          :placeholder="isMobile ? $t('assistant.placeholder_mobile') : $t('assistant.placeholder')"
-          :disabled="state.status && !state.status.available" @keydown="onKeydown"
+          :placeholder="placeholder" :disabled="!ms.canSend" @keydown="onKeydown"
         />
-        <el-button type="primary" class="ai-send" :loading="state.sending" :disabled="!input.trim()" @click="submit">
+        <el-button type="primary" class="ai-send" :loading="state.sending" :disabled="!ms.canSend || !input.trim()" @click="submit">
           {{ $t('assistant.send') }}
         </el-button>
       </footer>
@@ -92,6 +93,7 @@ import AssistantDraftCard from './AssistantDraftCard.vue'
 import { useAssistant } from '@/composables/useAssistant.js'
 import { useResponsive } from '@/composables/useResponsive.js'
 import { renderSafeMarkdown } from '@/utils/safeMarkdown.js'
+import { modelState } from '@/utils/assistant-ui.js'
 
 const { state, openPanel, newChat, send, loadHistory, loadConversation, removeConversation, loadStatus } = useAssistant()
 const { isMobile } = useResponsive()
@@ -99,14 +101,20 @@ const input = ref('')
 const listRef = ref(null)
 const inputRef = ref(null)
 
+const ms = computed(() => modelState(state.status))
 const modelLabel = computed(() => {
-  const s = state.status
-  if (!s) return '…'
-  if (!s.available) return $t('assistant.model_unknown')
-  if (s.stub) return $t('assistant.stub')
-  return s.model?.model || s.model?.name || '—'
+  const m = ms.value
+  if (m.kind === 'loading') return '…'
+  if (m.kind === 'not_configured' || m.kind === 'error') return $t('assistant.model_unknown')
+  if (m.kind === 'stub') return $t('assistant.stub')
+  return m.name
 })
 const modelTitle = computed(() => state.status?.model?.name || state.status?.reason || '')
+const placeholder = computed(() => {
+  if (ms.value.kind === 'not_configured') return $t('assistant.not_connected')
+  if (ms.value.kind === 'loading') return $t('assistant.loading_model')
+  return isMobile.value ? $t('assistant.placeholder_mobile') : $t('assistant.placeholder')
+})
 
 const render = (text) => renderSafeMarkdown(text)
 const fmtTime = (t) => (t ? new Date(t).toLocaleString(undefined, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '')
@@ -118,7 +126,7 @@ watch(() => [state.messages.length, state.sending, state.open], scrollToEnd)
 
 async function submit() {
   const text = input.value
-  if (!text.trim() || state.sending) return
+  if (!text.trim() || state.sending || !ms.value.canSend) return
   input.value = ''
   await send(text)
 }
@@ -170,12 +178,19 @@ onMounted(() => {
 <style scoped>
 .ai-fab {
   position: fixed; right: 24px; bottom: 24px; z-index: 1990;
+  width: auto; white-space: nowrap;
   display: inline-flex; align-items: center; gap: 6px;
   height: 48px; padding: 0 18px; border: none; border-radius: 24px; cursor: pointer;
   background: #1c1917; color: #fff; font-size: 15px; font-weight: 600;
   box-shadow: 0 6px 20px rgba(28, 25, 23, 0.25);
 }
 .ai-fab:hover { background: #292524; }
+.ai-fab-text { white-space: nowrap; }
+/* 首次提示小圆点: 虎橙, 叠在药丸右上角 */
+.ai-fab-dot {
+  position: absolute; top: 2px; right: 4px; width: 10px; height: 10px; border-radius: 50%;
+  background: #d2521e; border: 2px solid #fff;
+}
 .ai-fab:focus-visible { outline: 3px solid #93c5fd; outline-offset: 2px; }
 
 .ai-panel {
@@ -198,9 +213,9 @@ onMounted(() => {
 .ai-icon-btn.active { background: #f5f5f4; }
 .ai-new { height: 36px; padding: 0 8px; margin: 0 !important; gap: 2px; }
 .ai-hint { font-size: 12px; color: #78716c; padding: 6px 16px; background: #fafaf9; border-bottom: 1px solid #f0eeeb; flex-shrink: 0; }
+.ai-hint.ai-hint-off { font-size: 13px; line-height: 1.6; padding: 10px 16px; color: #b91c1c; background: #fef2f2; border-bottom-color: #fecaca; }
 
 .ai-messages, .ai-history { flex: 1; overflow-y: auto; padding: 14px 14px 6px; overscroll-behavior: contain; }
-.ai-unavailable { font-size: 13px; color: #b91c1c; background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; line-height: 1.6; }
 .ai-empty { padding: 16px 4px; }
 .ai-empty-title { font-size: 16px; font-weight: 700; color: #1c1917; }
 .ai-empty-desc { font-size: 13px; color: #78716c; margin: 6px 0 10px; }
@@ -208,7 +223,8 @@ onMounted(() => {
   display: block; width: 100%; text-align: left; margin-bottom: 8px; padding: 10px 12px; cursor: pointer;
   border: 1px solid #e7e5e4; border-radius: 10px; background: #fff; color: #1c1917; font-size: 13px; line-height: 1.5;
 }
-.ai-eg:hover { border-color: #a8a29e; background: #fafaf9; }
+.ai-eg:hover:not(:disabled) { border-color: #a8a29e; background: #fafaf9; }
+.ai-eg:disabled { cursor: not-allowed; color: #a8a29e; }
 .ai-empty-line { color: #a8a29e; font-size: 13px; padding: 12px 4px; }
 
 .msg { display: flex; flex-direction: column; margin-bottom: 14px; }

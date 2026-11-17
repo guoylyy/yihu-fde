@@ -2,6 +2,7 @@
 // 抽屉挂在后台主布局上, 切页面不丢对话; 开合与当前会话 id 记在 localStorage, 刷新后能接着聊
 import { reactive, watch } from 'vue'
 import { fde } from '@/api/index.js'
+import { hasSeen, markSeen } from '@/utils/assistant-ui.js'
 
 const KEY = 'fde_assistant_ui'
 
@@ -18,7 +19,8 @@ const state = reactive({
   sending: false,
   loadedId: null,        // 已经拉过消息的会话 id
   showHistory: false,
-  history: []
+  history: [],
+  seen: hasSeen(localStorage)  // 首次提示: 点开过一次就不再在药丸上显示小圆点
 })
 
 watch(() => [state.open, state.conversationId], () => {
@@ -26,7 +28,7 @@ watch(() => [state.open, state.conversationId], () => {
 })
 
 async function loadStatus() {
-  try { state.status = await fde.assistant.status() } catch (e) { state.status = { available: false, reason: e.message } }
+  try { state.status = await fde.assistant.status() } catch (e) { state.status = { available: false, fetchError: true, reason: e.message } }
 }
 
 async function loadConversation(id) {
@@ -44,6 +46,7 @@ async function loadConversation(id) {
 
 async function openPanel() {
   state.open = true
+  if (!state.seen) { state.seen = true; markSeen(localStorage) }
   if (!state.status) loadStatus()
   if (state.conversationId && state.loadedId !== state.conversationId) await loadConversation(state.conversationId)
 }
