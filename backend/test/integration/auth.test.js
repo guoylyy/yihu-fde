@@ -14,7 +14,7 @@ describe('API: /api/auth 鉴权基础', () => {
     })
 
     test('账号密码登录已不存在', async () => {
-      const r = await request('POST', '/api/auth/login', { username: 'admin', password: '123456' })
+      const r = await request('POST', '/api/auth/login', { username: 'admin', password: '123456' }, null, { allowMissingRoute: true })
       assert.equal(r.status, 404)
     })
 

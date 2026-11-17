@@ -1,6 +1,7 @@
 // 使用数据上报到以虎 One(「管理 → 应用 → 使用数据」): 谁在用、用来干什么
 // 一个中间件按「方法 + 路径」认出关键操作, 请求成功后入队; 每 3 秒批量发一次, 失败只打日志, 不影响业务。
-// 经 MCP 调用(平台助手 / 个人 Agent)的带 via: 'ai'。只报动作和对象 id, 不报内容。
+// 经 MCP 调用(平台助手 / 个人 Agent)和站内 AI 助手(草稿确认后代调业务接口)的带 via: 'ai'。只报动作和对象 id, 不报内容。
+// USAGE_DEBUG=1 时每条都打一行日志(本地核对用, 没接平台也打)
 import prisma from './prisma.js'
 import { postEvents, platformEnabled } from './yihuOne.js'
 
@@ -21,7 +22,8 @@ const ACTIONS = [
   ['POST', /^\/ideas\/(\d+)\/convert$/, 'idea.convert'],
   ['POST', /^\/knowledge$/, 'knowledge.create'],
   ['POST', /^\/assets$/, 'asset.propose'],
-  ['POST', /^\/comments$/, 'comment.create']
+  ['POST', /^\/comments$/, 'comment.create'],
+  ['POST', /^\/project-records\/(\d+)\/requirements$/, 'requirement.create', (m) => ({ projectId: m[1] })]
 ]
 
 /** 认出一次请求对应的动作(纯函数); 不是关键操作返回 null */
@@ -63,6 +65,7 @@ async function flush() {
 
 /** 记一条使用数据(异步, 不抛) */
 export async function track(userId, action, detail = {}) {
+  if (process.env.USAGE_DEBUG === '1') console.log('[usage]', JSON.stringify({ userId: String(userId), action, detail }))
   if (!platformEnabled() || !userId) return
   const uid = await platformIdOf(userId)
   if (!uid) return
@@ -71,15 +74,18 @@ export async function track(userId, action, detail = {}) {
   if (!timer) timer = setTimeout(flush, 3000)
 }
 
+/** 这次请求是不是 AI 发起的: MCP(平台助手 / 个人 Agent) 或站内 AI 助手代调 */
+export const isAiCall = (user) => user?.via === 'mcp' || user?.via === 'ai'
+
 /** 挂在 /api/fde 上: 写请求成功(2xx 且业务 code=0)后按动作表上报 */
 export function usageMiddleware(req, res, next) {
-  if (req.method === 'GET' || !platformEnabled()) return next()
+  if (req.method === 'GET' || (!platformEnabled() && process.env.USAGE_DEBUG !== '1')) return next()
   const hit = matchAction(req.method, req.path, req.body)
   if (!hit) return next()
   const json = res.json.bind(res)
   res.json = (payload) => {
     if (res.statusCode < 400 && (payload?.code === undefined || payload.code === 0) && req.user?.userId) {
-      const detail = { ...hit.detail, ...(req.user.via === 'mcp' ? { via: 'ai' } : {}) }
+      const detail = { ...hit.detail, ...(isAiCall(req.user) ? { via: 'ai' } : {}) }
       track(req.user.userId, hit.action, detail).catch(() => {})
     }
     return json(payload)

@@ -292,6 +292,8 @@
         </el-menu>
       </div>
     </el-drawer>
+    <!-- AI 助手: 右下角气泡 → 抽屉, 所有后台页面可用(只出草稿, 人确认后才落库) -->
+    <AssistantDrawer v-if="moduleEnabled('agent')" />
   </el-container>
 </template>
 
@@ -308,6 +310,7 @@ import { getBrand, getVersion, releaseNotesUrl, moduleEnabled } from '@/api/edit
 const brand = getBrand()
 const appVersion = getVersion()
 import BrandMark from '@/components/common/BrandMark.vue'
+import AssistantDrawer from '@/components/assistant/AssistantDrawer.vue'
 import { openLink } from '@/utils/links.js'
 import { ElMessage } from 'element-plus'
 import { useResponsive } from '@/composables/useResponsive.js'

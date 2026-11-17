@@ -77,7 +77,7 @@ describe('API: /api/fde/users 用户管理', () => {
 
   describe('没有密码相关接口', () => {
     test('重置密码 / 改密码接口已不存在', async () => {
-      assert.equal((await a.post(`/api/fde/users/${target.id}/reset-password`, {})).status, 404)
+      assert.equal((await a.post(`/api/fde/users/${target.id}/reset-password`, {}, { allowMissingRoute: true })).status, 404)
       assert.equal((await fdeApi.put('/api/fde/users/me/change-password', { oldPassword: 'a', newPassword: 'b' })).status, 403)
     })
   })

@@ -6,10 +6,8 @@
 // 测试数据一律自建自清(含审计流水), 不碰库里已有记录。
 import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { login, api, uniqName } from './helpers.js'
+import { login, api, uniqName, BASE } from './helpers.js'
 import prisma from '../../src/lib/prisma.js'
-
-const BASE = process.env.TEST_API_BASE || 'http://localhost:3005'
 
 /** 用 Agent 专属 Key 直调 MCP 端点(无状态模式, tools/call 单发即可) */
 async function mcpCall(key, name, args) {

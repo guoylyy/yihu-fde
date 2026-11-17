@@ -26,6 +26,7 @@ export const MODULE_PREFIXES = [
   ['/api/fde/ideas', 'ideas'],
   ['/api/fde/notifications', 'notifications'],
   ['/api/fde/agent-conversations', 'agent'],
+  ['/api/fde/assistant', 'agent'],
   ['/api/fde/agent-profiles', 'agent'],
   ['/api/fde/agent-presence', 'agent'],
   ['/api/fde/users', 'admin'],

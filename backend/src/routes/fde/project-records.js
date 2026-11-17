@@ -630,6 +630,45 @@ router.get('/:projectId/requirements', requirePermission('project.view'), async 
 })
 
 /**
+ * POST /:projectId/requirements  手工新增一条需求(待确认 DRAFT)
+ * body: { title, detail?, priority?, ownerId? }
+ * 与会议梳理出来的需求同一张表、同一套确认流; 经 AI 助手确认草稿落库的 source=AI, 页面手填的 source=MANUAL
+ */
+router.post('/:projectId/requirements', requirePermission('projectRecord.create'), async (req, res) => {
+  try {
+    const project = await findScopedProject(req.user, req.params.projectId)
+    if (!project) return res.status(404).json({ code: 2004, message: '项目不存在或无权访问' })
+    const { title, detail, priority = 'MEDIUM', ownerId } = req.body || {}
+    if (!String(title || '').trim()) return res.status(400).json({ code: 1002, message: '需求标题不能为空' })
+    if (!['LOW', 'MEDIUM', 'HIGH', 'URGENT'].includes(priority)) return res.status(400).json({ code: 1002, message: '无效优先级' })
+    let owner = null
+    if (ownerId) {
+      const memberUsers = await listMemberUsers(project.id)
+      if (!memberUsers.some(u => String(u.userId) === String(ownerId))) {
+        return res.status(400).json({ code: 1002, message: '责任人必须是该项目的在职成员' })
+      }
+      owner = BigInt(ownerId)
+    }
+    const created = await prisma.projectRequirement.create({
+      data: {
+        projectId: project.id,
+        title: String(title).trim().slice(0, 200),
+        detail: detail ? String(detail) : null,
+        priority,
+        ownerId: owner,
+        source: req.user.via === 'ai' ? 'AI' : 'MANUAL',
+        createdBy: BigInt(req.user.id)
+      }
+    })
+    recordActivity({ actorId: BigInt(req.user.id), entity: 'project', entityId: project.id, action: 'requirement_created', summary: `新增需求「${created.title.slice(0, 40)}」` })
+    res.json({ code: 0, data: created })
+  } catch (e) {
+    console.error('[project-records POST requirements]', e)
+    res.status(500).json({ code: 9001, message: e.message })
+  }
+})
+
+/**
  * PUT /:projectId/requirements/:id  编辑/确认/驳回
  * body: { title?, detail?, priority?, status? (CONFIRMED|REJECTED|DRAFT) }
  * 确认/驳回记录操作人与时间(#351 的确认流数据底座); 生成任务在 #351

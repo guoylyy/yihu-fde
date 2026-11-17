@@ -402,7 +402,11 @@ export const fde = {
     update: (id, data) => request(`/api/fde/llm-configs/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     setDefault: (id) => request(`/api/fde/llm-configs/${id}/set-default`, { method: 'POST' }),
     remove: (id) => request(`/api/fde/llm-configs/${id}`, { method: 'DELETE' }),
-    syncYihuOne: () => request('/api/fde/llm-configs/yihu-one/sync', { method: 'POST' })
+    syncYihuOne: () => request('/api/fde/llm-configs/yihu-one/sync', { method: 'POST' }),
+    platformModels: () => request('/api/fde/llm-configs/yihu-one/models'),
+    create: (data) => request('/api/fde/llm-configs', { method: 'POST', body: JSON.stringify(data) }),
+    // 试连: { id } 已保存的配置 / { model } 平台上的某个模型 / {} 当前默认
+    test: (data = {}) => request('/api/fde/llm-configs/test', { method: 'POST', body: JSON.stringify(data), timeout: 130000 })
   },
   // API Key（MCP/智能体对接凭证）
   apiKeys: {
@@ -425,6 +429,17 @@ export const fde = {
   // 客户付款凭证审核
   // 客户 Portal 邀请码
   // 2026-07-20: 智能助手对话(历史落库); v1.6.0 会话可挂项目/客户, 第三方 Agent 回传 source=EXTERNAL
+  // AI 助手: 只出草稿, 确认后由服务端代调正常业务接口落库
+  assistant: {
+    status: () => request('/api/fde/assistant/status'),
+    // 一轮对话里模型可能连调多个工具, 给足时间
+    chat: (data) => request('/api/fde/assistant/chat', { method: 'POST', body: JSON.stringify(data), timeout: 130000 }),
+    conversations: () => request('/api/fde/assistant/conversations'),
+    conversation: (id) => request(`/api/fde/assistant/conversations/${id}`),
+    removeConversation: (id) => request(`/api/fde/assistant/conversations/${id}`, { method: 'DELETE' }),
+    confirmDraft: (id, payload) => request(`/api/fde/assistant/drafts/${id}/confirm`, { method: 'POST', body: JSON.stringify(payload ? { payload } : {}), timeout: 40000 }),
+    discardDraft: (id) => request(`/api/fde/assistant/drafts/${id}/discard`, { method: 'POST', body: '{}' })
+  },
   agentConversations: {
     list: (params = {}) => {
       const q = new URLSearchParams(params).toString()

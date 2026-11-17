@@ -10,8 +10,22 @@ npx prisma migrate deploy           # apply migrations
 npx prisma migrate dev --name xyz   # create a migration after editing schema.prisma
 node prisma/seed.js                 # roles + demo data
 node scripts/seed-instance-admin.mjs --username admin   # roles + first admin, no demo data
-RATELIMIT_RELAX=true npm test       # tests (integration tests call the running backend on :3005)
+RATELIMIT_RELAX=true npm test       # tests (integration tests call the running backend, see below)
 ```
+
+## Running tests
+
+Integration tests call a running backend over HTTP. The address is taken from, in order: `TEST_API_BASE`, then `PORT` in `backend/.env`, then `http://localhost:3005`.
+
+**When you verify new code on another port, you must set `TEST_API_BASE`:**
+
+```bash
+TEST_API_BASE=http://127.0.0.1:<port> RATELIMIT_RELAX=true npm test
+```
+
+Otherwise the tests hit whatever older backend is on the default port, and a dozen assertions fail as if the feature were broken. If the server you hit has no such route, the helper stops with: `你现在打的是 http://…:<port>，这个服务上没有 /api/... 接口，八成是端口指错了（用 TEST_API_BASE 指定）`.
+
+A test that deliberately checks a route is gone passes `{ allowMissingRoute: true }` as the last argument of `request()` or of the `api(token)` methods in `test/integration/helpers.js`.
 
 ## Layout
 

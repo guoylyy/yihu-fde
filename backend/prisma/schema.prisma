@@ -1534,3 +1534,29 @@ model OkrMiss {
   @@index([objectiveId])
   @@map("okr_misses")
 }
+
+// AI 助手的「草稿」: 助手不直接写库, 凡是会改数据的动作先落一张草稿, 人在抽屉里改好点「确认」后
+// 由服务端代用户调正常业务接口(权限/校验与页面按钮同一条路)。被丢弃的草稿也留着, 作为留痕
+// status: PENDING 待确认 / SUBMITTED 已落库 / DISCARDED 已丢弃
+model AssistantDraft {
+  id             BigInt    @id @default(autoincrement())
+  userId         BigInt    @map("user_id")
+  conversationId BigInt?   @map("conversation_id") // agent_conversations.id(source=ASSISTANT)
+  messageId      BigInt?   @map("message_id") // 产出它的那条助手消息 agent_messages.id
+  kind           String    @db.VarChar(20) // task / requirement / timesheet / comment
+  payload        Json // 提交给业务接口的字段(人改过后以最后一次为准)
+  labels         Json? // 引用字段的显示名 { projectId: '电梯导轨', assigneeUserId: '张三' }
+  missing        Json? // 还缺的必填字段 key 列表
+  status         String    @default("PENDING") @db.VarChar(15)
+  resultId       String?   @map("result_id") @db.VarChar(32) // 落库后的业务记录 id
+  lastError      String?   @map("last_error") @db.VarChar(500) // 最近一次确认失败的业务错误原文
+  lockedAt       DateTime? @map("locked_at") // 确认进行中: 防双击重复落库
+  submittedAt    DateTime? @map("submitted_at")
+  discardedAt    DateTime? @map("discarded_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@index([userId, createdAt])
+  @@index([conversationId])
+  @@map("assistant_drafts")
+}

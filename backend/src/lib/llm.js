@@ -1,13 +1,19 @@
-// 大模型调用层: 用以虎 One 托管的模型(OpenAI 兼容接口, 本应用的平台凭证, 密钥不出平台)
-// 「系统设置 → 大模型」里同步平台的模型、选默认; 一个都没选时用平台的默认模型。功能接入大模型统一走这里
+// 大模型调用层。模型来源两种:
+//   - YIHU_ONE: 以虎 One 托管的模型(OpenAI 兼容接口, 本应用的平台凭证, 密钥不出平台)。「系统设置 → 大模型」里同步、选默认
+//   - CUSTOM:   没接平台时管理员手填的 OpenAI 兼容接口(接口地址 + 密钥 + 模型名), 密钥只存服务端、接口只出掩码
+// 默认配置全局唯一, 由管理员设; 所有人(含 AI 助手)都用默认, 不能自己选。功能接入大模型统一走这里
 import prisma from './prisma.js'
 import { YIHU_ONE, yihuOneEndpoint } from './yihuOneLlm.js'
+
+export const MANUAL = 'CUSTOM'
 
 // 思考模型(reasoning)重试用的输出预算: 各处调用传的 1000~2000 只够思考, 正文会被截没
 const REASONING_MAX_TOKENS = 16000
 
+export const NOT_CONFIGURED_MESSAGE = '未接入以虎 One，请手填模型或联系管理员'
+
 export class LlmNotConfiguredError extends Error {
-  constructor(msg = '还没有接入以虎 One，无法使用大模型') {
+  constructor(msg = NOT_CONFIGURED_MESSAGE) {
     super(msg)
     this.code = 'LLM_NOT_CONFIGURED'
   }
@@ -16,14 +22,62 @@ export class LlmNotConfiguredError extends Error {
 /** 平台默认模型(不指定 model, 由以虎 One 选) */
 const PLATFORM_DEFAULT = { name: '以虎 One 默认模型', provider: YIHU_ONE, model: '', temperature: null, maxTokens: null }
 
-/** 取默认(优先)或任一启用的模型配置; 都没有时用平台默认模型。没接平台抛 LlmNotConfiguredError */
+/** 模型来源: platform 平台同步 / manual 手动填写 */
+export const sourceOf = (cfg) => (cfg?.provider === MANUAL ? 'manual' : 'platform')
+
+/**
+ * 取默认(优先)或任一启用的模型配置。
+ * 接了平台: 平台同步的和手填的都可用, 都没有时用平台默认模型;
+ * 没接平台: 只能用手填的, 没有就抛 LlmNotConfiguredError(给人看的话)
+ */
 export async function getActiveLlmConfig() {
-  if (!yihuOneEndpoint()) throw new LlmNotConfiguredError()
+  const platform = !!yihuOneEndpoint()
   const config = await prisma.llmConfig.findFirst({
-    where: { deletedAt: null, enabled: true, provider: YIHU_ONE },
+    where: { deletedAt: null, enabled: true, provider: platform ? { in: [YIHU_ONE, MANUAL] } : MANUAL },
     orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }]
   })
-  return config || PLATFORM_DEFAULT
+  if (config) return config
+  if (platform) return PLATFORM_DEFAULT
+  throw new LlmNotConfiguredError()
+}
+
+/** 某个配置的调用地址与鉴权头 */
+export function endpointFor(cfg) {
+  if (cfg?.provider === MANUAL) {
+    const baseUrl = String(cfg.baseUrl || '').trim().replace(/\/+$/, '')
+    if (!baseUrl || !cfg.apiKey) throw new LlmNotConfiguredError(`手填的模型「${cfg.name || cfg.model}」缺少接口地址或密钥，请管理员在「系统设置 → 大模型」补齐`)
+    return { baseUrl, auth: `Bearer ${cfg.apiKey}` }
+  }
+  const ep = yihuOneEndpoint()
+  if (!ep) throw new LlmNotConfiguredError()
+  // 平台的应用凭证: Basic base64(client_id:client_secret)
+  return { baseUrl: ep.baseUrl, auth: 'Basic ' + Buffer.from(ep.apiKey).toString('base64') }
+}
+
+/** 发一次 /chat/completions, 返回原始 JSON; 非 2xx 抛错(带返回原文前 300 字) */
+async function postCompletion(cfg, body, timeoutMs = 120000) {
+  const ep = endpointFor(cfg)
+  const payload = { ...body }
+  if (cfg.model) payload.model = cfg.model
+  if (cfg.temperature !== null && cfg.temperature !== undefined) payload.temperature = Number(cfg.temperature)
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  let resp
+  try {
+    resp = await fetch(`${ep.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: ep.auth },
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    })
+  } catch (e) {
+    throw new Error(e.name === 'AbortError' ? `请求大模型超时(${Math.round(timeoutMs / 1000)} 秒)` : `连不上大模型接口: ${e.message}`)
+  } finally { clearTimeout(timer) }
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '')
+    throw new Error(`大模型接口返回 ${resp.status}: ${text.slice(0, 300)}`)
+  }
+  return resp.json()
 }
 
 /**
@@ -32,34 +86,14 @@ export async function getActiveLlmConfig() {
  */
 export async function chatComplete({ system, user, maxTokens, config }) {
   const cfg = config || await getActiveLlmConfig()
-  const ep = yihuOneEndpoint()
-  if (!ep) throw new LlmNotConfiguredError()
+  endpointFor(cfg)   // 没接平台 / 手填配置不全时先抛 LlmNotConfiguredError
   const max = maxTokens || cfg.maxTokens || 4096
   const messages = [
     ...(system ? [{ role: 'system', content: system }] : []),
     { role: 'user', content: user }
   ]
   const callOnce = async (budget) => {
-    const body = { max_tokens: budget, messages }
-    if (cfg.model) body.model = cfg.model
-    if (cfg.temperature !== null && cfg.temperature !== undefined) body.temperature = Number(cfg.temperature)
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 120000)
-    let resp
-    try {
-      resp = await fetch(`${ep.baseUrl}/chat/completions`, {
-        method: 'POST',
-        // 平台的应用凭证: Basic base64(client_id:client_secret)
-        headers: { 'Content-Type': 'application/json', Authorization: 'Basic ' + Buffer.from(ep.apiKey).toString('base64') },
-        body: JSON.stringify(body),
-        signal: controller.signal
-      })
-    } finally { clearTimeout(timer) }
-    if (!resp.ok) {
-      const text = await resp.text().catch(() => '')
-      throw new Error(`大模型接口返回 ${resp.status}: ${text.slice(0, 300)}`)
-    }
-    const data = await resp.json()
+    const data = await postCompletion(cfg, { max_tokens: budget, messages })
     const choice = data?.choices?.[0] || {}
     return {
       content: choice.message?.content || '',
@@ -81,6 +115,38 @@ export async function chatComplete({ system, user, maxTokens, config }) {
       (r.finish === 'length' ? ': 输出预算被思考过程占满, 请在「系统设置 → 大模型」调大 maxTokens 或换用非思考模型' : ''))
   }
   return r.content
+}
+
+/**
+ * 带工具的一轮对话(OpenAI function calling)。返回 assistant 消息 { role, content, tool_calls? }
+ * 由调用方(AI 助手)执行工具后把结果作为 role=tool 消息接上再调
+ */
+export async function chatWithTools({ messages, tools, config, maxTokens, timeoutMs = 60000 }) {
+  const cfg = config || await getActiveLlmConfig()
+  const body = { messages, max_tokens: maxTokens || cfg.maxTokens || 4096 }
+  if (tools?.length) { body.tools = tools; body.tool_choice = 'auto' }
+  const data = await postCompletion(cfg, body, timeoutMs)
+  // 兼容平台用 { code, data } 再包一层的情况
+  const payload = data?.choices ? data : data?.data
+  const msg = payload?.choices?.[0]?.message
+  if (!msg) throw new Error(`大模型返回格式不对: ${JSON.stringify(data).slice(0, 200)}`)
+  return {
+    role: 'assistant',
+    content: msg.content || '',
+    tool_calls: msg.tool_calls?.length ? msg.tool_calls : undefined,
+    finish: payload.choices[0].finish_reason
+  }
+}
+
+/** 试连: 发一句最短的话, 返回延迟与返回样例(不抛, 失败放 error) */
+export async function testConnection(cfg) {
+  const started = Date.now()
+  try {
+    const text = await chatComplete({ system: '你是连通性测试, 只回复一句不超过 20 字的中文问候。', user: '你好', maxTokens: 256, config: cfg })
+    return { ok: true, latencyMs: Date.now() - started, sample: text.slice(0, 200), model: cfg.model || '平台默认' }
+  } catch (e) {
+    return { ok: false, latencyMs: Date.now() - started, error: e.message, model: cfg.model || '平台默认' }
+  }
 }
 
 /**

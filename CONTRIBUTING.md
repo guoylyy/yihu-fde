@@ -37,7 +37,7 @@ The frontend is translated with vue-i18n. Add new strings to `frontend/src/local
 ## Tests
 
 ```bash
-cd backend && RATELIMIT_RELAX=true npm test   # integration tests call the backend on :3005 (seeded, DEV_LOGIN=true)
+cd backend && RATELIMIT_RELAX=true npm test   # integration tests call the running backend (seeded, DEV_LOGIN=true); other port: TEST_API_BASE=http://127.0.0.1:<port>
 cd frontend && npm test
 ```
 

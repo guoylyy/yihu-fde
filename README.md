@@ -152,9 +152,11 @@ Tests:
 
 ```bash
 cd backend && node --test test/lib/*.test.js     # unit tests (activity.test.js needs the database)
-cd backend && RATELIMIT_RELAX=true npm test       # everything; needs the backend on :3005 with seed data and DEV_LOGIN=true
+cd backend && RATELIMIT_RELAX=true npm test       # everything; needs a running backend (PORT in backend/.env, default :3005) with seed data and DEV_LOGIN=true
 cd frontend && npm test
 ```
+
+Verifying on another port? Set `TEST_API_BASE=http://127.0.0.1:<port>`, or the tests hit the old backend. See [backend/README.md](backend/README.md#running-tests).
 
 ### Releasing
 

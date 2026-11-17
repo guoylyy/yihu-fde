@@ -121,7 +121,8 @@ describe('API: /api/fde/timesheets 工时管理', () => {
   // ===== 单条 =====
   describe('GET /:id', () => {
     test('不存在的 id', async () => {
-      const r = await a.get('/api/fde/timesheets/999999999')
+      // 注意: 后端没有 GET /timesheets/:id 这个接口, 本用例实际只验证了路由不存在
+      const r = await a.get('/api/fde/timesheets/999999999', { allowMissingRoute: true })
       assert.notEqual(r.code, 0)
     })
   })

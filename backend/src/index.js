@@ -36,6 +36,7 @@ import skillsRouter from './routes/fde/skills.js'
 import agentProfilesRouter from './routes/fde/agent-profiles.js'
 import agentPresenceRouter from './routes/fde/agent-presence.js'
 import agentConversationsRouter from './routes/fde/agent-conversations.js'
+import assistantRouter from './routes/fde/assistant.js'
 import apiKeysRouter from './routes/fde/api-keys.js'
 import onboardingRouter from './routes/fde/onboarding.js'
 // 知识与资产
@@ -116,6 +117,7 @@ app.use('/api/fde/skills', skillsRouter)
 app.use('/api/fde/agent-profiles', agentProfilesRouter)
 app.use('/api/fde/agent-presence', agentPresenceRouter)
 app.use('/api/fde/agent-conversations', agentConversationsRouter)
+app.use('/api/fde/assistant', assistantRouter)
 app.use('/api/fde/api-keys', apiKeysRouter)
 app.use('/api/fde/onboarding', onboardingRouter)
 
