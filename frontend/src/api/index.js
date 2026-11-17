@@ -20,11 +20,22 @@ async function request(url, options = {}) {
   const timeout = options.timeout || 20000
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeout)
+  // 调用方自己的取消信号(如「生成中」点了取消): 和超时共用同一个 controller
+  const outer = options.signal
+  if (outer) {
+    if (outer.aborted) controller.abort()
+    else outer.addEventListener('abort', () => controller.abort(), { once: true })
+  }
   let res
   try {
     res = await fetch(url, { ...options, headers, signal: controller.signal })
   } catch (e) {
     clearTimeout(timer)
+    if (e.name === 'AbortError' && outer?.aborted) {
+      const err = new Error($t('common.cancelled'))
+      err.code = 'ABORTED'
+      throw err
+    }
     // 2026-07-07 P2-2: fetch 失败（断网/CORS/超时）友好提示
     if (e.name === 'AbortError') {
       const err = new Error($t('common.request_timed_out_s_please_try', { p0: timeout / 1000 }))
@@ -566,6 +577,8 @@ export const fde = {
     history: (params = {}) => request('/api/okr/history?' + new URLSearchParams(clean(params)).toString()),
     savePlan: (week, objectives) => request(`/api/okr/plan?week=${encodeURIComponent(week)}`, { method: 'POST', body: JSON.stringify({ objectives }) }),
     submitPlan: (week, objectives) => request(`/api/okr/plan/submit?week=${encodeURIComponent(week)}`, { method: 'POST', body: JSON.stringify({ objectives }) }),
+    // 贴周报生成草稿: 后端模型最多等 60 秒再降级规则, 这里多留 15 秒余量
+    draftFromReport: (text, { signal } = {}) => request('/api/okr/plan/draft-from-report', { method: 'POST', body: JSON.stringify({ text }), timeout: 75000, signal }),
     addUpdate: (objectiveId, data) => request(`/api/okr/objectives/${objectiveId}/updates`, { method: 'POST', body: JSON.stringify(data) }),
     patchKr: (krId, data) => request(`/api/okr/krs/${krId}`, { method: 'PATCH', body: JSON.stringify(data) }),
     selfScore: (data) => request('/api/okr/self-score', { method: 'POST', body: JSON.stringify(data) }),

@@ -13,6 +13,7 @@ import {
   OkrRuleError, getCycle, personWeek, savePlan, appendUpdate, patchKr, scoreObjective,
   markMiss, teamView, history, closeCycle, reopenCycle, okrTick
 } from '../services/okr.js'
+import { generateOkrDraft } from '../services/okrDraft.js'
 
 const router = express.Router()
 router.use(internalAuth)
@@ -128,6 +129,13 @@ router.post('/plan', humanOnly('写或改本周计划'), async (req, res) => {
 
 router.post('/plan/submit', humanOnly('提交本周计划'), async (req, res) => {
   try { await plan(req, res, true) } catch (e) { fail(res, e, 'plan/submit') }
+})
+
+// 贴周报 → O/KR 草稿: 只返回草稿给编辑器, 不写库、不提交(提交仍走上面的 /plan/submit 和它的校验)
+router.post('/plan/draft-from-report', async (req, res) => {
+  try {
+    ok(res, await generateOkrDraft(req.body?.text))
+  } catch (e) { fail(res, e, 'plan/draft-from-report') }
 })
 
 // ---------------------------------------------------------------- 进展

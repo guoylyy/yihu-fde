@@ -26,15 +26,21 @@
 
       <p v-if="!data.cycle" class="okr-empty">{{ $t('okr.no_cycle') }}</p>
 
+      <!-- 本周还没提交: 贴周报生成草稿(只填编辑器, 不提交) -->
+      <div v-if="data.cycle && editing && !submittedOnce && !viewingOther" class="okr-quick">
+        <span class="okr-quick-text">{{ $t('okr.report.entry_hint') }}</span>
+        <el-button type="primary" plain size="small" data-test="report-open" @click="reportOpen = true">{{ $t('okr.report.open') }}</el-button>
+      </div>
+
       <!-- 写计划 / 改计划 -->
       <OkrPlanEditor
-        v-else-if="editing"
+        v-if="data.cycle && editing" ref="editorRef"
         :initial="draftInit" :submitted="submittedOnce" :cancellable="submittedOnce" :busy="busy"
         :late-hint="data.cycle.deadlinePassed && !submittedOnce"
         @save="(objs) => savePlan(objs, false)" @submit="(objs) => savePlan(objs, true)" @cancel="editing = false"
       />
 
-      <template v-else>
+      <template v-else-if="data.cycle">
         <p v-if="!data.objectives.length" class="okr-empty">{{ viewingOther ? $t('okr.other_not_submitted') : $t('okr.nothing_this_week') }}</p>
         <div class="okr-list">
           <OkrObjectiveCard
@@ -81,6 +87,8 @@
       </template>
     </el-dialog>
 
+    <OkrReportDraftDialog v-model="reportOpen" @fill="fillFromReport" />
+
     <!-- 未达成原因(周五) -->
     <el-dialog v-model="miss.visible" :title="$t('okr.mark_missed')" width="min(92vw, 420px)" append-to-body>
       <p class="okr-dialog-sub">{{ miss.obj?.title }}</p>
@@ -98,13 +106,14 @@
 <script setup>
 import { computed, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { $t } from '@/i18n'
 import { fde } from '@/api/index.js'
 import { can } from '@/api/permissions.js'
 import OkrWeekBar from '@/components/okr/OkrWeekBar.vue'
 import OkrObjectiveCard from '@/components/okr/OkrObjectiveCard.vue'
 import OkrPlanEditor from '@/components/okr/OkrPlanEditor.vue'
+import OkrReportDraftDialog from '@/components/okr/OkrReportDraftDialog.vue'
 import { PERSONAL_TAG, pct, toDraft, shiftKey, parseKey, isoWeekOf, weekKey } from './okrUtils.js'
 
 const route = useRoute()
@@ -115,6 +124,8 @@ const loading = ref(false)
 const busy = ref('')
 const editing = ref(false)
 const draftInit = ref([])
+const editorRef = ref(null)
+const reportOpen = ref(false)
 const self = reactive({ visible: false, idx: 0, score: null, comment: '', dirty: false })
 const miss = reactive({ visible: false, obj: null, reason: '', carry: false })
 
@@ -169,6 +180,20 @@ function shift(delta) {
 function startEdit() {
   draftInit.value = toDraft(data.value.objectives)
   editing.value = true
+}
+
+/** 贴周报生成的草稿填进编辑器: 编辑器里已有内容先确认覆盖。只填不存、不提交 */
+async function fillFromReport(objectives) {
+  if (editorRef.value?.hasContent()) {
+    try {
+      await ElMessageBox.confirm($t('okr.report.confirm_replace'), $t('okr.report.fill'), {
+        type: 'warning', confirmButtonText: $t('okr.report.replace'), cancelButtonText: $t('common.cancel')
+      })
+    } catch { return }
+  }
+  draftInit.value = objectives
+  reportOpen.value = false
+  ElMessage.success($t('okr.report.filled'))
 }
 
 async function savePlan(objectives, submit) {
@@ -283,6 +308,9 @@ async function submitMiss() {
 .okr-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin-bottom: 10px; font-size: 13px; color: var(--el-text-color-secondary); }
 .okr-summary b { color: var(--el-text-color-primary); font-size: 15px; }
 .okr-edit-link { margin-left: auto; border: 0; background: none; color: var(--el-color-primary); font-size: 13px; cursor: pointer; padding: 4px 0; }
+.okr-quick { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; padding: 8px 12px; border-radius: 10px; background: var(--el-color-primary-light-9); }
+.okr-quick-text { font-size: 12px; color: var(--el-text-color-regular); min-width: 0; }
+.okr-quick .el-button { flex: none; }
 .okr-list { display: flex; flex-direction: column; gap: 10px; }
 .okr-empty { color: var(--el-text-color-secondary); font-size: 13px; text-align: center; padding: 24px 0; }
 .okr-self { margin-top: 16px; padding: 12px 14px; border-radius: 10px; background: var(--el-color-warning-light-9); display: flex; align-items: center; justify-content: space-between; gap: 12px; }

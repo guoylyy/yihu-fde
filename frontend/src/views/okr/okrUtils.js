@@ -126,3 +126,88 @@ export function shiftKey(key, delta) {
   const w = parseKey(key) || isoWeekOf()
   return weekKey(isoWeekOf(new Date(weekStart(w).getTime() + delta * 7 * DAY + DAY)))
 }
+
+// ---------------------------------------------------------------- 快速录入
+
+export const KR_TITLE_MAX = 200
+
+// 行首的列表记号: 1. 1、 1) (1) ① - • * · + 以及 markdown 待办框 [ ]
+// 「3.5 天」「**加粗**」不是列表记号: 「N.」后面不能是数字, 「- * +」后面必须跟空白
+const LIST_MARK = /^\s*(?:(?:\d{1,3}\.(?!\d)|\d{1,3}[、)）]|[（(]\d{1,3}[)）]|[①-⑳]|[-*+](?=\s)|[•·▪◦])\s*)+(?:\[[ xX]?\]\s*)?/
+
+/**
+ * 批量粘贴 KR: 一行一条, 去掉行首编号/列表记号和首尾空白, 跳过空行;
+ * 超过 200 字的截断, clipped 记被截断的条数(界面提示用)
+ */
+export function splitBulkLines(text, max = KR_TITLE_MAX) {
+  const items = []
+  let clipped = 0
+  for (const raw of String(text || '').split(/\r?\n/)) {
+    const line = raw.replace(LIST_MARK, '').replace(/\s+$/, '').trim()
+    if (!line) continue
+    if (line.length > max) { clipped++; items.push(line.slice(0, max)) } else items.push(line)
+  }
+  return { items, clipped }
+}
+
+/** 数组里第 i 项上移(-1)/下移(+1), 越界不动; 原地改并返回 */
+export function moveItem(arr, i, delta) {
+  const j = i + delta
+  if (i < 0 || i >= arr.length || j < 0 || j >= arr.length) return arr
+  ;[arr[i], arr[j]] = [arr[j], arr[i]]
+  return arr
+}
+
+/**
+ * 批量粘贴的 KR 插进某个 O: 原来只有一条空 KR(新建 O 时的占位)就顶替它; 不超过 max 条。
+ * 返回 { added, dropped }
+ */
+export function insertKrs(obj, titles, { max = 10, makeKr }) {
+  const krs = obj.keyResults
+  if (krs.length === 1 && !String(krs[0].title || '').trim() && !krs[0].id) krs.splice(0, 1)
+  const room = Math.max(0, max - krs.length)
+  const take = titles.slice(0, room)
+  for (const t of take) krs.push(makeKr(t))
+  return { added: take.length, dropped: titles.length - take.length }
+}
+
+/** O 权重按 KR 条数占比, 取整合计 100(与后端 okrRules.weightsByKrCount 同口径) */
+export function weightsByKrCount(counts) {
+  const n = counts.length
+  if (!n) return []
+  let safe = counts.map(c => Math.max(0, Number(c) || 0))
+  if (!safe.some(Boolean)) safe = safe.map(() => 1)
+  const total = safe.reduce((s, c) => s + c, 0)
+  const raw = safe.map(c => (c / total) * 100)
+  const out = raw.map(Math.floor)
+  let left = 100 - out.reduce((s, w) => s + w, 0)
+  const order = raw.map((r, i) => ({ i, frac: r - Math.floor(r) })).sort((a, b) => b.frac - a.frac || a.i - b.i)
+  for (let k = 0; left > 0; k = (k + 1) % n, left--) out[order[k].i]++
+  return out
+}
+
+/** 后端生成的草稿 → 编辑器 initial(去掉指标里不该有的单位, 补状态) */
+export function draftToEditor(objectives) {
+  return (objectives || [])
+    .map(o => ({
+      title: String(o.title || '').trim(),
+      description: o.description || '',
+      weight: Number(o.weight) || 0,
+      status: 'ON_TRACK',
+      keyResults: (o.keyResults || [])
+        .filter(k => String(k.title || '').trim())
+        .map(k => ({
+          title: String(k.title).trim(),
+          metricType: k.metricType || 'BINARY',
+          unit: k.metricType === 'NUMBER' ? (k.unit || '') : '',
+          targetValue: k.metricType === 'BINARY' ? null : (k.targetValue ?? null),
+          weight: Number(k.weight) || 0
+        }))
+    }))
+    .filter(o => o.title || o.keyResults.length)
+}
+
+/** 粘贴的周报有效字数(不算空白), 与后端「少于 50 字不生成」同口径 */
+export function reportLength(text) {
+  return String(text || '').replace(/\s+/g, '').length
+}

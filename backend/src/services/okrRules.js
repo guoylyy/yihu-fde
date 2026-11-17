@@ -328,3 +328,30 @@ export function personalStatus(cycleStatus, objectives) {
   if (cycleStatus === 'REVIEW') return live.every(o => o.selfScore != null) ? 'REVIEW' : 'NEED_SELF_SCORE'
   return 'IN_PROGRESS'
 }
+
+// ---------------------------------------------------------------- 快速录入(贴周报生成草稿)用的纯规则
+
+/** 贴周报生成: 有效字数(不算空白)少于这个不生成 */
+export const MIN_REPORT_LENGTH = 50
+
+/**
+ * O 权重按 KR 条数占比分, 取整且合计正好 100(最大余数法, 并列时靠前的先拿)。
+ * 3/2/1 → 50/33/17
+ */
+export function weightsByKrCount(counts) {
+  const n = counts.length
+  if (!n) return []
+  const safe = counts.map(c => Math.max(0, Number(c) || 0))
+  const total = safe.reduce((s, c) => s + c, 0)
+  if (!total) return equalIntWeights(n)
+  const raw = safe.map(c => (c / total) * 100)
+  const out = raw.map(Math.floor)
+  let left = 100 - out.reduce((s, w) => s + w, 0)
+  const order = raw.map((r, i) => ({ i, frac: r - Math.floor(r) })).sort((a, b) => b.frac - a.frac || a.i - b.i)
+  for (let k = 0; left > 0; k = (k + 1) % n, left--) out[order[k].i]++
+  return out
+}
+
+function equalIntWeights(n) {
+  return weightsByKrCount(Array(n).fill(1))
+}

@@ -26,7 +26,10 @@
         </div>
         <el-button text size="small" :aria-label="$t('okr.delete_kr')" @click="removeKr(o, j)">✕</el-button>
       </div>
-      <el-button text size="small" type="primary" :disabled="o.keyResults.length >= 10" @click="addKr(o)">+ KR</el-button>
+      <div class="okr-ed-kr-add">
+        <el-button text size="small" type="primary" :disabled="o.keyResults.length >= MAX_KRS" @click="addKr(o)">+ KR</el-button>
+        <button type="button" class="okr-ed-bulk" :disabled="roomFor(o) <= 0" data-test="bulk-open" @click="openBulk(o)">{{ $t('okr.bulk.open') }}</button>
+      </div>
     </section>
 
     <div class="okr-ed-tools">
@@ -46,14 +49,19 @@
       </el-button>
     </div>
     <p v-if="lateHint" class="okr-late-hint">{{ $t('okr.late_hint') }}</p>
+
+    <OkrBulkKrDialog v-model="bulk.visible" :objective-title="bulk.obj?.title || ''" :room="bulk.obj ? roomFor(bulk.obj) : 0" @insert="insertBulk" />
   </div>
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
-import { ElMessageBox } from 'element-plus'
+import { computed, reactive, ref, watch } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { $t } from '@/i18n'
-import { rebalance, planProblems } from '@/views/okr/okrUtils.js'
+import { rebalance, planProblems, insertKrs } from '@/views/okr/okrUtils.js'
+import OkrBulkKrDialog from './OkrBulkKrDialog.vue'
+
+const MAX_KRS = 10
 
 const props = defineProps({
   initial: { type: Array, default: () => [] },
@@ -127,6 +135,36 @@ async function removeKr(o, j) {
   if (!manualWeights.value) rebalance(o.keyResults)
 }
 
+// ---------------------------------------------------------------- 批量粘贴 KR
+const bulk = reactive({ visible: false, obj: null })
+
+/** 这个 O 还能插几条: 只有一条空占位 KR 时它会被顶替, 不占名额 */
+function roomFor(o) {
+  const krs = o.keyResults
+  const placeholder = krs.length === 1 && !String(krs[0].title || '').trim() && !krs[0].id
+  return MAX_KRS - (placeholder ? 0 : krs.length)
+}
+
+function openBulk(o) {
+  bulk.obj = o
+  bulk.visible = true
+}
+
+function insertBulk(titles) {
+  const o = bulk.obj
+  if (!o) return
+  const { added, dropped } = insertKrs(o, titles, { max: MAX_KRS, makeKr: (title) => ({ ...blankKr(), title }) })
+  if (!manualWeights.value) rebalance(o.keyResults)
+  if (dropped) ElMessage.warning($t('okr.bulk.dropped', { p0: added, p1: dropped }))
+  else ElMessage.success($t('okr.bulk.inserted', { p0: added }))
+}
+
+/** 编辑器里有没有人写过的东西(贴周报填入前用来确认是否覆盖) */
+function hasContent() {
+  return draft.value.some(o => String(o.title || '').trim() || String(o.description || '').trim() || o.keyResults.some(k => String(k.title || '').trim()))
+}
+defineExpose({ hasContent })
+
 function emitPlan(kind) {
   const objectives = draft.value.map(({ _k, ...o }) => ({
     ...o,
@@ -148,6 +186,9 @@ function emitPlan(kind) {
 .okr-type { width: 96px; }
 .okr-w { width: 70px; flex: none; }
 .okr-unit { width: 64px; }
+.okr-ed-kr-add { display: flex; align-items: center; gap: 12px; }
+.okr-ed-bulk { border: 0; background: none; padding: 4px 0; font-size: 12px; color: var(--el-color-primary); cursor: pointer; }
+.okr-ed-bulk:disabled { color: var(--el-text-color-placeholder); cursor: not-allowed; }
 .okr-ed-tools { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .okr-problems { margin: 0; padding: 8px 12px 8px 26px; border-radius: 8px; background: var(--el-color-warning-light-9); color: var(--el-color-warning-dark-2); font-size: 12px; line-height: 1.7; }
 .okr-ed-actions { display: flex; justify-content: flex-end; gap: 8px; position: sticky; bottom: 0; padding: 8px 0 calc(8px + env(safe-area-inset-bottom)); background: var(--el-bg-color-page); }

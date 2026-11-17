@@ -162,6 +162,42 @@ describe('周 OKR /api/okr', () => {
     })
   })
 
+  describe('贴周报生成草稿(只出草稿, 不写库)', () => {
+    const REPORT = [
+      '# 本周计划 · 第 47 周',
+      '## 一、本周目标',
+      '- 【P0】订单模块上线并交试点门店试用 ｜ 项目：示例甲 ｜ 完成标准：周三开发自测走通全流程；周四上线交试点门店实际跑一轮。',
+      '- 【P1】客户问题收口 ｜ 项目：示例乙 ｜ 完成标准：群内问题逐条回应，本周遗留项清零。'
+    ].join('\n')
+
+    test('内容太短 → 400 8130, 人话提示', async () => {
+      const r = await a.post('/api/okr/plan/draft-from-report', { text: '本周工作：开会' })
+      assert.equal(r.status, 400)
+      assert.equal(r.code, 8130)
+      assert.match(r.message, /内容太短/)
+    })
+
+    test('识别不出目标 → 422 8131, 提示改格式', async () => {
+      const r = await a.post('/api/okr/plan/draft-from-report', { text: '这周主要是跟进各种事情，开了几个会，和客户沟通了一些需求，还有一些零碎的工作需要处理，下周继续推进。' })
+      assert.equal(r.status, 422)
+      assert.equal(r.code, 8131)
+      assert.match(r.message, /目标：/)
+    })
+
+    test('正常周报 → 返回草稿(O 权重合计 100), 且没有写进任何计划', async () => {
+      const before = await prisma.okrObjective.count({ where: { ownerId: BigInt(A.id) } })
+      const r = await a.post('/api/okr/plan/draft-from-report', { text: REPORT })
+      assert.equal(r.code, 0, r.message)
+      assert.ok(['model', 'rules'].includes(r.data.mode))
+      assert.ok(r.data.objectives.length >= 1 && r.data.objectives.length <= 3)
+      assert.equal(r.data.objectives.reduce((s, o) => s + o.weight, 0), 100)
+      for (const o of r.data.objectives) assert.ok(o.keyResults.length >= 1 && o.keyResults.length <= 4)
+      if (r.data.mode === 'rules') assert.equal(r.data.objectives[0].title, '订单模块上线并交试点门店试用')
+      const after = await prisma.okrObjective.count({ where: { ownerId: BigInt(A.id) } })
+      assert.equal(after, before)
+    })
+  })
+
   describe('周中进展', () => {
     test('追加进展写 OkrUpdate, valueBefore/valueAfter 正确, KR 当前值跟着变', async () => {
       const o = (await a.get(`/api/okr/my?week=${WK}`)).data.objectives[0]

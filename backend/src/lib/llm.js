@@ -82,9 +82,9 @@ async function postCompletion(cfg, body, timeoutMs = 120000) {
 
 /**
  * 对话补全, 返回纯文本
- * @param {{ system?: string, user: string, maxTokens?: number, config?: object }} opts
+ * @param {{ system?: string, user: string, maxTokens?: number, config?: object, timeoutMs?: number }} opts
  */
-export async function chatComplete({ system, user, maxTokens, config }) {
+export async function chatComplete({ system, user, maxTokens, config, timeoutMs }) {
   const cfg = config || await getActiveLlmConfig()
   endpointFor(cfg)   // 没接平台 / 手填配置不全时先抛 LlmNotConfiguredError
   const max = maxTokens || cfg.maxTokens || 4096
@@ -93,7 +93,7 @@ export async function chatComplete({ system, user, maxTokens, config }) {
     { role: 'user', content: user }
   ]
   const callOnce = async (budget) => {
-    const data = await postCompletion(cfg, { max_tokens: budget, messages })
+    const data = await postCompletion(cfg, { max_tokens: budget, messages }, timeoutMs)
     const choice = data?.choices?.[0] || {}
     return {
       content: choice.message?.content || '',
@@ -152,8 +152,8 @@ export async function testConnection(cfg) {
 /**
  * 对话补全并解析为 JSON 对象(容忍 ```json 围栏/前后废话)
  */
-export async function chatJSON({ system, user, maxTokens, config }) {
-  const text = await chatComplete({ system, user, maxTokens, config })
+export async function chatJSON({ system, user, maxTokens, config, timeoutMs }) {
+  const text = await chatComplete({ system, user, maxTokens, config, timeoutMs })
   const cleaned = text.trim()
     .replace(/^```(?:json)?\s*/i, '')
     .replace(/\s*```$/, '')
@@ -165,6 +165,8 @@ export async function chatJSON({ system, user, maxTokens, config }) {
     if (m) {
       try { return JSON.parse(m[0]) } catch { /* fallthrough */ }
     }
-    throw new Error('大模型返回的不是有效 JSON: ' + cleaned.slice(0, 200))
+    const err = new Error('大模型返回的不是有效 JSON: ' + cleaned.slice(0, 200))
+    err.code = 'LLM_BAD_JSON'
+    throw err
   }
 }
