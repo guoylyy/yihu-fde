@@ -1,5 +1,41 @@
 # 更新日志
 
+## 0.5.0
+
+主题：**开发团队操作台 + 全生命周期会话回流**。菜单从 20+ 项收到 5 组；新增团队四屏；需求/方案/编码/测试/复盘五个阶段的 AI 会话都能进平台，并沉淀成经验、单向同步到 Obsidian。
+
+### 会话回流（新）
+- 数据模型 `dev_conversations` / `dev_conversation_events` / `dev_experiences`；**正文入库**并在入库前脱敏（sk-/Bearer/password=/私钥块/mysql 连接串），命中记 `body_redacted`
+- `POST /api/devlog/conversations`：按 uid 幂等，批量上报，单条失败不影响其它条
+- 查询：列表默认不带 body，`withBody=1` 才返回；按项目/人/阶段/来源/关键词过滤
+- `POST /api/dev/conversations/:id/link` 关联项目/任务/阶段；`GET /api/projects/:id/timeline` 一个需求的一生（五阶段分组）
+- 平台助手每轮对话自动 upsert 成 `PLATFORM_ASSISTANT` 会话
+- `POST /api/dev/conversations/paste`：粘一段对话即可入库（同文本幂等）
+
+### 经验与同步（新）
+- AI 摘要（模型优先、**规则兜底**，返回 `mode`）；抽决策/坑/产出/标签，只有阶段为空时才回填建议阶段
+- 经验条目：从会话一键生成，可改；`PATCH /api/experience/:id`
+- **Obsidian 单向同步**：写 `07.FDE经验/<项目|未归类>/<日期>-<标题>.md`（frontmatter 全字段），重复同步覆盖同一文件，改名时清理旧文件；系统设置里可改 vault 路径；只写不读
+
+### 团队管理（新）
+- 组长层：内置角色 `TEAM_LEAD`（dataScope=TEAM）；`team.view` / `team.view.all` 两个权限点；**评分权仍只给 ADMIN**（组长能看不能评）
+- 四屏：成员卡片 / 负载看板（负载 = 进行中任务 ÷ 5，≥100% 黄、≥150% 红）/ 承诺 vs 交付（只在嘴上 / 可能在别处干 / 方向漂移，**不排名不打分**）/ 能力矩阵（人工 1–5 + 会话派生候选 + 单点风险）
+
+### 导航与今日页
+- 菜单五组：我的今日 / 团队 / 交付 / 经验 / 设置（一级 5 组、二级 ≤12 项）
+- 我的今日：我的任务 / 等我处理 / 本周承诺 / 最近会话 + 快捷入口（新建任务、记一笔会话、AI 助手）
+- 工时降级成 `Task.actualHours`；工时页面从菜单移除、路由保留并提示已并入任务
+
+### 采集器（新）
+- `scripts/devlog`：`yh-devlog hook | import <path> | sync --days N`；解析 Claude Code jsonl 与 Codex 日志；客户端脱敏 + 熔断队列；`Stop` hook 一行接入
+- 实测：116MB / 23868 行的真实会话导入成功（截断到 200 条消息），重复导入只更新不新增
+
+### AI 助手
+- 新增五个工具：`capture_conversation` / `link_conversation` / `search_experience` / `project_timeline` / `today`；写操作仍先出草稿卡片、人确认后走正常接口
+
+### 测试
+后端 683 → **756**；前端 108 → **142**；助手集成测试在无 `FDE_LLM_STUB` 的环境下改为 skip（原来会 fail）
+
 ## 0.4.4
 - AI 助手入口从侧栏挪到顶栏右上角（带文字的按钮，主色描边；手机为 44×44 图标），右下角悬浮药丸去掉，只保留一个入口
 - 创意中心、周 OKR 从一级菜单并入「项目交付」，分别排第一、第二
