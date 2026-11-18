@@ -2,9 +2,9 @@
   <!-- 工作台快捷操作: 记工时 / 建任务 / 提想法, 常用动作不用离开本页 -->
   <div class="quick-actions">
     <!-- 工作台全员可进, 动作按权限显隐, 别让人点了才吃 403 -->
-    <el-button v-if="can('timesheet.create')" type="primary" @click="openLog">{{ $t('quickActions.log_hours') }}</el-button>
-    <el-button v-if="can('task.create')" @click="openTask">{{ $t('quickActions.new_task') }}</el-button>
-    <el-button v-if="can('idea.create')" @click="$router.push('/admin/ideas?new=1')">{{ $t('quickActions.share_idea') }}</el-button>
+    <el-button v-if="show('log') && can('timesheet.create')" type="primary" @click="openLog">{{ $t('quickActions.log_hours') }}</el-button>
+    <el-button v-if="show('task') && can('task.create')" data-test="quick-new-task" @click="openTask">{{ $t('quickActions.new_task') }}</el-button>
+    <el-button v-if="show('idea') && can('idea.create')" @click="$router.push('/admin/ideas?new=1')">{{ $t('quickActions.share_idea') }}</el-button>
   </div>
 
   <!-- 记工时 -->
@@ -91,8 +91,11 @@ import { can } from '@/api/permissions.js'
 const props = defineProps({
   projects: { type: Array, default: () => [] },
   tasks: { type: Array, default: () => [] },
-  userId: { type: [String, Number], default: null }
+  userId: { type: [String, Number], default: null },
+  // 要显示哪几个按钮(今日页只要「新建任务」; 记工时 0.5.0 起不再主推)
+  actions: { type: Array, default: () => ['log', 'task', 'idea'] }
 })
+const show = (k) => props.actions.includes(k)
 const emit = defineEmits(['done'])
 
 const saving = ref(false)

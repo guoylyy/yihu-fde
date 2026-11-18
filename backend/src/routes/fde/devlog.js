@@ -1,6 +1,6 @@
 // 0.5.0 开发过程会话回流(挂在 /api 下, 路径不带 /fde 前缀):
 //   POST /api/devlog/conversations             批量上报, 按 uid 幂等 upsert(登录用户 / API Key 均可, 采集器用 Key)
-//   GET  /api/dev/conversations                列表(默认不带正文, ?withBody=1 才带)
+//   GET  /api/dev/conversations                列表(默认不带正文, ?withBody=1 才带; engineerId=me 只看我的)
 //   GET  /api/dev/conversations/:id            详情(含事件与正文)
 //   POST /api/dev/conversations/:id/link       关联项目/任务/里程碑/阶段 → LINKED, 写审计
 //   POST /api/dev/conversations/:id/summarize  出摘要: 有模型走 chatJSON, 没有降级规则(mode:'rules'); GENERAL 时按建议回填 stage
@@ -126,8 +126,14 @@ router.get('/dev/conversations', internalAuth, async (req, res) => {
   try {
     const q = req.query
     const and = [{ deletedAt: null }, await conversationScope(req)]
+    // engineerId=me: 「我的会话」= 归到我工程师档案下的, 或者我本人上报/粘贴的(没建档案也能看到自己的)
+    if (String(q.engineerId || '').toLowerCase() === 'me') {
+      const eng = await engineerIdOf(req)
+      and.push({ OR: [{ createdBy: userIdOf(req) }, ...(eng ? [{ engineerId: eng }] : [])] })
+    }
     for (const k of ['projectId', 'engineerId']) {
       if (q[k] == null || q[k] === '') continue
+      if (k === 'engineerId' && String(q[k]).toLowerCase() === 'me') continue
       if (!isId(q[k])) return fail(res, 400, 9002, `${k} 不合法`)
       and.push({ [k]: BigInt(q[k]) })
     }

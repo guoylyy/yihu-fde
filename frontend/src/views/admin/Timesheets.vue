@@ -1,5 +1,8 @@
 <template>
   <div class="timesheets-page">
+    <!-- 0.5.0 工时降级: 菜单已摘, 页面与接口保留给历史数据 -->
+    <el-alert type="warning" :closable="false" show-icon class="legacy-banner" data-test="timesheets-legacy"
+      :title="$t('timesheets.legacy_banner')" />
     <div class="page-header">
       <h2 class="page-title">{{ $t('common.hours') }}</h2>
       <p class="hint">{{ $t('timesheets.entries_hours_matching_filters', { p0: pagination.total, p1: totalHours }) }}</p>
@@ -642,6 +645,7 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.legacy-banner { margin-bottom: 12px; }
 .page-header { display: flex; align-items: flex-end; gap: 12px; margin-bottom: 16px; }
 /* v1.2.9: hint 占满左侧, 按钮统一靠最右 */
 .page-header .hint { margin-right: auto; }

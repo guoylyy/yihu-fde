@@ -9,7 +9,7 @@
         <span v-if="!sidebarCollapsed" class="logo-badge">{{ $t('common.console') }}</span>
       </div>
       <el-menu
-        :default-active="route.path"
+        :default-active="activeMenu"
         :default-openeds="DEFAULT_OPENEDS"
         router
         :collapse="sidebarCollapsed"
@@ -17,108 +17,27 @@
         :unique-opened="false"
         class="menu"
       >
-        <!-- v2.6.0(#959) 我的工作台: 个人要做/要交/要批/要报的事都在这一页 -->
-        <el-menu-item index="/admin/workbench">
-          <BrandMark :size="16" :dark="route.path === '/admin/workbench'" class="menu-claw" />
-          <span>{{ $t('common.my_workbench') }}</span>
-        </el-menu-item>
-
-        <!-- AI 助手入口在右上角(.header-right), 不占侧栏 -->
-
-        <!-- 项目交付 (2026-07-31 主人拍板: 提到仅次于仪表盘, 交付是主业) -->
-        <el-sub-menu :index="SUBMENUS.delivery">
-          <template #title>
-            <BrandMark :size="16" class="menu-claw" />
-            <span>{{ $t('layout.delivery') }}</span>
+        <!-- 0.5.0 导航五组(今日/团队/交付/经验/设置): 菜单数据单一来源 navMenu.js, 手机抽屉同一份 -->
+        <template v-for="g in navGroups" :key="g.key">
+          <template v-if="!g.index">
+            <el-menu-item v-for="it in g.items" :key="it.path" :index="it.path">
+              <BrandMark v-if="it.icon === 'brand'" :size="16" :dark="activeMenu === it.path" class="menu-claw" />
+              <el-icon v-else><component :is="NAV_ICONS[it.icon]" /></el-icon>
+              <span>{{ $t(it.title) }}</span>
+            </el-menu-item>
           </template>
-          <!-- v2.10.0(#1180) 创意中心: 生产流程最前端, 想法从这里进来再分到项目; 2026-11 收进交付组排第一 -->
-          <el-menu-item v-if="can('idea.view')" index="/admin/ideas">
-            <el-icon><Opportunity /></el-icon>
-            <span>{{ $t('common.ideas') }}</span>
-          </el-menu-item>
-          <!-- 周 OKR(公司管理级): 人人都要交, 只看模块开没开; 2026-11 收进交付组排第二 -->
-          <el-menu-item v-if="moduleEnabled('okr')" index="/admin/okr">
-            <el-icon><Aim /></el-icon>
-            <span>{{ $t('okr.menu') }}</span>
-          </el-menu-item>
-          <el-menu-item v-if="can('projects')" index="/admin/projects">
-            <el-icon><Document /></el-icon>
-            <span>{{ $t('common.projects') }}</span>
-          </el-menu-item>
-          <el-menu-item v-if="can('project.view') || user?.role === 'FDE_ENGINEER'" index="/admin/tasks">
-            <el-icon><List /></el-icon>
-            <span>{{ $t('common.tasks') }}</span>
-          </el-menu-item>
-          <el-menu-item v-if="can('timesheets')" index="/admin/timesheets">
-            <el-icon><Clock /></el-icon>
-            <span>{{ $t('common.hours') }}</span>
-          </el-menu-item>
-          <!-- v2.0.8(#433): 客户管理从经营销售组移入 -->
-          <el-menu-item v-if="can('customers')" index="/admin/customers">
-            <el-icon><User /></el-icon>
-            <span>{{ $t('common.customers') }}</span>
-          </el-menu-item>
-          <el-menu-item v-if="can('knowledge')" index="/admin/knowledge">
-            <el-icon><Reading /></el-icon>
-            <span>{{ $t('common.knowledge_base') }}</span>
-          </el-menu-item>
-          <!-- v2.7(#1140): 项目资产库 —— 做过的东西下一个项目直接拿来用 -->
-          <el-menu-item v-if="can('asset.view')" index="/admin/assets">
-            <el-icon><Files /></el-icon>
-            <span>{{ $t('common.asset_library') }}</span>
-          </el-menu-item>
-          <!-- v2.0.0 开发上手中心(#367): 全员可见, 2026-10-02 从顶级菜单移入交付组 -->
-          <el-menu-item index="/admin/onboarding">
-            <el-icon><Guide /></el-icon>
-            <span>{{ $t('common.developer_onboarding') }}</span>
-          </el-menu-item>
-        </el-sub-menu>
-
-
-        <!-- 基础配置 (2026-07-20) -->
-        <el-sub-menu v-if="can('engineers') || can('users') || can('rolePermission.manage') || can('team.manage')" :index="SUBMENUS.config">
-          <template #title>
-            <BrandMark :size="16" class="menu-claw" />
-            <span>{{ $t('layout.settings') }}</span>
-          </template>
-          <el-menu-item v-if="can('engineers')" index="/admin/engineers">
-            <el-icon><Avatar /></el-icon>
-            <span>{{ $t('layout.engineer_management') }}</span>
-          </el-menu-item>
-          <el-menu-item v-if="can('engineers')" index="/admin/engineer-profiles">
-            <el-icon><DataAnalysis /></el-icon>
-            <span>{{ $t('layout.skill_matrix') }}</span>
-          </el-menu-item>
-          <el-menu-item v-if="can('users')" index="/admin/users">
-            <el-icon><UserFilled /></el-icon>
-            <span>{{ $t('common.users') }}</span>
-          </el-menu-item>
-          <el-menu-item v-if="can('role.manage')" index="/admin/roles">
-            <el-icon><UserFilled /></el-icon>
-            <span>{{ $t('common.roles') }}</span>
-          </el-menu-item>
-          <!-- v1.5.6 团队管理 (一人可属多团队, 即时消息通知按团队定位); v1.8.0 改名「公司团队管理」与小组管理区分 -->
-          <el-menu-item v-if="can('team.manage')" index="/admin/teams">
-            <el-icon><Avatar /></el-icon>
-            <span>{{ $t('common.team_management') }}</span>
-          </el-menu-item>
-          <el-menu-item v-if="can('rolePermission.manage')" index="/admin/role-permissions">
-            <el-icon><Key /></el-icon>
-            <span>{{ $t('common.role_permissions') }}</span>
-          </el-menu-item>
-          <!-- 系统设置: 品牌外观 / 访问地址 / 大模型 / 登录方式 (仅 ADMIN) -->
-          <el-menu-item v-if="can('system.manage')" index="/admin/settings">
-            <el-icon><Setting /></el-icon>
-            <span>{{ $t('systemSettings.title') }}</span>
-          </el-menu-item>
-        </el-sub-menu>
-
-
-        <!-- v1.6.4: Agent 协作入口挪至右上角个人头像下拉菜单 -->
-
-        <!-- v2.1.1(#457) 意见与 Bug 反馈下线: 问题反馈已改走会议链路, 菜单摘除, 组件与后端保留可逆 -->
-
-        <!-- 系统 -->
+          <el-sub-menu v-else :index="g.index" :data-nav-group="g.key">
+            <template #title>
+              <BrandMark :size="16" class="menu-claw" />
+              <span>{{ $t(g.title) }}</span>
+            </template>
+            <el-menu-item v-for="it in g.items" :key="it.path" :index="it.path">
+              <el-icon><component :is="NAV_ICONS[it.icon]" /></el-icon>
+              <span>{{ $t(it.title) }}</span>
+            </el-menu-item>
+          </el-sub-menu>
+        </template>
+        <!-- AI 助手入口在右上角(.header-right), 不占侧栏; 工时(/admin/timesheets)0.5.0 起不进菜单, 路由保留 -->
       </el-menu>
     </el-aside>
     <!-- sidebar 为 fixed 脱离文档流, content-wrap 用 margin-left 让位 -->
@@ -226,7 +145,7 @@
           <span class="logo-name">{{ brand.name }}</span>
         </div>
         <el-menu
-          :default-active="route.path"
+          :default-active="activeMenu"
           :default-openeds="DEFAULT_OPENEDS"
           router
           :collapse-transition="false"
@@ -234,68 +153,23 @@
           class="menu"
           @select="mobileMenuVisible = false"
         >
-          <el-menu-item index="/admin/workbench">
-            <BrandMark :size="16" :dark="route.path === '/admin/workbench'" class="menu-claw" />
-            <span>{{ $t('common.my_workbench') }}</span>
-          </el-menu-item>
-          <el-sub-menu :index="SUBMENUS.delivery">
-            <template #title>
-              <BrandMark :size="16" class="menu-claw" /><span>{{ $t('layout.delivery') }}</span>
+          <template v-for="g in navGroups" :key="g.key">
+            <template v-if="!g.index">
+              <el-menu-item v-for="it in g.items" :key="it.path" :index="it.path">
+                <BrandMark v-if="it.icon === 'brand'" :size="16" :dark="activeMenu === it.path" class="menu-claw" />
+                <el-icon v-else><component :is="NAV_ICONS[it.icon]" /></el-icon>
+                <span>{{ $t(it.title) }}</span>
+              </el-menu-item>
             </template>
-            <el-menu-item v-if="can('idea.view')" index="/admin/ideas">
-              <el-icon><Opportunity /></el-icon><span>{{ $t('common.ideas') }}</span>
-            </el-menu-item>
-            <el-menu-item v-if="moduleEnabled('okr')" index="/admin/okr">
-              <el-icon><Aim /></el-icon><span>{{ $t('okr.menu') }}</span>
-            </el-menu-item>
-            <el-menu-item v-if="can('projects')" index="/admin/projects">
-              <el-icon><Document /></el-icon><span>{{ $t('common.projects') }}</span>
-            </el-menu-item>
-            <el-menu-item v-if="can('project.view') || user?.role === 'FDE_ENGINEER'" index="/admin/tasks">
-              <el-icon><List /></el-icon><span>{{ $t('common.tasks') }}</span>
-            </el-menu-item>
-            <el-menu-item v-if="can('timesheets')" index="/admin/timesheets">
-              <el-icon><Clock /></el-icon><span>{{ $t('common.hours') }}</span>
-            </el-menu-item>
-            <el-menu-item v-if="can('customers')" index="/admin/customers">
-              <el-icon><User /></el-icon><span>{{ $t('common.customers') }}</span>
-            </el-menu-item>
-            <el-menu-item v-if="can('knowledge')" index="/admin/knowledge">
-              <el-icon><Reading /></el-icon><span>{{ $t('common.knowledge_base') }}</span>
-            </el-menu-item>
-            <el-menu-item v-if="can('asset.view')" index="/admin/assets">
-              <el-icon><Files /></el-icon><span>{{ $t('common.asset_library') }}</span>
-            </el-menu-item>
-            <el-menu-item index="/admin/onboarding">
-              <el-icon><Guide /></el-icon><span>{{ $t('common.developer_onboarding') }}</span>
-            </el-menu-item>
-          </el-sub-menu>
-          <el-sub-menu v-if="can('engineers') || can('users') || can('rolePermission.manage') || can('team.manage')" :index="SUBMENUS.config">
-            <template #title>
-              <BrandMark :size="16" class="menu-claw" /><span>{{ $t('layout.settings') }}</span>
-            </template>
-            <el-menu-item v-if="can('engineers')" index="/admin/engineers">
-              <el-icon><Avatar /></el-icon><span>{{ $t('layout.engineer_management') }}</span>
-            </el-menu-item>
-            <el-menu-item v-if="can('engineers')" index="/admin/engineer-profiles">
-              <el-icon><DataAnalysis /></el-icon><span>{{ $t('layout.skill_matrix') }}</span>
-            </el-menu-item>
-            <el-menu-item v-if="can('users')" index="/admin/users">
-              <el-icon><UserFilled /></el-icon><span>{{ $t('common.users') }}</span>
-            </el-menu-item>
-            <el-menu-item v-if="can('team.manage')" index="/admin/teams">
-              <el-icon><OfficeBuilding /></el-icon><span>{{ $t('common.teams') }}</span>
-            </el-menu-item>
-            <el-menu-item v-if="can('rolePermission.manage')" index="/admin/roles">
-              <el-icon><Checked /></el-icon><span>{{ $t('common.roles') }}</span>
-            </el-menu-item>
-            <el-menu-item v-if="can('rolePermission.manage')" index="/admin/role-permissions">
-              <el-icon><Key /></el-icon><span>{{ $t('common.role_permissions') }}</span>
-            </el-menu-item>
-            <el-menu-item v-if="can('system.manage')" index="/admin/settings">
-              <el-icon><Setting /></el-icon><span>{{ $t('systemSettings.title') }}</span>
-            </el-menu-item>
-          </el-sub-menu>
+            <el-sub-menu v-else :index="g.index">
+              <template #title>
+                <BrandMark :size="16" class="menu-claw" /><span>{{ $t(g.title) }}</span>
+              </template>
+              <el-menu-item v-for="it in g.items" :key="it.path" :index="it.path">
+                <el-icon><component :is="NAV_ICONS[it.icon]" /></el-icon><span>{{ $t(it.title) }}</span>
+              </el-menu-item>
+            </el-sub-menu>
+          </template>
         </el-menu>
       </div>
     </el-drawer>
@@ -308,7 +182,9 @@
 import { $t } from '@/i18n'
 import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowDown, Bell, User, Document, Avatar, Clock, UserFilled, List, DataAnalysis, Reading, Key, Setting, Connection, Checked, Guide, Files, Fold, Expand, Opportunity, OfficeBuilding, Aim, MagicStick } from '@element-plus/icons-vue'
+import { ArrowDown, Bell, User, Document, Avatar, UserFilled, List, DataAnalysis, Reading, Key, Setting, Connection, Checked, Guide, Fold, Expand, Opportunity, OfficeBuilding, Aim, MagicStick, TrendCharts, Collection, ChatLineSquare } from '@element-plus/icons-vue'
+import { buildNav, activeMenuPath, DEFAULT_OPENEDS } from './navMenu.js'
+const NAV_ICONS = { User, Document, Avatar, UserFilled, List, DataAnalysis, Reading, Key, Setting, Checked, Guide, Opportunity, OfficeBuilding, Aim, TrendCharts, Collection, ChatLineSquare }
 import { fde } from '@/api/index.js'
 import LangSwitch from '@/components/common/LangSwitch.vue'
 import { can as permCan, refreshMyPermissions, clearMyPermissions } from '@/api/permissions.js'
@@ -340,8 +216,7 @@ function toggleAssistant() {
 
 // 侧栏分组(el-sub-menu)的 index 单一来源: 模板里 :index 用它, 默认展开也用它 —— 新加分组只在这里加一行即可默认展开。
 // el-menu 的 default-openeds 只在首次渲染读一次, 用户手动收起后不会被强制展开
-const SUBMENUS = { delivery: 'biz', config: 'base-config' }
-const DEFAULT_OPENEDS = Object.values(SUBMENUS)
+// (分组 index 与 DEFAULT_OPENEDS 现在由 navMenu.js 的 NAV_GROUPS 统一给出, 新加分组在那里加一行即可默认展开)
 
 const route = useRoute()
 const router = useRouter()
@@ -385,9 +260,16 @@ const titles = {
   '/admin/activities': $t('layout.team_activity'),
   '/admin/roles': $t('common.roles'),
   '/admin/role-permissions': $t('common.role_permissions'),
-  '/admin/profile': $t('layout.profile')
+  '/admin/profile': $t('layout.profile'),
+  '/admin/workbench': $t('nav.my_today'),
+  '/admin/team/members': $t('nav.team_members'),
+  '/admin/team/load': $t('nav.team_load'),
+  '/admin/team/skills': $t('nav.team_skills'),
+  '/admin/experience': $t('nav.experience_library'),
+  '/admin/conversations': $t('nav.conversations'),
+  '/admin/assets': $t('common.asset_library')
 }
-const pageTitle = computed(() => titles[route.path] || $t('layout.console', { p0: brand.name }))
+const pageTitle = computed(() => titles[route.path] || titles[activeMenuPath(route.path)] || $t('layout.console', { p0: brand.name }))
 
 // ── 菜单 -> 权限字符串映射 ──
 // 委托给 permissions.js 与后端 PERMISSIONS 保持单一事实源
@@ -417,6 +299,11 @@ function can(permOrMenu) {
   }
   return permCan(permOrMenu)
 }
+
+// 0.5.0 侧栏五组: 依赖 can()(读 permVersion) 与当前用户角色, 权限刷新后自动重算
+const navGroups = computed(() => buildNav({ can, moduleEnabled, role: user.value?.role }))
+// 详情页/子页高亮所属菜单; 资产库挂在经验库下
+const activeMenu = computed(() => activeMenuPath(route.path))
 
 // v1.3.2: 角色名动态取自 roles 表
 import { roleLabel as dynRoleLabel, refreshRoles } from '@/api/roles.js'

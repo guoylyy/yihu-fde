@@ -10,6 +10,7 @@ import { isModuleEnabled } from '../../config/edition.js'
 import { validateNewEdge, detachTaskEdges, loadTaskNeighbors } from '../../services/roadmap.js'   // v2.8.0(#1143) 路径图
 import { buildActiveWorkMap, fallbackActiveWork, redactActiveWork } from '../../services/activeWork.js'   // v2.12.0(#1254)
 import { isArchivedStatus } from '../../services/projectArchive.js'
+import { parseActualHours, hoursOut, taskOut, INVALID, ACTUAL_HOURS_MSG } from '../../lib/taskHours.js'
 
 // 内部员工视角可看 agent 身份; 客户/外部角色只给「正在自动开发」一层
 function isInternalView(user) {
@@ -207,7 +208,9 @@ router.get('/', requirePermission('task.view'), async (req, res) => {
         ? { id: engMap.get(String(t.assigneeId)).id, name: engMap.get(String(t.assigneeId)).user.name, userId: engMap.get(String(t.assigneeId)).user.id }
         : null,
       subtaskStats: statMap[String(t.id)] || { total: 0, done: 0 },
-      actualHours: hourMap[String(t.id)] || 0,   // v2.1.7(#494) 任务实耗(已审批)
+      // 0.5.0: actualHours 是任务上人填的实际工时; 旧工时表的已审批之和改名 timesheetHours(只读历史)
+      actualHours: hoursOut(t.actualHours),
+      timesheetHours: hourMap[String(t.id)] || 0,   // v2.1.7(#494) 任务实耗(已审批工时)
       blockedBy: ['DONE', 'VERIFIED'].includes(t.status) ? [] : (blockedMap[String(t.id)] || []),   // v2.8.0(#1144)
       activeWork: (() => {
         const w = fallbackActiveWork(t, activeWorkMap.get(String(t.id)))
@@ -321,7 +324,8 @@ router.get('/:id', requirePermission('task.view'), async (req, res) => {
       loadTaskNeighbors(id)
     ])
     const actual = {
-      actualHours: Number(agg._sum.hours || 0),
+      actualHours: hoursOut(task.actualHours),
+      timesheetHours: Number(agg._sum.hours || 0),
       approvedRecordCount: agg._count._all,
       participantCount: participants.length
     }
@@ -343,6 +347,8 @@ router.post('/', requirePermission('task.create'), async (req, res) => {
     const { projectId, milestoneId, title, description, assigneeUserId, status = 'TODO', priority = 'MEDIUM', dueDate } = req.body
     let { assigneeId } = req.body
     if (!projectId || !title) return res.status(400).json({ code: 9002, message: '项目ID和标题必填' })
+    const hours = parseActualHours(req.body.actualHours)
+    if (hours === INVALID) return res.status(400).json({ code: 9002, message: ACTUAL_HOURS_MSG })
     if (status && !TASK_STATUS.includes(status)) return res.status(400).json({ code: 9002, message: '无效状态' })
     // 新建只能是待办 / 进行中这几种, 不能直接建成已验收(验收是经理对完成任务的动作)
     if (status === 'VERIFIED') return res.status(400).json({ code: 9002, message: '新建任务不能直接是已验收，请先完成再由经理验收' })
@@ -379,6 +385,7 @@ router.post('/', requirePermission('task.create'), async (req, res) => {
         status,
         priority,
         dueDate: dueDate ? new Date(dueDate) : null,
+        actualHours: hours ?? null,
         // v2.1.0 小组制: 可选挂组
         // v2.1.8(#510) 验收自动化: AC checklist + 验收级别
         acceptanceCriteria: acClean ?? undefined,
@@ -427,7 +434,7 @@ router.post('/', requirePermission('task.create'), async (req, res) => {
     // 通知被指派的人
     if (assigneeId) await notifyAssigned({ taskId: task.id, projectId, title, assigneeId, actorId: req.user.id })
 
-    res.json({ code: 0, data: { ...task, ...(dependsOn.length ? { dependsOn, dependencyErrors } : {}) } })
+    res.json({ code: 0, data: { ...taskOut(task), ...(dependsOn.length ? { dependsOn, dependencyErrors } : {}) } })
   } catch (e) {
     res.status(500).json({ code: 9001, message: e.message })
   }
@@ -493,6 +500,12 @@ router.put('/:id', requirePermission('task.edit'), async (req, res) => {
       data.priority = priority
     }
     if (dueDate !== undefined) data.dueDate = dueDate ? new Date(dueDate) : null
+    // 0.5.0: 实际工时(小时); 传 null/空串清空
+    if (req.body.actualHours !== undefined) {
+      const hours = parseActualHours(req.body.actualHours)
+      if (hours === INVALID) return res.status(400).json({ code: 9002, message: ACTUAL_HOURS_MSG })
+      data.actualHours = hours
+    }
     // v2.1.8(#510): AC checklist / 验收级别
     if (req.body.acceptanceCriteria !== undefined) {
       const acClean = normalizeAcceptance(req.body.acceptanceCriteria, res)
@@ -564,7 +577,7 @@ router.put('/:id', requirePermission('task.edit'), async (req, res) => {
       }
     }
 
-    res.json({ code: 0, data: task })
+    res.json({ code: 0, data: taskOut(task) })
   } catch (e) {
     res.status(500).json({ code: 9001, message: e.message })
   }
@@ -645,7 +658,7 @@ router.post('/batch-verify', requirePermission('task.changeStatus'), async (req,
 router.post('/:id/unarchive', requirePermission('task.delete'), async (req, res) => {
   try {
     const task = await prisma.task.update({ where: { id: BigInt(req.params.id) }, data: { archivedAt: null } })
-    res.json({ code: 0, data: task })
+    res.json({ code: 0, data: taskOut(task) })
   } catch (e) {
     res.status(500).json({ code: 9001, message: e.message })
   }
@@ -699,7 +712,7 @@ router.post('/:id/status', requirePermission('task.changeStatus'), async (req, r
       action: 'status_changed',
       summary: `任务 "${existing.title}" 状态：${existing.status} → ${status}`
     })
-    res.json({ code: 0, data: task })
+    res.json({ code: 0, data: taskOut(task) })
   } catch (e) {
     res.status(500).json({ code: 9001, message: e.message })
   }

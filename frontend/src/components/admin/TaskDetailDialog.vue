@@ -27,13 +27,16 @@
                 <span v-else style="color:#bbb;">{{ $t('common.not_set') }}</span>
               </div>
             </el-col>
-            <!-- v2.1.7(#494) 任务实耗: 已审批工时之和; 记工时=预填项目/任务/内容的一键报工 -->
+            <!-- 0.5.0 工时降级成任务字段: 实际工时(小时)就地填; 旧工时表的已审批之和只作历史参考 -->
             <el-col :span="8" style="margin-top: 12px;">
               <div class="info-label">{{ $t('taskDetailDialog.actual_hours') }}</div>
               <div class="info-value">
-                <template v-if="task.actualHours"> <b>{{ task.actualHours }}</b> {{ $t('taskDetailDialog.h_people', { p0: task.participantCount }) }}</template>
+                <el-input-number v-if="can('task.edit')" v-model="hoursDraft" :min="0" :max="9999.99" :precision="2" :step="0.5"
+                  :value-on-clear="null" size="small" controls-position="right" style="width: 120px;" data-test="detail-actual-hours"
+                  @change="saveHours" />
+                <template v-else-if="task.actualHours != null"><b>{{ task.actualHours }}</b> h</template>
                 <span v-else style="color:#bbb;">—</span>
-                <el-button v-if="can('timesheet.create')" size="small" link type="primary" style="margin-left:6px;" @click="openQuickLog">{{ $t('common.log_hours') }}</el-button>
+                <div v-if="task.timesheetHours" class="legacy-hours">{{ $t('taskDetailDialog.timesheet_history', { h: task.timesheetHours, p0: task.participantCount }) }}</div>
               </div>
             </el-col>
             <!-- v1.9.7(#353): 计划起止 + 流转时间线 -->
@@ -156,19 +159,6 @@
 
   </el-dialog>
 
-  <!-- v2.1.7(#494) 一键报工: 预填项目/任务/内容, 只填日期与小时数 -->
-  <el-dialog v-model="quickLog.visible" :title="$t('common.log_hours')" width="400px" append-to-body>
-    <el-form label-width="70px" size="default">
-      <el-form-item :label="$t('common.task')"><span style="font-size:13px;">#{{ task?.id }} {{ task?.title }}</span></el-form-item>
-      <el-form-item :label="$t('common.date')"><el-date-picker v-model="quickLog.workDate" type="date" value-format="YYYY-MM-DD" style="width:100%;" /></el-form-item>
-      <el-form-item :label="$t('common.hours_h')"><el-input-number v-model="quickLog.hours" :min="0.25" :max="24" :step="0.25" style="width:100%;" /></el-form-item>
-      <el-form-item :label="$t('common.content')"><el-input v-model="quickLog.workContent" type="textarea" :rows="2" /></el-form-item>
-    </el-form>
-    <template #footer>
-      <el-button @click="quickLog.visible = false">{{ $t('common.cancel') }}</el-button>
-      <el-button type="primary" :loading="quickLog.saving" :disabled="!quickLog.workDate || !quickLog.hours" @click="submitQuickLog">{{ $t('taskDetailDialog.log_work') }}</el-button>
-    </template>
-  </el-dialog>
 </template>
 
 <script setup>
@@ -370,28 +360,22 @@ async function loadTask() {
   }
 }
 
-// ============ v2.1.7(#494) 一键报工 ============
-const quickLog = reactive({ visible: false, saving: false, workDate: '', hours: 8, workContent: '' })
-function openQuickLog() {
-  const d = new Date(); const p2 = n => String(n).padStart(2, '0')
-  quickLog.workDate = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`
-  quickLog.hours = 8
-  quickLog.workContent = task.value?.title || ''
-  quickLog.visible = true
-}
-async function submitQuickLog() {
-  quickLog.saving = true
+// ============ 0.5.0 实际工时(任务字段) ============
+const hoursDraft = ref(null)
+watch(task, (t) => { hoursDraft.value = t?.actualHours ?? null })
+async function saveHours(v) {
+  if (!task.value) return
+  const next = v ?? null
+  if (next === (task.value.actualHours ?? null)) return
   try {
-    await fde.timesheets.create({
-      projectId: task.value.project?.id || task.value.projectId,
-      taskId: task.value.id,
-      workDate: quickLog.workDate, hours: quickLog.hours,
-      workContent: quickLog.workContent || task.value.title
-    })
-    ElMessage.success($t('taskDetailDialog.hours_submitted_waiting_for_approval'))
-    quickLog.visible = false
-    task.value = await fde.tasks.get(props.taskId)   // 刷新实耗(待审批不计入, 审批后可见)
-  } catch (e) { ElMessage.error(e.message) } finally { quickLog.saving = false }
+    const r = await fde.tasks.update(task.value.id, { actualHours: next })
+    task.value.actualHours = r?.actualHours ?? next
+    ElMessage.success($t('taskDetailDialog.actual_hours_saved'))
+    emit('changed')
+  } catch (e) {
+    hoursDraft.value = task.value.actualHours ?? null
+    ElMessage.error(e.message)
+  }
 }
 
 watch(() => [props.modelValue, props.taskId], ([visible]) => {
@@ -531,6 +515,7 @@ function renderContent(text) {
 </script>
 
 <style scoped>
+.legacy-hours { margin-top: 2px; font-size: 12px; color: #8f8a82; }
 .detail-info { padding: 8px 0; }
 .detail-aw-row { margin-bottom: 12px; }
 .info-label { font-size: 12px; color: #909399; margin-bottom: 4px; }

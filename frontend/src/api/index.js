@@ -380,6 +380,27 @@ export const fde = {
   me: () => request('/api/fde/me'),
   // v2.6.0(#959) 个人工作台: 首屏一把聚合 + 待办收件箱
   meWorkbench: () => request('/api/fde/me/workbench'),
+  // 0.5.0 今日页「等我处理」: 待审批总数 + 最近几条
+  meApprovals: (limit = 3) => request(`/api/fde/me/approvals?limit=${limit}`),
+  // 0.5.0 团队: 成员卡片 / 负载共用
+  team: {
+    overview: () => request('/api/fde/team/overview')
+  },
+  // 0.5.0 开发会话 / 经验(后端挂在 /api 下, 不带 /fde 前缀)
+  devConversations: {
+    list: (params = {}) => request('/api/dev/conversations?' + new URLSearchParams(clean(params)).toString()),
+    get: (id) => request(`/api/dev/conversations/${id}`),
+    paste: (data) => request('/api/dev/conversations/paste', { method: 'POST', body: JSON.stringify(data), timeout: 75000 }),
+    summarize: (id) => request(`/api/dev/conversations/${id}/summarize`, { method: 'POST', body: '{}', timeout: 75000 }),
+    link: (id, data) => request(`/api/dev/conversations/${id}/link`, { method: 'POST', body: JSON.stringify(data) })
+  },
+  experience: {
+    list: (params = {}) => request('/api/experience?' + new URLSearchParams(clean(params)).toString()),
+    get: (id) => request(`/api/experience/${id}`),
+    update: (id, data) => request(`/api/experience/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    fromConversation: (data) => request('/api/experience/from-conversation', { method: 'POST', body: JSON.stringify(data), timeout: 75000 }),
+    syncObsidian: (id) => request(`/api/experience/${id}/sync-obsidian`, { method: 'POST', body: '{}' })
+  },
   meTodos: (params = {}) => {
     const q = new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([_, v]) => v != null && v !== ''))).toString()
     return request('/api/fde/me/todos' + (q ? '?' + q : ''))
@@ -573,6 +594,7 @@ export const fde = {
   // 周 OKR(公司管理级, 与项目/任务/工时无关)
   okr: {
     cycle: (params = {}) => request('/api/okr/cycle?' + new URLSearchParams(clean(params)).toString()),
+    my: (params = {}) => request('/api/okr/my?' + new URLSearchParams(clean(params)).toString()),
     team: (week) => request('/api/okr/team?' + new URLSearchParams(clean({ week })).toString()),
     history: (params = {}) => request('/api/okr/history?' + new URLSearchParams(clean(params)).toString()),
     savePlan: (week, objectives) => request(`/api/okr/plan?week=${encodeURIComponent(week)}`, { method: 'POST', body: JSON.stringify({ objectives }) }),

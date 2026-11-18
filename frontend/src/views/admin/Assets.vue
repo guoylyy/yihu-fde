@@ -1,5 +1,7 @@
 <template>
   <div class="assets-page">
+    <!-- 0.5.0 资产库并进「经验」: 与经验条目页顶切换 -->
+    <ExperienceTabs />
     <div class="page-head">
       <div>
         <h2 class="page-title">{{ $t('common.asset_library') }}</h2>
@@ -103,6 +105,7 @@
 </template>
 
 <script setup>
+import ExperienceTabs from '@/components/devlog/ExperienceTabs.vue'
 import { $t } from '@/i18n'
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'

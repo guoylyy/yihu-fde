@@ -47,6 +47,7 @@ import uploadsRouter from './routes/fde/uploads.js'
 // 系统管理
 import usersRouter from './routes/fde/users.js'
 import teamsRouter from './routes/fde/teams.js'
+import teamRouter from './routes/fde/team.js'
 import rolesRouter from './routes/fde/roles.js'
 import rolePermissionsRouter from './routes/fde/rolePermissions.js'
 import notificationsRouter from './routes/fde/notifications.js'
@@ -133,6 +134,7 @@ app.use('/api/fde/uploads', uploadsRouter)
 
 app.use('/api/fde/users', usersRouter)
 app.use('/api/fde/teams', teamsRouter)
+app.use('/api/fde/team', teamRouter)
 app.use('/api/fde/roles', rolesRouter)
 app.use('/api/fde/role-permissions', rolePermissionsRouter)
 app.use('/api/fde/notifications', notificationsRouter)

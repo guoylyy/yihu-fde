@@ -664,6 +664,8 @@ model Task {
   status         String    @default("TODO") @db.VarChar(20)
   priority       String    @default("MEDIUM") @db.VarChar(20)
   dueDate        DateTime? @map("due_date") @db.Date
+  // 0.5.0: 工时降级成任务字段(小时, 两位小数), 人填; 旧的 timesheets 只读保留
+  actualHours    Decimal?  @map("actual_hours") @db.Decimal(6, 2)
   // v1.9.7(#353) 状态流重构: 收件箱(TODO)→等候生产(QUEUED)→生产中(IN_PROGRESS)→生产完成(DONE)→已验收(VERIFIED)
   // 转 QUEUED 必须有计划起止; 各段流转时间留痕(completedAt 已有)
   plannedStartAt DateTime? @map("planned_start_at") @db.Date

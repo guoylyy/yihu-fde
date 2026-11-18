@@ -8,6 +8,8 @@
       <div class="header-actions">
         <!-- v1.2.9: 已验收任务一键归档, 归档记录可查可恢复 -->
         <el-checkbox v-model="viewArchived" @change="loadList" style="margin-right: 8px;">{{ $t('common.view_archived') }}</el-checkbox>
+        <!-- 0.5.0 实际工时列可选显示(本机记忆) -->
+        <el-checkbox v-model="showHours" data-test="toggle-hours-col" style="margin-right: 8px;" @change="onShowHoursChange">{{ $t('tasks.show_actual_hours') }}</el-checkbox>
         <el-button v-if="can('task.delete') && verifiedCount > 0 && !viewArchived" type="warning" plain @click="archiveVerified">
           {{ $t('common.archive_accepted', { p0: verifiedCount }) }}
         </el-button>
@@ -219,10 +221,11 @@
             <span :class="dueClass(row.dueDate)">{{ formatDate(row.dueDate) }}</span>
           </template>
         </el-table-column>
-        <!-- v2.1.7(#494): 任务实耗(已审批工时之和) -->
-        <el-table-column :label="$t('tasks.spent')" width="80" align="right">
+        <!-- 0.5.0: 实际工时(任务上人填); 没填但有旧工时记录的, 灰字显示已审批工时之和 -->
+        <el-table-column v-if="showHours" :label="$t('tasks.actual_hours')" width="96" align="right">
           <template #default="{ row }">
-            <span v-if="row.actualHours"><b>{{ row.actualHours }}</b> h</span>
+            <span v-if="row.actualHours != null"><b>{{ row.actualHours }}</b> h</span>
+            <span v-else-if="row.timesheetHours" class="legacy-hours" :title="$t('tasks.timesheet_hours_hint')">{{ row.timesheetHours }} h</span>
             <span v-else style="color:#bbb;">—</span>
           </template>
         </el-table-column>
@@ -260,6 +263,12 @@
         </el-form-item>
         <el-form-item :label="$t('common.due_date')">
           <el-date-picker v-model="form.dueDate" type="date" value-format="YYYY-MM-DD" style="width: 100%;" />
+        </el-form-item>
+        <!-- 0.5.0 工时降级成任务字段: 小时, 两位小数, 可空 -->
+        <el-form-item :label="$t('tasks.actual_hours')">
+          <el-input-number v-model="form.actualHours" :min="0" :max="9999.99" :precision="2" :step="0.5" :value-on-clear="null"
+            controls-position="right" data-test="task-actual-hours" />
+          <span class="form-hint">{{ $t('tasks.actual_hours_hint') }}</span>
         </el-form-item>
         <!-- v2.1.13(#563) 来源标注: 支撑商机意识/主动性统计, 可不填(未标注) -->
         <el-form-item :label="$t('common.source')">
@@ -401,6 +410,10 @@ function resetFilters() {
 // v2.0.1(#396): 精简卡片(默认开, 与项目看板共用 key)
 const BOARD_COMPACT_KEY = 'fde_board_compact'
 const boardCompact = ref(localStorage.getItem(BOARD_COMPACT_KEY) !== '0')
+// 0.5.0 列表「实际工时」列可选显示, 默认显示
+const SHOW_HOURS_KEY = 'fde_tasks_show_hours'
+const showHours = ref(localStorage.getItem(SHOW_HOURS_KEY) !== '0')
+function onShowHoursChange() { localStorage.setItem(SHOW_HOURS_KEY, showHours.value ? '1' : '0') }
 function onBoardCompactChange() { localStorage.setItem(BOARD_COMPACT_KEY, boardCompact.value ? '1' : '0') }
 
 // 「仅我的」勾选状态本地缓存, 常用「只看自己任务」的用户下次进来不用重新勾
@@ -589,6 +602,7 @@ function openEditFromDetail(t) {
     id: t.id, projectId: String(t.projectId), title: t.title, description: t.description || '',
     assigneeId: t.assigneeId ? 'e:' + t.assigneeId : '', priority: t.priority,
     dueDate: t.dueDate ? t.dueDate.slice(0, 10) : '',
+    actualHours: t.actualHours ?? null,   // 0.5.0
     source: t.source || '',   // v2.1.13(#563)
     // 编辑时带出已有任务级附件 (评论附件不在此管理)
     attachments: (t.attachments || []).filter(a => !a.commentId).map(a => ({ id: a.id, filename: a.filename, fileUrl: a.fileUrl, fileSize: a.fileSize })),
@@ -601,7 +615,7 @@ const editVisible = ref(false)
 const editing = ref(false)
 const formRef = ref(null)
 const submitting = ref(false)
-const form = reactive({ id: null, projectId: '', title: '', description: '', assigneeId: '', priority: 'MEDIUM', dueDate: '', source: '', attachments: [] })
+const form = reactive({ id: null, projectId: '', title: '', description: '', assigneeId: '', priority: 'MEDIUM', dueDate: '', actualHours: null, source: '', attachments: [] })
 
 watch(() => form.projectId, v => loadAssigneeOptions(v))
 
@@ -639,7 +653,7 @@ const formRules = {
 function openCreate() {
   editing.value = false
   assigneeFallback.value = null
-  Object.assign(form, { id: null, projectId: '', title: '', description: '', assigneeId: '', priority: 'MEDIUM', dueDate: '', source: '', attachments: [] })
+  Object.assign(form, { id: null, projectId: '', title: '', description: '', assigneeId: '', priority: 'MEDIUM', dueDate: '', actualHours: null, source: '', attachments: [] })
   editVisible.value = true
 }
 // 2026-07-07 P1-4: 只清校验状态、不重置 form 数据,
@@ -662,6 +676,7 @@ async function handleSubmit() {
       await fde.tasks.update(form.id, {
         title: form.title, description: form.description,
         ...assignee, priority: form.priority, dueDate: form.dueDate,
+        actualHours: form.actualHours ?? null,   // 0.5.0 清空=null
         source: form.source || null   // v2.1.13(#563) 清空=回未标注
       })
       ElMessage.success($t('common.updated'))
@@ -669,6 +684,7 @@ async function handleSubmit() {
       await fde.tasks.create({
         projectId: form.projectId, title: form.title, description: form.description,
         ...assignee, priority: form.priority, dueDate: form.dueDate, attachments: form.attachments,
+        actualHours: form.actualHours ?? undefined,
         source: form.source || undefined   // v2.1.13(#563)
       })
       ElMessage.success($t('common.created_2'))
@@ -763,6 +779,8 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.legacy-hours { color: #8f8a82; }
+.form-hint { margin-left: 8px; font-size: 12px; color: #8f8a82; }
 .tasks-page { display: flex; flex-direction: column; gap: 12px; }
 .page-header { display: flex; align-items: center; gap: 12px; }
 .page-header > div:first-child { margin-right: auto; }

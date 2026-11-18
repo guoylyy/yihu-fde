@@ -579,6 +579,54 @@ router.get('/workbench', async (req, res) => {
 })
 
 /**
+ * GET /api/fde/me/approvals?limit=3
+ * 「等我处理」: 待我审批的总数 + 最近几条明细(今日页用)。口径与 workbench/todos 的 approvals 一致:
+ * 待审批工时(timesheet.approve, 全公司) + 待验收任务(经理, 限在手项目)。没有审批权的人返回 total=0、canApprove=false
+ */
+router.get('/approvals', async (req, res) => {
+  try {
+    const limit = Math.min(10, Math.max(1, parseInt(req.query.limit, 10) || 3))
+    const { projectIds } = await resolveMe(req)
+    const counts = await loadApprovals(req, projectIds)
+    if (!counts) return res.json({ code: 0, data: { canApprove: false, total: 0, counts: { timesheets: 0, tasksToVerify: 0 }, recent: [] } })
+    const [sheets, tasks] = await Promise.all([
+      counts.timesheets ? prisma.timesheet.findMany({
+        where: { status: 'SUBMITTED', deletedAt: null },
+        orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+        take: limit,
+        select: {
+          id: true, workDate: true, hours: true, workContent: true, updatedAt: true,
+          project: { select: { id: true, code: true, name: true } },
+          engineer: { select: { user: { select: { name: true } } } }
+        }
+      }) : [],
+      counts.tasksToVerify ? prisma.task.findMany({
+        where: { projectId: { in: projectIds }, status: 'DONE', deletedAt: null },
+        orderBy: [{ completedAt: 'desc' }, { id: 'desc' }],
+        take: limit,
+        select: { id: true, title: true, completedAt: true, updatedAt: true, project: { select: { id: true, code: true, name: true } } }
+      }) : []
+    ])
+    const recent = [
+      ...sheets.map(t => ({
+        kind: 'TIMESHEET', id: String(t.id), at: t.updatedAt,
+        title: `${t.engineer?.user?.name || ''} ${Number(t.hours)}h · ${String(t.workContent || '').slice(0, 40)}`.trim(),
+        project: t.project, link: '/admin/timesheets?status=SUBMITTED'
+      })),
+      ...tasks.map(t => ({
+        kind: 'TASK_VERIFY', id: String(t.id), at: t.completedAt || t.updatedAt,
+        title: t.title, project: t.project, link: '/admin/tasks?status=DONE'
+      }))
+    ].sort((a, b) => new Date(b.at) - new Date(a.at)).slice(0, limit)
+    const c = { timesheets: counts.timesheets || 0, tasksToVerify: counts.tasksToVerify || 0 }
+    res.json({ code: 0, data: { canApprove: true, total: c.timesheets + c.tasksToVerify, counts: c, recent } })
+  } catch (e) {
+    console.error('[fde/me/approvals]', e)
+    res.status(500).json({ code: 9001, message: e.message })
+  }
+})
+
+/**
  * GET /api/fde/me/todos?scope=mine|approve|all
  * 待办收件箱: 把散落各模块「该我动手的事」抹平成一条流,
  * 每条自带主操作 action(前端据 key 决定调哪个接口), 就地办完。

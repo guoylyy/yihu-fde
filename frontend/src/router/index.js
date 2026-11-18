@@ -30,6 +30,20 @@ const routes = [
       // 个人工作台: 登录后的默认落地页。不设权限点 —— 这里只有"我自己的事"
       // (后端 /api/fde/me/* 同样只要登录), 且它是越权访问的兜底目标, 加权限会把只读角色转晕
       { path: 'workbench', name: 'AdminWorkbench', component: () => import('@/views/admin/Workbench.vue') },
+      // 0.5.0 团队组: 先只给 ADMIN(第 4 轮再放给组长); 能力矩阵复用工程师画像页
+      { path: 'team/members', name: 'AdminTeamMembers', component: () => import('@/views/admin/team/TeamMembers.vue'),
+        meta: { requiredRoles: ['ADMIN'] } },
+      { path: 'team/load', name: 'AdminTeamLoad', component: () => import('@/views/admin/team/TeamLoad.vue'),
+        meta: { requiredRoles: ['ADMIN'] } },
+      { path: 'team/skills', name: 'AdminTeamSkills', component: () => import('@/views/admin/EngineerProfiles.vue'),
+        meta: { requiredRoles: ['ADMIN'] } },
+      // 0.5.0 经验组: 经验库 / 开发会话(后端按数据范围过滤, 前端先用 project.view 兜底)
+      { path: 'experience', name: 'AdminExperience', component: () => import('@/views/admin/experience/Experience.vue'),
+        meta: { requiredPerm: 'project.view', requiredRoles: ['ADMIN', 'MANAGER', 'FDE_ENGINEER'] } },
+      { path: 'conversations', name: 'AdminConversations', component: () => import('@/views/admin/conversations/Conversations.vue'),
+        meta: { requiredPerm: 'project.view', requiredRoles: ['ADMIN', 'MANAGER', 'FDE_ENGINEER'] } },
+      { path: 'conversations/:id(\\d+)', name: 'AdminConversationDetail', component: () => import('@/views/admin/conversations/ConversationDetail.vue'),
+        meta: { requiredPerm: 'project.view', requiredRoles: ['ADMIN', 'MANAGER', 'FDE_ENGINEER'] } },
       // 周 OKR(公司管理级, 与项目管理无关): 自己的 OKR 与历史只要登录; 团队视图要 okr.view.all(只给老板)
       { path: 'okr', name: 'AdminOkr', component: () => import('@/views/okr/MyOkr.vue') },
       { path: 'okr/history', name: 'AdminOkrHistory', component: () => import('@/views/okr/OkrHistory.vue') },
@@ -47,6 +61,7 @@ const routes = [
         meta: { requiredPerm: 'engineer.view', requiredRoles: ['ADMIN', 'MANAGER'] } },
       { path: 'engineer-profiles', name: 'AdminEngineerProfiles', component: () => import('@/views/admin/EngineerProfiles.vue'),
         meta: { requiredPerm: 'engineer.view', requiredRoles: ['ADMIN', 'MANAGER'] } },
+      // 0.5.0 工时降级成任务字段: 菜单已摘, 路由保留(旧链接不 404), 页内提示只剩历史记录
       { path: 'timesheets', name: 'AdminTimesheets', component: () => import('@/views/admin/Timesheets.vue'),
         meta: { requiredPerm: 'timesheet.view', requiredRoles: ['ADMIN', 'MANAGER', 'FDE_ENGINEER'] } },
       // 交付物模块已下线, 旧入口跳项目列表

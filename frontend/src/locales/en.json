@@ -480,7 +480,9 @@
     "delete_this_task_this_cant_be": "Delete this task? This can't be undone",
     "hours_submitted_waiting_for_approval": "Hours submitted, waiting for approval",
     "added": "Added",
-    "attachment": "(attachment)"
+    "attachment": "(attachment)",
+    "timesheet_history": "Legacy timesheets {h}h ({p0} people)",
+    "actual_hours_saved": "Actual hours saved"
   },
   "todayChangesDrawer": {
     "changes_today": "📊 Changes today",
@@ -675,48 +677,6 @@
     "robot_finished": "Robot finished",
     "robot_failed": "Robot failed"
   },
-  "approvalPanel": {
-    "waiting_for_my_approval": "✅ Waiting for my approval",
-    "selected": "{p0} / {p1} selected",
-    "approve_selected": "Approve {p0} selected",
-    "approve_all": "Approve all",
-    "no_hours_waiting_for_approval": "No hours waiting for approval",
-    "my_team_this_week": "👥 My team (this week)",
-    "done": "{p0} done",
-    "no_hours_this_week": "No hours this week",
-    "tasks_accept": "Tasks to accept",
-    "failed_load_pending_hours": "Failed to load pending hours",
-    "approve_entries_h_total": "Approve {p0} entries ({p1}h total)?",
-    "approve_selected_2": "Approve selected",
-    "approved": "Approved {p0}{p1}",
-    "bulk_approval_failed": "Bulk approval failed"
-  },
-  "hoursStrip": {
-    "hours_this_week": "⏱ Hours this week",
-    "submit_drafts": "Submit {p0} drafts",
-    "hour_details": "Hour details →",
-    "h_pending": "{p0}h pending",
-    "h_draft": "{p0}h draft",
-    "approved": "{p0} approved",
-    "pending": "{p0} pending",
-    "drafts": "{p0} drafts",
-    "month_total_h": "Month total {p0}h",
-    "submit_draft_entries_from_this_week": "Submit {p0} draft entries from this week to your manager for approval?"
-  },
-  "myTasksPanel": {
-    "my_tasks": "🗂 My tasks ({p0})",
-    "list": "List",
-    "by_project": "By project",
-    "overdue_due_today_only": "Overdue / due today only",
-    "all_tasks": "All tasks →",
-    "no_tasks_in_hand": "No tasks in hand 🎉",
-    "drop_here_built": "Drop here = built",
-    "tasks": "{p0} tasks",
-    "no_project": "No project",
-    "queue_for_work": "Queue for work",
-    "mark_as_built_your_manager_will": "Mark \"{p0}\" as built? Your manager will then accept it.",
-    "updated": "Updated to {p0}"
-  },
   "quickActions": {
     "log_hours": "⏱ Log hours",
     "new_task": "➕ New task",
@@ -732,23 +692,6 @@
     "hours_submitted": "Hours submitted",
     "project_title_required": "Project and title are required",
     "task_created": "Task created"
-  },
-  "todoInbox": {
-    "inbox": "📥 Inbox",
-    "urgent": "{p0} urgent",
-    "all": "All {p0}",
-    "my_dos": "My to-dos {p0}",
-    "waiting_for_me": "Waiting for me {p0}",
-    "nothing_do_all_clear": "Nothing to do. All clear 🎉",
-    "due": "Due {p0}",
-    "mark_as_built": "Mark \"{p0}\" as built?",
-    "task_status_updated": "Task status updated",
-    "submit_draft_entries_from_this_week": "Submit {p0} draft entries from this week to your manager for approval?"
-  },
-  "weekSchedule": {
-    "this_week": "📅 This week",
-    "last_week": "← Last week",
-    "next_week": "Next week →"
   },
   "ideaConvertDialog": {
     "convert_milestone": "Convert to milestone",
@@ -1988,7 +1931,11 @@
     "current_owner": "Current owner",
     "enter_title": "Enter a title",
     "choose_priority": "Choose a priority",
-    "delete_this_task": "Delete this task?"
+    "delete_this_task": "Delete this task?",
+    "show_actual_hours": "Actual hours column",
+    "actual_hours": "Actual hours",
+    "actual_hours_hint": "Hours, up to 2 decimals",
+    "timesheet_hours_hint": "No actual hours entered; showing approved hours from legacy timesheets"
   },
   "teams": {
     "team_company_or_business_unit_sub": "Team = company or business unit; sub-groups are managed under \"Sub-groups\" · people can belong to several teams · instant notifications go to each member's team group; members without a team can't be reached precisely",
@@ -2077,7 +2024,8 @@
     "hours_rejected": "Hours rejected",
     "delete_these_hours": "Delete these hours?",
     "hours_deleted": "Hours deleted",
-    "timesheets_xlsx": "timesheets_{p0}.xlsx"
+    "timesheets_xlsx": "timesheets_{p0}.xlsx",
+    "legacy_banner": "Hours now live on tasks; this page keeps historical records only. Enter new hours as \"Actual hours\" in task details."
   },
   "users": {
     "internal_accounts_administrators_only": "{p0} internal accounts · administrators only",
@@ -2419,5 +2367,149 @@
     "p_HIGH": "High",
     "p_URGENT": "Urgent",
     "me": "Me"
+  },
+  "nav": {
+    "today": "Today",
+    "my_today": "My day",
+    "team": "Team",
+    "team_members": "Members",
+    "team_load": "Workload",
+    "team_skills": "Skill matrix",
+    "delivery": "Delivery",
+    "experience": "Experience",
+    "experience_library": "Experience library",
+    "conversations": "Conversations",
+    "settings": "Settings"
+  },
+  "today": {
+    "okr_week": "This week's OKR",
+    "okr_state": {
+      "ON_TIME": "Submitted",
+      "LATE": "Submitted late",
+      "PENDING": "Not submitted",
+      "OVERDUE": "Not submitted (past deadline)"
+    },
+    "my_tasks": "My tasks",
+    "all_tasks": "All tasks",
+    "no_tasks": "Nothing due today and nothing high-priority. A good day to push longer-running work forward.",
+    "overdue_on": "Overdue {d}",
+    "due_today": "Due today",
+    "waiting_on_me": "Waiting on me",
+    "no_approvals": "Nothing waiting for your approval.",
+    "no_approvals_role": "You have no approval duties yet. Items you need to approve or verify will show up here.",
+    "tasks_to_verify": "{n} tasks to verify",
+    "timesheets_to_approve": "{n} legacy timesheets to approve",
+    "approval_kind": {
+      "TIMESHEET": "Timesheet approval",
+      "TASK_VERIFY": "Task verification"
+    },
+    "week_commitments": "This week's commitments",
+    "go_fill_okr": "Fill in",
+    "open_okr": "Open OKR",
+    "no_okr": "No OKR for this week yet. Use the link above to write this week's commitments.",
+    "recent_conversations": "Recent conversations",
+    "all_conversations": "All conversations",
+    "no_conversations": "No dev conversations yet. After a session with an AI, use \"Log a conversation\" below to paste it in.",
+    "log_conversation": "Log a conversation",
+    "open_assistant": "Open AI assistant",
+    "load_failed": "Failed to load: {msg}"
+  },
+  "team": {
+    "search_member": "Search name / skill",
+    "no_members": "No engineers yet",
+    "open_tasks": "Open",
+    "overdue": "Overdue",
+    "projects": "Projects",
+    "conversations_7d": "Chats (7d)",
+    "load": "Load",
+    "load_level": {
+      "OVERLOAD": "Overloaded",
+      "BUSY": "Busy",
+      "NORMAL": "Normal",
+      "IDLE": "Idle"
+    },
+    "load_hint": "Sorted from heaviest to lightest. Open = to do / queued / in progress / rework. Overloaded: 3+ overdue or 12+ open. Busy: any overdue, 7+ open, or 4+ due within 7 days.",
+    "member": "Member",
+    "in_progress": "In progress",
+    "due_7d": "Due in 7d",
+    "high_priority": "High priority",
+    "done_week": "Done this week",
+    "actual_hours_week": "Actual hours (week)"
+  },
+  "experience": {
+    "tab_entries": "Entries",
+    "search": "Search title / body",
+    "kind": "Type",
+    "kinds": {
+      "EXPERIENCE": "Experience",
+      "DECISION": "Decision",
+      "PITFALL": "Pitfall",
+      "HOWTO": "How-to",
+      "DRIFT": "Drift"
+    },
+    "empty": "No experience entries yet. Open a dev conversation and click \"Save as experience\" to add one.",
+    "go_conversations": "Go to conversations",
+    "reusable": "Reusability",
+    "from_conversation": "Source conversation",
+    "synced_to": "Synced to Obsidian: {p}",
+    "sync_obsidian": "Sync to Obsidian",
+    "sync_ok": "Synced",
+    "sync_failed": "Sync failed"
+  },
+  "conversations": {
+    "paste_title": "Log a conversation",
+    "paste_hint": "Paste a whole conversation with an AI (Claude Code, Codex, or a web chat). Secrets are redacted and a summary is generated.",
+    "paste_placeholder": "User: …\nAssistant: …",
+    "paste_title_optional": "Title (optional, defaults to the first line)",
+    "paste_submit": "Save and summarize",
+    "paste_created": "Conversation saved",
+    "paste_updated": "This conversation was pasted before and has been updated",
+    "rules_mode": "No model is configured, so the summary was extracted by rules.",
+    "view_detail": "Open conversation",
+    "stage": "Stage",
+    "source": "Source",
+    "status": "Status",
+    "engineer": "Engineer",
+    "time": "Time",
+    "title_col": "Conversation",
+    "untitled": "(untitled conversation)",
+    "mine": "Mine",
+    "all_visible": "All I can see",
+    "search": "Search title / summary / branch",
+    "stages": {
+      "REQUIREMENT": "Requirements",
+      "DESIGN": "Design",
+      "CODING": "Coding",
+      "TEST": "Testing",
+      "RETRO": "Retro",
+      "GENERAL": "General"
+    },
+    "sources": {
+      "PLATFORM_ASSISTANT": "Platform assistant",
+      "HERMES": "Hermes",
+      "CLAUDE_CODE": "Claude Code",
+      "CODEX": "Codex",
+      "PASTE": "Pasted"
+    },
+    "statuses": {
+      "PENDING_LINK": "Unlinked",
+      "LINKED": "Linked",
+      "IGNORED": "Ignored"
+    },
+    "back": "Back to conversations",
+    "not_found": "Conversation not found or not visible to you",
+    "open_project": "Open project",
+    "summarize": "Summarize",
+    "resummarize": "Summarize again",
+    "to_experience": "Save as experience",
+    "experience_saved": "Saved to the experience library",
+    "summary": "Summary",
+    "no_summary": "No summary yet. Click \"Summarize\" above.",
+    "decisions": "Decisions",
+    "pitfalls": "Pitfalls",
+    "events": "Key events",
+    "body": "Transcript",
+    "redacted": "redacted",
+    "no_body": "This conversation has no transcript."
   }
 }

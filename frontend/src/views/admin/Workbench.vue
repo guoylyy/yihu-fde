@@ -1,320 +1,212 @@
 <template>
-  <!-- v2.6.0(#959) 个人工作台 —— FDE 工程师 / 项目经理「一页把活干完」
-       与公司级仪表盘(AdminDashboard)分工: 那边看公司, 这边办自己的事 -->
-  <div class="workbench" v-loading="loading">
-    <!-- ======== 今日焦点条 ======== -->
-    <el-card shadow="never" class="focus-card">
-      <div class="focus">
-        <div class="who">
-          <img v-if="user?.avatarUrl" :src="user.avatarUrl" class="avatar-img" />
-          <div v-else class="avatar">{{ (d?.profile?.name || '?').slice(0, 1) }}</div>
-          <div>
-            <h2>{{ greeting }}, {{ d?.profile?.name }}</h2>
-            <p class="muted">{{ roleLabel(d?.profile?.role) }} · {{ todayText }}</p>
-          </div>
+  <!-- 0.5.0 我的今日: 一屏回答「我今天该干什么」。四块各自取数, 一块失败不拖垮整页;
+       手机上单列, 顶部压得很矮, 让「我的任务」「等我处理」在首屏内 -->
+  <div class="today">
+    <header class="today-head">
+      <div class="who">
+        <h2>{{ greeting }}<span v-if="userName">，{{ userName }}</span></h2>
+        <span class="date">{{ todayText }}</span>
+      </div>
+      <router-link v-if="okrState" to="/admin/okr" class="okr-chip" :class="'okr-' + okrState" data-test="okr-chip">
+        {{ $t('today.okr_week') }} · {{ $t('today.okr_state.' + okrState) }}
+      </router-link>
+    </header>
+
+    <div class="grid">
+      <!-- 区块 1: 我的任务 -->
+      <section class="block" data-test="today-tasks">
+        <div class="block-head">
+          <h3>{{ $t('today.my_tasks') }}</h3>
+          <router-link v-if="canTasks" to="/admin/tasks" class="more">{{ $t('today.all_tasks') }}</router-link>
         </div>
-
-        <div class="today-stats">
-          <div class="stat" @click="scrollTo('tasks')">
-            <div class="stat-label">{{ $t('workbench.due_today') }}</div>
-            <div class="stat-value">{{ d?.today?.tasksDueToday || 0 }}<span class="unit">{{ $t('workbench.tasks') }}</span></div>
-          </div>
-          <div class="stat" :class="{ danger: (d?.today?.tasksOverdue || 0) > 0 }" @click="scrollTo('tasks')">
-            <div class="stat-label">{{ $t('workbench.overdue') }}</div>
-            <div class="stat-value">{{ d?.today?.tasksOverdue || 0 }}<span class="unit">{{ $t('workbench.tasks') }}</span></div>
-          </div>
-          <div class="stat" :class="{ warn: !d?.today?.hoursLogged }">
-            <div class="stat-label">{{ $t('workbench.hours_today') }}</div>
-            <div class="stat-value">
-              {{ d?.today?.hoursLogged || 0 }}<span class="unit">h</span>
-              <span v-if="!d?.today?.hoursLogged" class="dot-red" :title="$t('workbench.no_hours_logged_today')"></span>
+        <div v-if="tasksState.loading" class="skeleton"><el-skeleton :rows="3" animated /></div>
+        <p v-else-if="tasksState.error" class="empty err">{{ tasksState.error }}</p>
+        <p v-else-if="!todayTasks.length" class="empty">{{ $t('today.no_tasks') }}</p>
+        <ul v-else class="rows">
+          <li v-for="t in todayTasks" :key="t.id" class="row task-row" data-test="today-task" @click="openTask(t.id)">
+            <div class="row-main">
+              <span class="title">{{ t.title }}</span>
+              <span class="sub">{{ t.project?.name || t.project?.code || '' }}</span>
             </div>
-          </div>
-          <div class="stat" @click="$router.push('/admin/notifications')">
-            <div class="stat-label">{{ $t('workbench.unread_notifications') }}</div>
-            <div class="stat-value">{{ d?.today?.unreadNotifications || 0 }}<span class="unit">{{ $t('workbench.text') }}</span></div>
-          </div>
+            <div class="row-meta">
+              <span v-if="dueDay(t)" class="due" :class="'due-' + dueState(t, today)">
+                {{ dueText(t) }}
+              </span>
+              <el-tag v-if="t.priority === 'HIGH' || t.priority === 'URGENT'" size="small" :type="t.priority === 'URGENT' ? 'danger' : 'warning'" effect="plain">
+                {{ priorityLabel(t.priority) }}
+              </el-tag>
+              <span class="status">{{ statusLabel(t.status) }}</span>
+            </div>
+          </li>
+        </ul>
+      </section>
+
+      <!-- 区块 2: 等我处理 -->
+      <section class="block" data-test="today-approvals">
+        <div class="block-head">
+          <h3>{{ $t('today.waiting_on_me') }}<span v-if="approvals?.total" class="count">{{ approvals.total }}</span></h3>
         </div>
-
-        <button
-          type="button"
-          class="focus-toggle"
-          :title="focusMode ? $t('workbench.exit_focus_mode_esc_also_works') : $t('workbench.focus_mode_hide_menu_top_bar')"
-          @click="toggleFocus"
-        >{{ $t('common.p0', { p0: focusMode ? $t('workbench.exit_focus') : $t('workbench.focus_mode') }) }}</button>
-      </div>
-
-      <div v-if="hasQuickAction" class="actions-row">
-        <QuickActions
-          :projects="d?.projects || []"
-          :tasks="d?.tasks?.list || []"
-          :user-id="d?.profile?.id"
-          @done="load(true)"
-        />
-      </div>
-
-      <el-alert
-        v-if="d && !d.hasEngineerProfile"
-        type="info"
-        :closable="false"
-        show-icon
-        :title="$t('workbench.this_account_has_no_engineer_profile')"
-        style="margin-top: 12px;"
-      />
-    </el-card>
-
-    <!-- ======== 主体两栏 ======== -->
-    <div class="cols">
-      <div class="col-main">
-        <TodoInbox
-          :items="todos.items"
-          :counts="todos.counts"
-          :loading="todosLoading"
-          @refresh="load(true)"
-          @open-task="openTask"
-        />
-
-        <!-- 经理专属: 待我审批 + 组员脉搏(按权限显隐, 后端没给 approvals 就不渲染) -->
-        <ApprovalPanel
-          v-if="d?.approvals"
-          :approvals="d.approvals"
-          :team-pulse="d.teamPulse || []"
-          @changed="load(true)"
-        />
-
-        <div ref="tasksAnchor"></div>
-        <MyTasksPanel
-          :tasks="d?.tasks?.list || []"
-          @refresh="load(true)"
-          @open-task="openTask"
-        />
-        <WeekSchedule
-          :tasks="d?.tasks?.list || []"
-          :milestones="d?.milestones || []"
-          :hour-days="d?.hours?.days || []"
-          @open-task="openTask"
-        />
-
-        <HoursStrip :hours="d?.hours || {}" @changed="load(true)" />
-      </div>
-
-      <div class="col-side">
-        <!-- 我的项目 -->
-        <el-card shadow="never" class="block-card">
-          <template #header>
-            <div class="block-title">
-              <span>{{ $t('workbench.my_projects', { p0: d?.projects?.length || 0 }) }}</span>
-              <span class="muted sub" v-if="d?.openIssueCount">{{ $t('workbench.open_issues', { p0: d.openIssueCount }) }}</span>
-            </div>
-          </template>
-          <el-empty v-if="!d?.projects?.length" :image-size="50" :description="$t('workbench.not_in_any_project_yet')" />
-          <div v-else class="proj-list">
-            <div v-for="p in d.projects" :key="p.id" class="proj-item" @click="$router.push(`/admin/projects/${p.id}`)">
-              <div class="proj-head">
-                <strong>{{ p.name }}</strong>
-                <span class="health" :style="{ color: healthColor(p.health) }">●</span>
-              </div>
-              <div class="proj-meta">
-                <span class="code">{{ p.code }}</span>
-                <span>{{ p.customer?.shortName || p.customer?.name }}</span>
-              </div>
-              <div v-if="p.overdueTasks || p.openIssues" class="proj-alert">
-                <span v-if="p.overdueTasks" class="danger">{{ $t('workbench.overdue_tasks', { p0: p.overdueTasks }) }}</span>
-                <span v-if="p.openIssues">{{ $t('workbench.open_issues', { p0: p.openIssues }) }}</span>
-              </div>
-              <div class="proj-progress">
-                <el-progress :percentage="p.progress || 0" :stroke-width="5" :show-text="false" color="#1c1917" />
-                <span class="pct">{{ p.progress || 0 }}%</span>
-              </div>
-            </div>
+        <div v-if="approvalsState.loading" class="skeleton"><el-skeleton :rows="2" animated /></div>
+        <p v-else-if="approvalsState.error" class="empty err">{{ approvalsState.error }}</p>
+        <p v-else-if="!approvals?.total" class="empty">
+          {{ approvals?.canApprove ? $t('today.no_approvals') : $t('today.no_approvals_role') }}
+        </p>
+        <template v-else>
+          <div class="approval-counts">
+            <router-link v-if="approvals.counts.tasksToVerify" to="/admin/tasks?status=DONE" class="pill">
+              {{ $t('today.tasks_to_verify', { n: approvals.counts.tasksToVerify }) }}
+            </router-link>
+            <router-link v-if="approvals.counts.timesheets" to="/admin/timesheets?status=SUBMITTED" class="pill">
+              {{ $t('today.timesheets_to_approve', { n: approvals.counts.timesheets }) }}
+            </router-link>
           </div>
-        </el-card>
-
-        <!-- 里程碑 -->
-        <el-card shadow="never" class="block-card">
-          <template #header>
-            <div class="block-title"><span>{{ $t('workbench.upcoming_milestones') }}</span></div>
-          </template>
-          <el-empty v-if="!d?.milestones?.length" :image-size="50" :description="$t('workbench.no_milestones_due_in_next_30')" />
-          <div v-else class="ms-list">
-            <div v-for="ms in d.milestones" :key="ms.id" class="ms-row" @click="$router.push(`/admin/projects/${ms.project.id}`)">
-              <span class="ms-date" :class="{ overdue: ms.overdue }">{{ String(ms.plannedDate || '').slice(0, 10) }}</span>
-              <div class="ms-main">
-                <div class="ms-name">{{ ms.name }}</div>
-                <div class="ms-proj">{{ ms.project?.code }}</div>
+          <ul class="rows">
+            <li v-for="a in approvals.recent" :key="a.kind + a.id" class="row" @click="$router.push(a.link)">
+              <div class="row-main">
+                <span class="title">{{ a.title }}</span>
+                <span class="sub">{{ $t('today.approval_kind.' + a.kind) }}<template v-if="a.project"> · {{ a.project.name }}</template></span>
               </div>
-              <el-tag v-if="ms.overdue" type="danger" size="small">{{ $t('workbench.overdue') }}</el-tag>
-            </div>
-          </div>
-        </el-card>
+            </li>
+          </ul>
+        </template>
+      </section>
 
-        <el-card v-if="leaderboard" shadow="never" class="block-card">
-          <template #header>
-            <div class="block-title">
-              <span>{{ $t('workbench.this_weeks_leaderboard') }}</span>
-              <span class="muted sub">{{ $t('workbench.since', { p0: leaderboard.weekStart }) }}</span>
+      <!-- 区块 3: 本周承诺(OKR 的 O, 只读) -->
+      <section v-if="okrOn" class="block" data-test="today-okr">
+        <div class="block-head">
+          <h3>{{ $t('today.week_commitments') }}</h3>
+          <router-link to="/admin/okr" class="more">{{ okrState === 'PENDING' || okrState === 'OVERDUE' ? $t('today.go_fill_okr') : $t('today.open_okr') }}</router-link>
+        </div>
+        <div v-if="okrStateLoad.loading" class="skeleton"><el-skeleton :rows="2" animated /></div>
+        <p v-else-if="okrStateLoad.error" class="empty err">{{ okrStateLoad.error }}</p>
+        <p v-else-if="!objectives.length" class="empty">{{ $t('today.no_okr') }}</p>
+        <ul v-else class="rows">
+          <li v-for="o in objectives" :key="o.id" class="row okr-row">
+            <div class="row-main">
+              <span class="title">{{ o.title }}</span>
+              <el-progress :percentage="pct100(o.progress)" :stroke-width="5" color="#1c1917" class="okr-bar" />
             </div>
-          </template>
-          <div class="lb-block">
-            <div class="lb-title">{{ $t('workbench.hours') }}</div>
-            <div v-if="!leaderboard.hours.length" class="lb-empty">{{ $t('workbench.no_hours_this_week') }}</div>
-            <div v-for="(r, i) in leaderboard.hours.slice(0, 5)" :key="'h' + i" class="lb-row" :class="{ me: isMe(r.userId) }">
-              <span class="lb-rank">{{ medal(i) }}</span>
-              <span class="lb-name">{{ r.name }}</span>
-              <span class="lb-value">{{ r.hours }}h</span>
-            </div>
-          </div>
-          <div class="lb-block">
-            <div class="lb-title">{{ $t('workbench.tasks_done') }}</div>
-            <div v-if="!leaderboard.tasks.length" class="lb-empty">{{ $t('workbench.no_tasks_done_this_week') }}</div>
-            <div v-for="(r, i) in leaderboard.tasks.slice(0, 5)" :key="'t' + i" class="lb-row" :class="{ me: isMe(r.userId) }">
-              <span class="lb-rank">{{ medal(i) }}</span>
-              <span class="lb-name">{{ r.name }}</span>
-              <span class="lb-value">{{ $t('workbench.p0', { p0: r.count }) }}</span>
-            </div>
-          </div>
-        </el-card>
+          </li>
+        </ul>
+      </section>
 
-        <!-- 团队动态 -->
-        <el-card shadow="never" class="block-card">
-          <template #header>
-            <div class="block-title">
-              <span>{{ $t('workbench.team_activity') }}</span>
-              <el-radio-group v-model="activityScope" size="small" style="margin-left: auto;" @change="loadActivities">
-                <el-radio-button value="all">{{ $t('common.all') }}</el-radio-button>
-                <el-radio-button value="mine">{{ $t('workbench.mine') }}</el-radio-button>
-              </el-radio-group>
+      <!-- 区块 4: 最近会话 -->
+      <section class="block" data-test="today-conversations">
+        <div class="block-head">
+          <h3>{{ $t('today.recent_conversations') }}</h3>
+          <router-link v-if="canConversations" to="/admin/conversations" class="more">{{ $t('today.all_conversations') }}</router-link>
+        </div>
+        <div v-if="convState.loading" class="skeleton"><el-skeleton :rows="2" animated /></div>
+        <p v-else-if="convState.error" class="empty err">{{ convState.error }}</p>
+        <p v-else-if="!conversations.length" class="empty">{{ $t('today.no_conversations') }}</p>
+        <ul v-else class="rows">
+          <li v-for="c in conversations" :key="c.id" class="row" data-test="today-conversation" @click="$router.push(`/admin/conversations/${c.id}`)">
+            <div class="row-main">
+              <span class="title">{{ firstSentence(c.summary) || c.title || $t('conversations.untitled') }}</span>
+              <span class="sub">
+                {{ $t('conversations.sources.' + c.source) }} · {{ $t('conversations.stages.' + c.stage) }} · {{ convTime(c) }}
+              </span>
             </div>
-          </template>
-          <el-empty v-if="!activities.length" :image-size="50" :description="$t('common.no_activity')" />
-          <div v-else class="act-list">
-            <div v-for="a in activities" :key="a.id" class="act-row">
-              <span class="act-time">{{ actTime(a.createdAt) }}</span>
-              <span class="act-text"><strong>{{ $t('common.p0', { p0: a.actor?.name || $t('workbench.system') }) }}</strong> {{ a.summary }}</span>
-            </div>
-          </div>
-        </el-card>
-      </div>
+          </li>
+        </ul>
+      </section>
     </div>
 
-    <TaskDetailDialog v-model="taskDetailVisible" :task-id="taskDetailId" @changed="() => load(true)" />
+    <!-- 底部快捷入口 -->
+    <footer class="quick">
+      <QuickActions :projects="projects" :actions="['task']" :user-id="me?.id" @done="loadTasks" />
+      <el-button data-test="today-paste" @click="pasteVisible = true">{{ $t('today.log_conversation') }}</el-button>
+      <el-button v-if="moduleEnabled('agent')" data-test="today-assistant" @click="openAssistant">
+        <el-icon><MagicStick /></el-icon><span>{{ $t('today.open_assistant') }}</span>
+      </el-button>
+    </footer>
+
+    <TaskDetailDialog v-model="taskDetailVisible" :task-id="taskDetailId" @changed="loadTasks" />
+    <PasteConversationDialog v-model="pasteVisible" @saved="loadConversations" />
   </div>
 </template>
 
 <script setup>
 import { $t } from '@/i18n'
-import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ref, reactive, computed, onMounted } from 'vue'
+import { MagicStick } from '@element-plus/icons-vue'
 import { fde } from '@/api/index.js'
-import { roleLabel } from '@/api/roles.js'
 import { can } from '@/api/permissions.js'
+import { moduleEnabled } from '@/api/edition.js'
+import { useAssistant } from '@/composables/useAssistant.js'
 import TaskDetailDialog from '@/components/admin/TaskDetailDialog.vue'
-import TodoInbox from '@/components/admin/workbench/TodoInbox.vue'
-import MyTasksPanel from '@/components/admin/workbench/MyTasksPanel.vue'
 import QuickActions from '@/components/admin/workbench/QuickActions.vue'
-import WeekSchedule from '@/components/admin/workbench/WeekSchedule.vue'
-import HoursStrip from '@/components/admin/workbench/HoursStrip.vue'
-import ApprovalPanel from '@/components/admin/workbench/ApprovalPanel.vue'
+import PasteConversationDialog from '@/components/devlog/PasteConversationDialog.vue'
+import { pickTodayTasks, dueDay, dueState, okrSubmitState, pct100, firstSentence, ymd } from './today/todayUtils.js'
+import { convTime } from './conversations/conversationUtils.js'
 
-const user = JSON.parse(localStorage.getItem('fde_internal_user') || 'null')
-
-const d = ref(null)
-const todos = ref({ items: [], counts: {} })
-const loading = ref(false)
-const todosLoading = ref(false)
-const activities = ref([])
-const activityScope = ref('all')
-const tasksAnchor = ref(null)
-
-// 一个快捷动作都没有的角色不渲染这条, 免得留一条空横线
-const hasQuickAction = computed(() =>
-  ['timesheet.create', 'task.create', 'idea.create'].some(p => can(p)))
+const me = JSON.parse(localStorage.getItem('fde_internal_user') || 'null')
+const userName = me?.name || me?.username || ''
+const today = ymd()
+const canTasks = can('task.view')
+const canConversations = can('project.view')
+const okrOn = moduleEnabled('okr')
 
 const greeting = computed(() => {
   const h = new Date().getHours()
   return h < 6 ? $t('workbench.working_late') : h < 12 ? $t('workbench.good_morning') : h < 14 ? $t('workbench.good_afternoon') : h < 18 ? $t('workbench.good_afternoon_2') : $t('workbench.good_evening')
 })
-const todayText = computed(() => {
+const todayText = (() => {
   const now = new Date()
   const week = [$t('common.sun'), $t('common.mon'), $t('common.tue'), $t('common.wed'), $t('common.thu'), $t('common.fri'), $t('common.sat')][now.getDay()]
   return $t('workbench.p2_p0_p1', { p0: now.getMonth() + 1, p1: now.getDate(), p2: week })
+})()
+
+const STATUS_LABELS = { TODO: $t('common.inbox'), QUEUED: $t('common.queued'), IN_PROGRESS: $t('common.in_progress_2'), DONE: $t('common.built'), VERIFIED: $t('common.accepted'), REWORK: $t('tasks.rework') }
+const PRIORITY_LABELS = { LOW: $t('common.low'), MEDIUM: $t('common.medium'), HIGH: $t('common.high'), URGENT: $t('common.urgent') }
+const statusLabel = (s) => STATUS_LABELS[s] || s
+const priorityLabel = (p) => PRIORITY_LABELS[p] || p
+function dueText(t) {
+  const st = dueState(t, today)
+  if (st === 'overdue') return $t('today.overdue_on', { d: dueDay(t).slice(5) })
+  if (st === 'today') return $t('today.due_today')
+  return dueDay(t).slice(5)
+}
+
+// 每块独立的加载/错误状态
+const state = () => reactive({ loading: true, error: '' })
+async function guarded(s, fn) {
+  s.loading = true
+  s.error = ''
+  try { await fn() } catch (e) { s.error = $t('today.load_failed', { msg: e.message }) } finally { s.loading = false }
+}
+
+const tasks = ref([])
+const tasksState = state()
+const todayTasks = computed(() => pickTodayTasks(tasks.value, { today }))
+const loadTasks = () => guarded(tasksState, async () => {
+  if (!canTasks) { tasks.value = []; return }
+  const d = await fde.tasks.list({ mine: 'true', page_size: 100 })
+  tasks.value = d.list || []
 })
-function healthColor(h) { return { GREEN: '#2e7d4f', YELLOW: '#b3450f', RED: '#c2362b' }[h] || '#8f8a82' }
 
-/** silent=true 时不整页 loading(操作后回刷用) */
-async function load(silent = false) {
-  if (!silent) loading.value = true
-  todosLoading.value = true
-  try {
-    const [wb, td] = await Promise.all([fde.meWorkbench(), fde.meTodos()])
-    d.value = wb
-    todos.value = td
-  } catch (e) {
-    ElMessage.error($t('common.failed_load_2') + e.message)
-  } finally {
-    loading.value = false
-    todosLoading.value = false
-  }
-}
+const approvals = ref(null)
+const approvalsState = state()
+const loadApprovals = () => guarded(approvalsState, async () => { approvals.value = await fde.meApprovals(3) })
 
-// 本周排行榜(团队激励, 与个人仪表盘同口径)
-const leaderboard = ref(null)
-function isMe(userId) { return userId != null && String(userId) === String(user?.id) }
-function medal(i) { return ['🥇', '🥈', '🥉'][i] || `${i + 1}.` }
-async function loadLeaderboard() {
-  try { leaderboard.value = await fde.meWeeklyLeaderboard() } catch { /* 排行榜失败不打断主流程 */ }
-}
+const okrWeek = ref(null)
+const okrStateLoad = state()
+const objectives = computed(() => (okrWeek.value?.objectives || []).filter(o => o.status !== 'DROPPED'))
+const okrState = computed(() => okrSubmitState(okrWeek.value))
+const loadOkr = () => guarded(okrStateLoad, async () => { if (okrOn) okrWeek.value = await fde.okr.my() })
 
-async function loadActivities() {
-  try {
-    const data = await fde.activities.list({ scope: activityScope.value, page: 1, page_size: 12 })
-    activities.value = data.list
-  } catch { /* 动态失败不打断主流程 */ }
-}
+const conversations = ref([])
+const convState = state()
+const loadConversations = () => guarded(convState, async () => {
+  const d = await fde.devConversations.list({ engineerId: 'me', size: 3 })
+  conversations.value = d.list || []
+})
 
-function actTime(iso) {
-  if (!iso) return ''
-  const m = Math.floor((Date.now() - new Date(iso).getTime()) / 60000)
-  if (m < 60) return $t('common.min_ago_2', { p0: Math.max(m, 1) })
-  if (m < 1440) return $t('common.hours_ago_2', { p0: Math.floor(m / 60) })
-  return String(iso).slice(5, 16).replace('T', ' ')
-}
-
-// ---- 专注模式(v2.6.1 #962): 隐藏后台外壳 + 浏览器全屏, 一页只剩自己的活 ----
-// 外壳隐藏靠 body.wb-focus(样式在本文件末尾的非 scoped 块), 离开页面必须摘掉, 否则别的页面也没菜单了
-const focusMode = ref(false)
-
-function isFullscreen() {
-  return !!(document.fullscreenElement || document.webkitFullscreenElement)
-}
-async function enterFullscreen() {
-  const el = document.documentElement
-  const fn = el.requestFullscreen || el.webkitRequestFullscreen
-  // 全屏被浏览器策略拒绝也不影响专注模式本身(外壳照样隐藏)
-  if (fn) await fn.call(el).catch(() => {})
-}
-async function exitFullscreen() {
-  if (!isFullscreen()) return
-  const fn = document.exitFullscreen || document.webkitExitFullscreen
-  if (fn) await fn.call(document).catch(() => {})
-}
-
-function setFocus(on) {
-  focusMode.value = on
-  document.body.classList.toggle('wb-focus', on)
-}
-async function toggleFocus() {
-  if (focusMode.value) {
-    setFocus(false)
-    await exitFullscreen()
-  } else {
-    setFocus(true)
-    await enterFullscreen()
-  }
-}
-// 用户按 Esc / F11 退出浏览器全屏时, 专注模式跟着退出, 别留个没菜单的页面
-function onFullscreenChange() {
-  if (!isFullscreen() && focusMode.value) setFocus(false)
+// 新建任务要选项目: 拿我能看到的在手项目(后端已按数据范围过滤)
+const projects = ref([])
+async function loadProjects() {
+  if (!can('task.create') || !can('project.view')) return
+  try { projects.value = (await fde.projects.list({ page_size: 100 })).list || [] } catch { /* 选不到项目时弹窗里会提示 */ }
 }
 
 const taskDetailVisible = ref(false)
@@ -323,128 +215,73 @@ function openTask(id) {
   taskDetailId.value = id
   taskDetailVisible.value = true
 }
-function scrollTo() {
-  tasksAnchor.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-}
 
-// 60s 轻刷新, 且只在页面可见时(v1.6.2 轮询失控教训: 后台标签页不要打接口)
-let timer = null
-function tick() {
-  if (document.visibilityState === 'visible') load(true)
-}
+const pasteVisible = ref(false)
+const { openPanel } = useAssistant()
+function openAssistant() { openPanel() }
+
 onMounted(() => {
-  load()
-  loadActivities()
-  loadLeaderboard()
-  timer = setInterval(tick, 60000)
-  document.addEventListener('fullscreenchange', onFullscreenChange)
-  document.addEventListener('webkitfullscreenchange', onFullscreenChange)
-})
-onUnmounted(() => {
-  if (timer) clearInterval(timer)
-  document.removeEventListener('fullscreenchange', onFullscreenChange)
-  document.removeEventListener('webkitfullscreenchange', onFullscreenChange)
-  setFocus(false)
-  exitFullscreen()
+  loadTasks()
+  loadApprovals()
+  loadOkr()
+  loadConversations()
+  loadProjects()
 })
 </script>
 
 <style scoped>
-.workbench { display: flex; flex-direction: column; gap: 16px; }
+.today { display: flex; flex-direction: column; gap: 14px; max-width: 1200px; }
+.today-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.who { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.who h2 { margin: 0; font-size: 20px; font-weight: 600; color: #1c1917; }
+.date { color: #8f8a82; font-size: 13px; }
+.okr-chip { font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px solid #eae7e2; color: #5c574f; text-decoration: none; background: #fff; white-space: nowrap; }
+.okr-ON_TIME { color: #2e7d4f; border-color: #cfe5d8; background: #f3faf6; }
+.okr-LATE { color: #b3450f; border-color: #f0d5c4; background: #fdf6f1; }
+.okr-PENDING { color: #5c574f; }
+.okr-OVERDUE { color: #c2362b; border-color: #f1cfcb; background: #fdf3f2; }
 
-.focus-card { background: #fff; border: 1px solid #eae7e2; border-radius: 12px; box-shadow: none; }
-.focus-toggle {
-  align-self: flex-start;
-  white-space: nowrap;
-  border: 1px solid #eae7e2;
-  background: #fff;
-  color: #8f8a82;
-  border-radius: 6px;
-  padding: 3px 9px;
-  font-size: 12px;
-  font-family: inherit;
-  cursor: pointer;
-  z-index: 2;
+.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.block { background: #fff; border: 1px solid #eae7e2; border-radius: 12px; padding: 12px 14px; min-width: 0; }
+.block-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.block-head h3 { margin: 0; font-size: 14px; font-weight: 600; color: #1c1917; display: flex; align-items: center; gap: 6px; }
+.count { background: #1c1917; color: #fff; border-radius: 999px; font-size: 11px; padding: 0 7px; line-height: 18px; }
+.more { font-size: 12px; color: #8f8a82; text-decoration: none; }
+.more:hover { color: #1c1917; }
+.empty { margin: 6px 0; color: #8f8a82; font-size: 13px; }
+.empty.err { color: #c2362b; }
+.skeleton { padding: 4px 0; }
+
+.rows { list-style: none; margin: 0; padding: 0; }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 4px; border-top: 1px solid #f3f1ee; cursor: pointer; }
+.row:first-child { border-top: none; }
+.row:hover { background: #faf9f7; }
+.okr-row { cursor: default; }
+.okr-row:hover { background: none; }
+.row-main { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.title { font-size: 13px; color: #1c1917; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sub { font-size: 12px; color: #8f8a82; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-meta { display: flex; align-items: center; gap: 6px; flex-shrink: 0; font-size: 12px; color: #5c574f; }
+.due { font-variant-numeric: tabular-nums; }
+.due-overdue { color: #c2362b; font-weight: 600; }
+.due-today { color: #b3450f; font-weight: 600; }
+.status { color: #8f8a82; }
+.okr-bar { margin-top: 3px; }
+.okr-bar :deep(.el-progress__text) { font-size: 11px !important; min-width: 34px; }
+.approval-counts { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 4px; }
+.pill { font-size: 12px; padding: 2px 9px; border-radius: 999px; background: #f6f4f1; color: #1c1917; text-decoration: none; }
+
+.quick { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.quick :deep(.quick-actions) { display: contents; }
+.quick .el-button + .el-button { margin-left: 0; }
+
+/* 手机: 单列, 头部压矮, 任务行的项目名收起到一行内 */
+@media (max-width: 768px) {
+  .today { gap: 10px; }
+  .grid { grid-template-columns: 1fr; gap: 10px; }
+  .who h2 { font-size: 17px; }
+  .block { padding: 10px 12px; }
+  .row { padding: 6px 2px; }
+  .task-row .status { display: none; }
 }
-.focus-toggle:hover { border-color: #d2521e; color: #d2521e; }
-
-.focus { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
-.who { display: flex; align-items: center; gap: 14px; }
-.avatar, .avatar-img { width: 52px; height: 52px; border-radius: 50%; }
-.avatar { background: #f0eee9; display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: 700; color: #1c1917; }
-.avatar-img { object-fit: cover; }
-.who h2 { margin: 0; font-size: 20px; color: #1c1917; }
-.muted { color: #8f8a82; margin: 4px 0 0; font-size: 13px; }
-
-.today-stats { display: flex; gap: 22px; flex-wrap: wrap; margin-left: auto; }
-.stat { cursor: default; min-width: 92px; }
-.stat-label { font-size: 12px; color: #8f8a82; margin-bottom: 4px; }
-.stat-value { font-family: 'Manrope', 'Helvetica Neue', Arial, sans-serif; font-size: 24px; font-weight: 800; color: #1c1917; line-height: 1.1; }
-.stat .unit { font-size: 12px; color: #8f8a82; font-weight: 400; margin-left: 3px; }
-.stat.danger .stat-value { color: #c2362b; }
-.stat.warn .stat-value { color: #b3450f; }
-.dot-red { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #c2362b; margin-left: 6px; vertical-align: middle; }
-
-.actions-row { margin-top: 16px; padding-top: 14px; border-top: 1px solid #f3f1ed; }
-
-.cols { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; align-items: start; }
-.col-main, .col-side { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
-.block-card { border-radius: 12px; }
-.block-title { display: flex; align-items: center; gap: 6px; font-weight: 600; }
-.block-title .sub { font-size: 12px; margin-left: auto; }
-
-.proj-list { display: flex; flex-direction: column; gap: 10px; }
-.proj-item { padding: 10px; border: 1px solid #eae7e2; border-radius: 8px; cursor: pointer; transition: all .2s; }
-.proj-item:hover { border-color: #d2521e; }
-.proj-head { display: flex; justify-content: space-between; align-items: center; font-size: 14px; }
-.proj-meta { font-size: 12px; color: #8f8a82; display: flex; gap: 10px; margin-top: 2px; }
-.proj-meta .code { font-family: monospace; }
-.proj-progress { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
-.proj-progress :deep(.el-progress) { flex: 1; }
-.pct { font-size: 12px; color: #5c574f; }
-
-.proj-alert { display: flex; gap: 10px; font-size: 11px; color: #8f8a82; margin-top: 4px; }
-.proj-alert .danger { color: #c2362b; }
-
-.ms-list { display: flex; flex-direction: column; }
-.ms-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid #f3f1ed; cursor: pointer; }
-.ms-row:last-child { border-bottom: none; }
-.ms-date { font-family: monospace; font-size: 12px; color: #5c574f; }
-.ms-date.overdue { color: #c2362b; font-weight: 600; }
-.ms-main { flex: 1; min-width: 0; }
-.ms-name { font-size: 13px; color: #1c1917; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ms-proj { font-size: 11px; color: #8f8a82; font-family: monospace; }
-
-.train-row { display: flex; gap: 18px; font-size: 13px; color: #5c574f; }
-.danger { color: #c2362b; }
-
-.lb-block { margin-bottom: 12px; }
-.lb-title { font-size: 12px; color: #8f8a82; margin-bottom: 6px; }
-.lb-empty { font-size: 12px; color: #a8a29a; }
-.lb-row { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 3px 0; }
-.lb-row.me { background: #fdf6f2; border-radius: 4px; }
-.lb-rank { width: 22px; color: #8f8a82; }
-.lb-name { flex: 1; color: #1c1917; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lb-value { color: #5c574f; font-weight: 600; }
-
-.act-list { display: flex; flex-direction: column; gap: 8px; }
-.act-row { display: flex; gap: 8px; font-size: 12px; align-items: baseline; }
-.act-time { color: #a8a29a; white-space: nowrap; }
-.act-text { color: #5c574f; }
-
-@media (max-width: 1200px) {
-  .cols { grid-template-columns: minmax(0, 1fr); }
-  .today-stats { margin-left: 0; }
-}
-</style>
-
-<!-- 非 scoped: 专注模式要越过组件边界去收掉 AdminLayout 的外壳。
-     只在 body.wb-focus 下生效, 该 class 仅由本页开关添加, 卸载时必定摘除 -->
-<style>
-body.wb-focus .sidebar { display: none; }
-body.wb-focus .header { display: none; }
-body.wb-focus .content-wrap { margin-left: 0; }
-body.wb-focus .main { padding: 18px 24px 32px; }
-/* 超宽屏别把一行拉到两米长, 专注的前提是视线不用横扫 */
-body.wb-focus .workbench { max-width: 1680px; margin: 0 auto; }
 </style>
