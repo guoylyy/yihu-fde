@@ -16,7 +16,7 @@ router.use(internalAuth)
 
 const CODE_RE = /^[A-Z][A-Z0-9_]{1,31}$/
 
-const SCOPE_LABELS = { ALL: '全部数据', OWN_PROJECTS: '自己负责/参与的项目', OWN_RECORDS: '仅本人相关记录' }
+const SCOPE_LABELS = { ALL: '全部数据', OWN_PROJECTS: '自己负责/参与的项目', TEAM: '本人所在团队(团队视图)', OWN_RECORDS: '仅本人相关记录' }
 
 async function withUserCounts(roles) {
   const counts = await prisma.user.groupBy({

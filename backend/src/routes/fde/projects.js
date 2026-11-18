@@ -248,7 +248,7 @@ router.get('/:id', async (req, res) => {
       const awMap = await buildActiveWorkMap(tIds, {
         taskStartedAt: new Map(project.tasks.map(t => [t.id, { startedAt: t.startedAt }]))
       })
-      const internal = ['ADMIN', 'MANAGER', 'FDE_ENGINEER'].includes(req.user.role)
+      const internal = ['ADMIN', 'MANAGER', 'TEAM_LEAD', 'FDE_ENGINEER'].includes(req.user.role)
       for (const t of project.tasks) {
         const w = fallbackActiveWork(t, awMap.get(String(t.id)))
         t.activeWork = internal ? w : redactActiveWork(w)

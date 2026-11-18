@@ -10,6 +10,7 @@ const prisma = new PrismaClient()
 const ROLE_DESCRIPTIONS = {
   ADMIN: 'All permissions + user management',
   MANAGER: 'Manages projects; data limited to projects they lead or join',
+  TEAM_LEAD: 'Engineer who leads a team; can view (not score) their team in the team views',
   FDE_ENGINEER: 'Logs hours and works on tasks; data limited to own records'
 }
 

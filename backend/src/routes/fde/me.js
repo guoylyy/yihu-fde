@@ -8,7 +8,7 @@ const router = express.Router()
 router.use(internalAuth)
 
 // 1.2.6: 工作台聚合口径扩大到项目经理 —— 经理与工程师看同样的个人内容
-const RICH_ME_ROLES = ['FDE_ENGINEER', 'MANAGER']
+const RICH_ME_ROLES = ['FDE_ENGINEER', 'TEAM_LEAD', 'MANAGER']
 
 /**
  * 当前用户的项目成员关系（双轨: userId 新数据 / engineerId 历史数据, 去重）

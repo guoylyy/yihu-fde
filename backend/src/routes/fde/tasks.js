@@ -14,7 +14,7 @@ import { parseActualHours, hoursOut, taskOut, INVALID, ACTUAL_HOURS_MSG } from '
 
 // 内部员工视角可看 agent 身份; 客户/外部角色只给「正在自动开发」一层
 function isInternalView(user) {
-  return ['ADMIN', 'MANAGER', 'FDE_ENGINEER'].includes(user.role)
+  return ['ADMIN', 'MANAGER', 'TEAM_LEAD', 'FDE_ENGINEER'].includes(user.role)
 }
 
 const router = express.Router()

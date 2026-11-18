@@ -493,7 +493,7 @@ export async function markMiss({ objectiveId, userId, reason, carryToNextWeek = 
 /** 应该交 OKR 的人: 在职的 FDE 工程师; 主管/老板自己也交了的话一并列出 */
 async function participants(cycleId) {
   const engineers = await prisma.user.findMany({
-    where: { role: 'FDE_ENGINEER', status: 1, deletedAt: null },
+    where: { role: { in: ['FDE_ENGINEER', 'TEAM_LEAD'] }, status: 1, deletedAt: null },
     select: { id: true }
   })
   const owners = cycleId
@@ -693,7 +693,7 @@ export async function okrMondayReminder(now = new Date(), { dryRun = false } = {
   if (!cycle || cycle.status !== 'PLANNING') return { week: key, skipped: 'no-planning-cycle' }
 
   const engineers = await prisma.user.findMany({
-    where: { role: 'FDE_ENGINEER', status: 1, deletedAt: null },
+    where: { role: { in: ['FDE_ENGINEER', 'TEAM_LEAD'] }, status: 1, deletedAt: null },
     select: { id: true, name: true, username: true },
     orderBy: { id: 'asc' }
   })

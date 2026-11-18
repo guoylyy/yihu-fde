@@ -213,21 +213,35 @@ export const PERMISSIONS = {
   // 周 OKR(公司管理级): 看自己的、提交、追加进展、自评只需登录; 下面三项只给老板(ADMIN)。
   // 公司没有组长层, MANAGER(项目经理)不是谁的上级 —— 看全公司 OKR、打主管分、归档重开都不给
   'okr.view.all':            ['ADMIN'],
+  // 0.5.0 组长层: 老板定「组长能看不能评」—— 主管分仍只给 ADMIN, 不要加 TEAM_LEAD
   'okr.score.manager':       ['ADMIN'],
-  'okr.cycle.manage':        ['ADMIN']
+  'okr.cycle.manage':        ['ADMIN'],
+
+  // 0.5.0 R4 团队四屏: 组长看本组(范围见 lib/teamScope.js), 老板看全部;
+  // 「承诺 vs 实际」只给老板(team.view.all)
+  'team.view':               ['TEAM_LEAD', 'ADMIN'],
+  'team.view.all':           ['ADMIN']
+}
+
+// 0.5.0 组长(TEAM_LEAD)首先是一名工程师: 工程师默认有的权限点它都有,
+// 在此基础上多出 team.view(本组)。这里只改出厂默认, 后台覆盖过的权限点以覆盖为准。
+for (const roles of Object.values(PERMISSIONS)) {
+  if (roles.includes('FDE_ENGINEER') && !roles.includes('TEAM_LEAD')) roles.push('TEAM_LEAD')
 }
 
 // ===== 角色定义入库 (v1.3.2 动态角色) =====
 // roles 表是角色清单的唯一权威源, 启动时加载到内存, 角色管理保存后即时刷新。
 // 角色三属性: code(鉴权用, JWT/users.role 存它) / name(展示) / dataScope(数据范围)
 // dataScope: ALL=全量 / OWN_PROJECTS=自己负责或参与的项目 / OWN_RECORDS=仅本人相关记录
+//            TEAM=组长(0.5.0): 团队视图看本人所在团队; 其余业务数据按 OWN_RECORDS 口径
 
-export const DATA_SCOPES = ['ALL', 'OWN_PROJECTS', 'OWN_RECORDS']
+export const DATA_SCOPES = ['ALL', 'OWN_PROJECTS', 'TEAM', 'OWN_RECORDS']
 
 // DB 不可用时的兜底(与 migration seed 一致), 保证鉴权永不因角色表故障而全站瘫痪
 export const BUILTIN_ROLES = [
   { code: 'ADMIN',        name: '系统管理员', dataScope: 'ALL',          builtin: true, status: 1 },
   { code: 'MANAGER',      name: '项目经理',   dataScope: 'OWN_PROJECTS', builtin: true, status: 1 },
+  { code: 'TEAM_LEAD',    name: '组长',       dataScope: 'TEAM',         builtin: true, status: 1 },
   { code: 'FDE_ENGINEER', name: 'FDE 工程师', dataScope: 'OWN_RECORDS',  builtin: true, status: 1 }
 ]
 
@@ -347,6 +361,7 @@ export function hasPermission(user, perm) {
  * - OWN_PROJECTS → 经理型: 自己负责(managerId)/创建/参与成员的项目; 业务单据看自己负责的项目
  *                  (原 MANAGER。工时/线索沿用原行为不过滤 — 审批流需要全量)
  * - OWN_RECORDS  → 个人型: 仅本人参与项目 + 本人产生/被指派的记录 (FDE_ENGINEER)
+ * - TEAM         → 组长: 业务数据与 OWN_RECORDS 相同; 只有团队视图(/api/team)按团队放宽
  */
 export async function buildScopeWhere(user, entity) {
   if (!user) return {}
