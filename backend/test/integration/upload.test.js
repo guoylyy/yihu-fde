@@ -85,6 +85,8 @@ describe('上传对话文件 /api/devlog/upload', () => {
     assert.equal(md.source, 'PASTE')
     assert.match(md.uid, /^upload:[0-9a-f]{24}$/)
     assert.equal(md.turns, 2)
+    const mdRow = await prisma.devConversation.findUnique({ where: { id: BigInt(md.conversationId) } })
+    assert.ok(mdRow.startedAt && Date.now() - mdRow.startedAt.getTime() < 120_000, '没有时间戳的文本记上传时间, 列表里排在前面')
 
     const row = await prisma.devConversation.findUnique({ where: { id: BigInt(a.conversationId) }, include: { events: true } })
     assert.equal(String(row.createdBy), E.id)

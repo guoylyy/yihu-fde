@@ -378,6 +378,8 @@ router.post('/devlog/upload', internalAuth, uploadFiles, async (req, res) => {
           const existing = await prisma.devConversation.findUnique({ where: { uid: raw.uid }, select: { id: true } })
           // 重复上传没指定阶段: 保留原来的阶段(可能是人改过的)
           if (existing && !stage) delete raw.stage
+          // 通用文本没有时间戳: 新建时记上传时间, 否则列表(按开始时间倒序)里会沉到最后
+          if (!existing && !raw.startedAt) raw.startedAt = new Date().toISOString()
           const item = normalizeItem({ ...raw, ...(projectId ? { projectId: String(projectId) } : {}), ...(engineerId ? { engineerId: String(engineerId) } : {}) })
           const saved = await upsertConversation(item, actor)
           const c = await prisma.devConversation.findUnique({ where: { id: saved.id }, include: { events: { orderBy: { seq: 'asc' } } } })
