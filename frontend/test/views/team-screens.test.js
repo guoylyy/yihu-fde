@@ -62,3 +62,32 @@ test('takeTop / relativeTime', () => {
   assert.equal(relativeTime('2026-09-01T12:00:00Z', now).unit, 'date')
   assert.equal(t('team.ago.hours', { n: 3 }), '3 h ago')
 })
+
+// ---------------------------------------------------------------- 2. 负载看板
+
+test('负载阈值色: <100 绿, ≥100 黄, ≥150 红(与后端 loadBand 同口径); 进度条封顶 100', () => {
+  assert.deepEqual([0, 99, 100, 149, 150, 400].map(loadBand), ['OK', 'OK', 'WARN', 'WARN', 'OVER', 'OVER'])
+  assert.equal(loadColor(80), '#2e7d4f')
+  assert.equal(loadColor(100), '#d99a1e')
+  assert.equal(loadColor(150), '#c2362b')
+  assert.equal(loadBarPct(160), 100)
+  assert.equal(loadBarPct(null), 0)
+})
+
+const loadRender = compileView('views/admin/team/TeamLoad.vue')
+test('负载表: 色块 + 数字, 表头写清口径, 计划工时没有就写 —', async () => {
+  const rows = [
+    { engineerId: '1', name: '甲', activeTaskCount: 8, plannedHours: null, committedWeight: 100, conversationCount: 2, loadPct: 160, level: 'OVER' },
+    { engineerId: '2', name: '乙', activeTaskCount: 5, plannedHours: null, committedWeight: 0, conversationCount: 0, loadPct: 100, level: 'WARN' },
+    { engineerId: '3', name: '丙', activeTaskCount: 1, plannedHours: null, committedWeight: 0, conversationCount: 0, loadPct: 20, level: 'OK' }
+  ]
+  const html = await renderView(loadRender, { rows, meta: { week: null }, loading: false, error: '', threshold: 5, loadBand, loadColor, load() {}, TeamWeekHeader: {} })
+  assert.ok(html.includes(t('team.load_formula', { n: 5 })), '表头 tooltip 口径')
+  assert.ok(html.includes('Load = open tasks ÷ 5'))
+  for (const [band, color] of [['OVER', '#c2362b'], ['WARN', '#d99a1e'], ['OK', '#2e7d4f']]) {
+    assert.ok(html.includes(`band-${band}`), band)
+    assert.ok(html.includes(`background:${color}`), color)
+  }
+  assert.match(html, /160%/)
+  assert.ok(html.includes('—'))
+})

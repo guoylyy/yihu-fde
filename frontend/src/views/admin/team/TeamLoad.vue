@@ -1,72 +1,96 @@
 <template>
-  <!-- 0.5.0 团队 · 负载: 谁手上太满、谁空着, 按档位排 -->
-  <div class="team-load" v-loading="loading">
-    <p class="hint">{{ $t('team.load_hint') }}</p>
-    <el-empty v-if="!loading && !rows.length" :description="error || $t('team.no_members')" />
-    <el-table v-else :data="rows" stripe class="load-table" data-test="load-table">
-      <el-table-column :label="$t('team.member')" min-width="140" fixed>
-        <template #default="{ row }">
-          <div class="who">
-            <strong>{{ row.name }}</strong>
-            <span class="sub">{{ roleLabel(row.role) }}</span>
-          </div>
-        </template>
-      </el-table-column>
-      <el-table-column :label="$t('team.load')" width="96">
-        <template #default="{ row }">
-          <el-tag size="small" :type="LOAD_TAG[row.load]" effect="plain">{{ $t('team.load_level.' + row.load) }}</el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column :label="$t('team.open_tasks')" min-width="160">
-        <template #default="{ row }">
-          <div class="bar-cell">
-            <el-progress :percentage="barPct(row.open)" :show-text="false" :stroke-width="8" :color="barColor(row.load)" class="bar" />
-            <span class="num">{{ row.open }}</span>
-          </div>
-        </template>
-      </el-table-column>
-      <el-table-column prop="inProgress" :label="$t('team.in_progress')" width="90" align="right" />
-      <el-table-column :label="$t('team.overdue')" width="80" align="right">
-        <template #default="{ row }"><span :class="{ danger: row.overdue }">{{ row.overdue }}</span></template>
-      </el-table-column>
-      <el-table-column prop="dueSoon" :label="$t('team.due_7d')" width="96" align="right" />
-      <el-table-column prop="highPriority" :label="$t('team.high_priority')" width="90" align="right" />
-      <el-table-column prop="doneThisWeek" :label="$t('team.done_week')" width="96" align="right" />
-      <el-table-column :label="$t('team.actual_hours_week')" width="110" align="right">
-        <template #default="{ row }">{{ row.actualHoursThisWeek ? row.actualHoursThisWeek + 'h' : '-' }}</template>
-      </el-table-column>
-      <el-table-column prop="activeProjects" :label="$t('team.projects')" width="80" align="right" />
-    </el-table>
+  <!-- 0.5.0 团队 · 负载看板: 这周谁手上太满、谁空着。
+       数据: GET /api/team/load?week=YYYY-MM-DD(组长看本组, 老板看全部); 负载 = 进行中任务数 ÷ meta.threshold -->
+  <div class="team-load">
+    <TeamWeekHeader :week="meta.week" />
+    <p class="hint">{{ $t('team.load_page.hint', { n: threshold }) }}</p>
+
+    <div v-if="loading" class="panel" data-test="load-skeleton"><el-skeleton :rows="6" animated /></div>
+    <LoadError v-else-if="error" :message="error" @retry="load" />
+    <el-empty v-else-if="!rows.length" :description="$t('team.no_members')" />
+    <div v-else class="panel table-wrap">
+      <el-table :data="rows" stripe class="load-table" data-test="load-table" :default-sort="{ prop: 'loadPct', order: 'descending' }">
+        <el-table-column prop="name" :label="$t('team.load_page.name')" min-width="130" fixed sortable>
+          <template #default="{ row }">
+            <router-link :to="`/admin/team/members/${row.engineerId}`" class="name">{{ row.name }}</router-link>
+          </template>
+        </el-table-column>
+        <el-table-column prop="activeTaskCount" :label="$t('team.load_page.active')" min-width="110" align="right" sortable />
+        <el-table-column prop="plannedHours" min-width="130" align="right">
+          <template #header>
+            <el-tooltip :content="$t('team.load_page.planned_tip')" placement="top">
+              <span class="th-tip">{{ $t('team.load_page.planned') }} <span class="q">?</span></span>
+            </el-tooltip>
+          </template>
+          <template #default="{ row }">{{ row.plannedHours == null ? '—' : row.plannedHours + 'h' }}</template>
+        </el-table-column>
+        <el-table-column prop="committedWeight" :label="$t('team.load_page.weight')" min-width="130" align="right" sortable />
+        <el-table-column prop="conversationCount" :label="$t('team.load_page.convs')" min-width="120" align="right" sortable />
+        <el-table-column prop="loadPct" min-width="150" sortable>
+          <template #header>
+            <el-tooltip :content="$t('team.load_formula', { n: threshold })" placement="top">
+              <span class="th-tip" data-test="load-th">{{ $t('team.load_page.load_pct') }} <span class="q">?</span></span>
+            </el-tooltip>
+          </template>
+          <template #default="{ row }">
+            <span class="load-cell" :class="'band-' + loadBand(row.loadPct)" data-test="load-cell">
+              <span class="swatch" :style="{ background: loadColor(row.loadPct) }" />
+              <b>{{ row.loadPct }}%</b>
+              <span class="band-text">{{ $t('team.load_band.' + loadBand(row.loadPct)) }}</span>
+            </span>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { $t } from '@/i18n'
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { fde } from '@/api/index.js'
-import { roleLabel } from '@/api/roles.js'
-import { LOAD_TAG, sortByLoad } from './teamUtils.js'
+import LoadError from '@/components/common/LoadError.vue'
+import TeamWeekHeader from './TeamWeekHeader.vue'
+import { loadBand, loadColor, LOAD_THRESHOLD } from './teamUtils.js'
 
-const list = ref([])
-const loading = ref(false)
+const route = useRoute()
+const rows = ref([])
+const meta = ref({})
+const loading = ref(true)
 const error = ref('')
-const rows = computed(() => sortByLoad(list.value))
-const maxOpen = computed(() => Math.max(12, ...list.value.map(r => r.open || 0)))
-const barPct = (n) => Math.round(((n || 0) / maxOpen.value) * 100)
-const barColor = (l) => ({ OVERLOAD: '#c2362b', BUSY: '#b3450f', NORMAL: '#1c1917', IDLE: '#c9c4bc' }[l] || '#1c1917')
+const threshold = computed(() => meta.value.threshold || LOAD_THRESHOLD)
 
-onMounted(async () => {
+async function load() {
   loading.value = true
-  try { list.value = (await fde.team.overview()).list || [] } catch (e) { error.value = e.message } finally { loading.value = false }
-})
+  error.value = ''
+  try {
+    const r = await fde.team.load(route.query.week || undefined)
+    rows.value = r.data || []
+    meta.value = r.meta || {}
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    loading.value = false
+  }
+}
+watch(() => route.query.week, load, { immediate: true })
 </script>
 
 <style scoped>
-.hint { margin: 0 0 12px; color: #8f8a82; font-size: 13px; }
-.who { display: flex; flex-direction: column; }
-.sub { font-size: 12px; color: #8f8a82; }
-.bar-cell { display: flex; align-items: center; gap: 8px; }
-.bar { flex: 1; }
-.num { width: 24px; text-align: right; font-variant-numeric: tabular-nums; }
-.danger { color: #c2362b; font-weight: 600; }
+.team-load { min-width: 0; }
+.hint { margin: 0 0 12px; color: var(--text-muted); font-size: 13px; }
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 4px; min-width: 0; }
+.table-wrap { overflow: hidden; } /* 窄屏时 el-table 自己横向滚, 页面不溢出 */
+.name { color: var(--text); font-weight: 600; text-decoration: none; }
+.name:hover { text-decoration: underline; }
+.th-tip { cursor: help; white-space: nowrap; }
+.load-table :deep(th .cell) { white-space: nowrap; }
+.q { display: inline-block; width: 14px; height: 14px; line-height: 14px; text-align: center; border-radius: 50%; background: #f0eee9; color: var(--text-muted); font-size: 10px; }
+.load-cell { display: inline-flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
+.swatch { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
+.band-text { font-size: 12px; color: var(--text-muted); }
+.band-OK b { color: var(--success); }
+.band-WARN b { color: #b37d12; }
+.band-OVER b { color: var(--danger); }
 </style>
