@@ -399,6 +399,8 @@ export const fde = {
     list: (params = {}) => request('/api/dev/conversations?' + new URLSearchParams(clean(params)).toString()),
     get: (id) => request(`/api/dev/conversations/${id}`),
     paste: (data) => request('/api/dev/conversations/paste', { method: 'POST', body: JSON.stringify(data), timeout: 75000 }),
+    // 0.5.1 上传对话文件: FormData(files[] + stage/projectId); 前端一次传一个文件好显示逐个进度, 解析+摘要可能要等模型
+    upload: (formData) => request('/api/devlog/upload', { method: 'POST', body: formData, timeout: 180000 }),
     summarize: (id) => request(`/api/dev/conversations/${id}/summarize`, { method: 'POST', body: '{}', timeout: 75000 }),
     link: (id, data) => request(`/api/dev/conversations/${id}/link`, { method: 'POST', body: JSON.stringify(data) })
   },

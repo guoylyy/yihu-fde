@@ -13,7 +13,10 @@
       <el-select v-model="query.stage" :placeholder="$t('conversations.stage')" clearable class="sel" @change="load(1)">
         <el-option v-for="s in STAGES" :key="s" :value="s" :label="$t('conversations.stages.' + s)" />
       </el-select>
-      <el-button type="primary" class="paste-btn" data-test="conv-paste" @click="pasteVisible = true">{{ $t('today.log_conversation') }}</el-button>
+      <div class="actions">
+        <el-button data-test="conv-paste" @click="pasteVisible = true">{{ $t('today.log_conversation') }}</el-button>
+        <el-button type="primary" data-test="conv-upload" @click="uploadVisible = true">{{ $t('conversations.upload_btn') }}</el-button>
+      </div>
     </div>
 
     <el-table v-loading="loading" :data="list" stripe class="conv-table" :empty-text="error || $t('today.no_conversations')"
@@ -46,6 +49,7 @@
       :current-page="query.page" @current-change="load" />
 
     <PasteConversationDialog v-model="pasteVisible" @saved="load(1)" />
+    <UploadConversationDialog v-model="uploadVisible" @saved="load(1)" />
   </div>
 </template>
 
@@ -53,6 +57,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { fde } from '@/api/index.js'
 import PasteConversationDialog from '@/components/devlog/PasteConversationDialog.vue'
+import UploadConversationDialog from '@/components/devlog/UploadConversationDialog.vue'
 import { SOURCES, STAGES, convTime } from './conversationUtils.js'
 import { firstSentence } from '../today/todayUtils.js'
 
@@ -62,6 +67,7 @@ const total = ref(0)
 const loading = ref(false)
 const error = ref('')
 const pasteVisible = ref(false)
+const uploadVisible = ref(false)
 
 async function load(page = query.page) {
   query.page = page
@@ -84,11 +90,16 @@ onMounted(() => load(1))
 .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
 .search { width: 220px; }
 .sel { width: 130px; }
-.paste-btn { margin-left: auto; }
+.actions { margin-left: auto; display: flex; gap: 8px; }
+.actions .el-button + .el-button { margin-left: 0; }
 .conv-table :deep(.el-table__row) { cursor: pointer; }
 .cell-title { display: flex; flex-direction: column; min-width: 0; }
 .cell-title strong { font-weight: 500; color: #1c1917; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sub { font-size: 12px; color: #8f8a82; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pager { margin-top: 14px; justify-content: center; }
-@media (max-width: 768px) { .search { width: 100%; } .paste-btn { margin-left: 0; } }
+@media (max-width: 768px) {
+  .search { width: 100%; }
+  .actions { margin-left: 0; width: 100%; }
+  .actions .el-button { flex: 1; }
+}
 </style>
