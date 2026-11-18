@@ -286,7 +286,7 @@ export function parseCodex(text, file) {
 /** 纯文本 Codex 日志: 以 "user" / "codex" / "assistant" 单独成行(可带 [时间] 前缀)分段 */
 export function parseCodexText(text, file) {
   const s = { messages: [], events: [], shas: [], ts: [], model: null, id: null, cwd: null, branch: null }
-  const HEAD = /^(?:\[([^\]]+)\]\s*)?(user|user instructions:|codex|assistant|exec)\s*:?\s*(.*)$/i
+  const HEAD = /^(?:\[([^\]]+)\]\s*)?(user instructions:|user|codex|assistant|exec)\s*:?\s*(.*)$/i
   let cur = null
   const flush = () => {
     if (!cur) return
