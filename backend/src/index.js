@@ -54,6 +54,8 @@ import auditLogsRouter from './routes/fde/audit-logs.js'
 import llmConfigsRouter from './routes/fde/llm-configs.js'
 import systemSettingsRouter from './routes/fde/system-settings.js'
 import cardsRouter from './routes/fde/cards.js'
+// 0.5.0 开发会话回流(/api/devlog、/api/dev、/api/projects/:id/timeline、/api/experience)
+import devlogRouter from './routes/fde/devlog.js'
 // 周 OKR(公司管理级, 与项目管理独立)
 import okrRouter from './routes/okr.js'
 import { loadSettings } from './lib/settings.js'
@@ -84,6 +86,8 @@ if (STORAGE_DRIVER === 'local') {
 // MCP Server(智能体对接, API Key 鉴权): 自带 20mb json 限额, 须在全局 express.json 之前挂载
 mountMcp(app)
 
+// 会话上报带完整正文, 默认 100kb 不够: 单独放宽, 须在全局 express.json 之前
+app.use('/api/devlog', express.json({ limit: '20mb' }))
 app.use(express.json())
 
 // 版本开关: 本实例未启用的模块一律 404(配了 ENABLED_MODULES / DISABLED_MODULES 才会收敛)
@@ -137,6 +141,9 @@ app.use('/api/fde/system-settings', systemSettingsRouter)
 app.use('/api/fde/cards', cardsRouter)
 
 app.use('/api/okr', okrRouter)
+
+// 路由内各自带鉴权(上报认 API Key, 其余认登录), 路径见 routes/fde/devlog.js 文件头
+app.use('/api', devlogRouter)
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', version: APP_VERSION, timestamp: new Date().toISOString() })

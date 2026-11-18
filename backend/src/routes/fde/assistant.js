@@ -1,6 +1,7 @@
 // AI 助手(全局抽屉): 能查、能出草稿、能总结
 //   GET    /api/fde/assistant/status                 能不能用、当前用的模型(名称 + 来源)
-//   POST   /api/fde/assistant/chat                   { conversationId?, message } → 助手回复 + 本轮草稿
+//   POST   /api/fde/assistant/chat                   { conversationId?, message, stage? } → 助手回复 + 本轮草稿
+//                                                    (0.5.0: 每轮同步进 dev_conversations, uid='pa_'+会话 id, 回传 devlogUid)
 //   GET    /api/fde/assistant/conversations          我的助手会话(复用 agent_conversations, source=ASSISTANT)
 //   GET    /api/fde/assistant/conversations/:id      会话消息 + 每条消息产出的草稿(含状态)
 //   DELETE /api/fde/assistant/conversations/:id      删除自己的会话(软删)
@@ -24,6 +25,7 @@ import { buildDraft, makeLookup, normalizeForSubmit, submitSpec, draftView, draf
 import { runConversation, MAX_TOOL_ROUNDS } from '../../services/assistant/chat.js'
 import { stubEnabled, stubLLM } from '../../services/assistant/stub.js'
 import { fmt, weekRange, businessDay, weekdayCn } from '../../services/assistant/dates.js'
+import { recordAssistantTurn, argsDigest, STAGES } from '../../services/devlog/conversations.js'
 
 const router = express.Router()
 router.use(internalAuth)
@@ -128,6 +130,7 @@ router.post('/chat', async (req, res) => {
     const allowed = toolsFor(req.user)
     const allowedNames = new Set(allowed.map((t) => t.name))
     const drafts = []
+    const toolLog = []   // 落 dev_conversations 用: 只记 { tool, args 摘要 }
 
     const ctx = {
       api, lookup, user: req.user, today,
@@ -142,6 +145,7 @@ router.post('/chat', async (req, res) => {
     // 每个工具调用都留痕(只记工具名、是否成功、耗时; 不记参数原文和返回内容)
     async function execTool(name, args) {
       const known = TOOL_NAMES.has(name)
+      toolLog.push({ tool: known ? name : String(name).slice(0, 40), args: argsDigest(args) })
       if (!allowedNames.has(name)) {
         await logInternalAction(req, 'ai.tool.denied', { resourceType: 'assistant', resourceId: conv.id, details: { tool: known ? name : '(unknown)', role: req.user.role } })
         return { error: known ? `当前用户（${getRoleName(req.user.role)}）没有使用「${name}」的权限` : `没有工具 ${String(name).slice(0, 40)}` }
@@ -198,10 +202,27 @@ router.post('/chat', async (req, res) => {
     })
     track(req.user.userId ?? req.user.id, 'assistant.chat', { via: 'ai', tools: result.calls.length, drafts: saved.length }).catch(() => {})
 
+    // 0.5.0 会话回流: 本轮追加进 dev_conversations。出错只记日志, 不影响对话
+    let devlogUid = `pa_${conv.id}`
+    try {
+      const stageIn = String(req.body?.stage || '').toUpperCase()
+      const eng = await prisma.engineer.findUnique({ where: { userId: uid(req) }, select: { id: true, deletedAt: true } })
+      await recordAssistantTurn({
+        conversationId: conv.id, title: conv.title, startedAt: conv.createdAt, userId: uid(req),
+        engineerId: eng && !eng.deletedAt ? eng.id : null,
+        stage: STAGES.includes(stageIn) ? stageIn : null,
+        model: avail.model?.model || avail.model?.name, userText: text, reply, toolCalls: toolLog
+      })
+    } catch (e) {
+      devlogUid = null
+      console.error('[assistant devlog]', e.message)
+    }
+
     res.json({
       code: 0,
       data: {
         conversationId: String(conv.id),
+        devlogUid,
         userMessage: { id: String(userMsg.id), role: 'USER', text, ts: userMsg.ts },
         message: { id: String(botMsg.id), role: 'ASSISTANT', text: reply, ts: botMsg.ts, drafts: saved.map(draftView) },
         toolCalls: result.calls,

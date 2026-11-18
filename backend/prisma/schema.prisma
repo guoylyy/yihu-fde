@@ -1560,3 +1560,86 @@ model AssistantDraft {
   @@index([conversationId])
   @@map("assistant_drafts")
 }
+
+// ===== 0.5.0 开发过程会话回流 =====
+// 开发过程里的 AI 会话(平台助手 / Hermes / Claude Code / Codex / 手贴)统一回流, 串成「需求 → 方案 → 编码 → 测试 → 复盘」。
+// uid 是外部会话的唯一 id, 作幂等键: 采集器重复上报只更新不新增。body 存正文 messages[](入库前脱敏, 见 services/devlog/redact.js)
+// source: PLATFORM_ASSISTANT / HERMES / CLAUDE_CODE / CODEX / PASTE
+// stage:  REQUIREMENT / DESIGN / CODING / TEST / RETRO / GENERAL
+// status: PENDING_LINK 待关联 / LINKED 已关联到项目任务 / IGNORED 忽略
+model DevConversation {
+  id           BigInt    @id @default(autoincrement())
+  uid          String    @unique @db.VarChar(64)
+  source       String    @db.VarChar(24)
+  stage        String    @default("GENERAL") @db.VarChar(16)
+  engineerId   BigInt?   @map("engineer_id")
+  projectId    BigInt?   @map("project_id")
+  taskId       BigInt?   @map("task_id")
+  milestoneId  BigInt?   @map("milestone_id")
+  model        String?   @db.VarChar(60)
+  startedAt    DateTime? @map("started_at")
+  endedAt      DateTime? @map("ended_at")
+  turns        Int       @default(0)
+  tokens       Int?
+  cost         Decimal?  @db.Decimal(12, 4)
+  branch       String?   @db.VarChar(120)
+  cwd          String?   @db.VarChar(300)
+  title        String?   @db.VarChar(200)
+  summary      String?   @db.Text
+  decisions    Json?
+  pitfalls     Json?
+  tags         Json?
+  commitShas   Json?     @map("commit_shas")
+  body         Json? // 正文 messages[], 已脱敏
+  bodyRedacted Boolean   @default(false) @map("body_redacted")
+  status       String    @default("PENDING_LINK") @db.VarChar(16)
+  createdBy    BigInt?   @map("created_by")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
+
+  events DevConversationEvent[]
+
+  @@index([projectId])
+  @@index([engineerId])
+  @@index([stage])
+  @@index([source])
+  @@map("dev_conversations")
+}
+
+// 会话里抽出来的关键事件(决策/踩坑/命令/产物/备注/原话引用), seq 为会话内序号
+model DevConversationEvent {
+  id             BigInt    @id @default(autoincrement())
+  conversationId BigInt    @map("conversation_id")
+  seq            Int
+  kind           String    @db.VarChar(16) // DECISION / PITFALL / COMMAND / ARTIFACT / NOTE / QUOTE
+  text           String    @db.Text
+  files          Json?
+  occurredAt     DateTime? @map("occurred_at")
+
+  conversation DevConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, seq])
+  @@map("dev_conversation_events")
+}
+
+// 从会话沉淀出来的可复用经验(后续同步到 Obsidian)
+model DevExperience {
+  id             BigInt    @id @default(autoincrement())
+  title          String    @db.VarChar(200)
+  kind           String    @default("EXPERIENCE") @db.VarChar(16) // EXPERIENCE / DECISION / PITFALL / HOWTO / DRIFT
+  body           String    @db.Text
+  projectId      BigInt?   @map("project_id")
+  conversationId BigInt?   @map("conversation_id")
+  tags           Json?
+  reusableLevel  Int       @default(2) @map("reusable_level")
+  obsidianPath   String?   @map("obsidian_path")
+  syncedAt       DateTime? @map("synced_at")
+  createdBy      BigInt?   @map("created_by")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  @@index([projectId])
+  @@map("dev_experiences")
+}
