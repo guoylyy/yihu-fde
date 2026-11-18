@@ -75,14 +75,15 @@ function systemPrompt(me, today) {
     `今天是 ${fmt(today)}（周${weekdayCn(today)}），本周是 ${wk.from} ~ ${wk.to}。当前用户：${me.name}（${getRoleName(me.role)}）。`,
     '',
     '规则：',
-    '1. 读数据只能通过工具；新建任务、需求、工时、评论只能调 draft_* 生成草稿——草稿要用户在界面上核对并点「确认」才会保存。绝不能说「已创建」「已保存」「已提交」，要说「草稿已生成，请核对后点确认」。',
+    '1. 读数据只能通过工具；新建任务、需求、工时、评论只能调 draft_* 生成草稿（记会话用 capture_conversation，同样只出草稿）——草稿要用户在界面上核对并点「确认」才会保存。绝不能说「已创建」「已保存」「已提交」，要说「草稿已生成，请核对后点确认」。',
     '2. 不知道就查，不要编造项目、任务、人名、日期和数字。项目名对不上时先调 list_my_projects，或请用户在候选里选。',
     '3. 必填信息缺了，也先调草稿工具把已知的填上，再用一句话问用户缺什么；不要猜。',
     '4. 日期直接把用户原话（如「周五」「下周三」「11/20」）传给工具，工具会换算；不需要你自己算。',
     '5. 总结类问题（周报、项目健康度）先调对应工具拿事实，再按工具返回的 format 写，只用返回的事实。',
     '6. 一次可以调多个工具；一句话里有几件事就出几张草稿。',
-    '7. 你不能审批、删除或修改已有数据；用户要求这些时，告诉他到对应页面操作。',
-    '8. 用中文回答，简洁，多用短列表；不要输出 JSON，不要把草稿卡片上的字段再完整复述一遍。'
+    '7. 你不能审批、删除或修改已有数据（唯一例外：link_conversation 只改开发会话的项目/任务/阶段关联，直接生效，调用后要逐条说明改了什么）；用户要求其它修改时，告诉他到对应页面操作。',
+    '8. 用中文回答，简洁，多用短列表；不要输出 JSON，不要把草稿卡片上的字段再完整复述一遍。',
+    '9. 用户贴了一段和 AI 的对话、让你「记下来 / 存一下」时调 capture_conversation（也是草稿，要用户确认），text 原样传；问「谁踩过这个坑 / 之前怎么做的」调 search_experience；问「我今天该干啥」这类笼统的今日概览调 today。'
   ].join('\n')
 }
 
@@ -95,7 +96,7 @@ async function loadHistory(conversationId) {
     if (m.role === 'USER') return { role: 'user', content: m.text }
     const mine = drafts.filter((d) => d.messageId === m.id)
     const note = mine.length
-      ? '\n' + mine.map((d) => `[草稿#${d.id} ${KIND_LABEL[d.kind]}「${d.payload.title || d.payload.workContent || d.payload.content || ''}」：${STATUS_LABEL[d.status]}${d.resultId ? ` #${d.resultId}` : ''}]`).join('\n')
+      ? '\n' + mine.map((d) => `[草稿#${d.id} ${KIND_LABEL[d.kind]}「${d.payload.title || d.payload.workContent || d.payload.content || String(d.payload.text || '').slice(0, 30)}」：${STATUS_LABEL[d.status]}${d.resultId ? ` #${d.resultId}` : ''}]`).join('\n')
       : ''
     return { role: 'assistant', content: (m.text || '') + note }
   })
@@ -155,6 +156,8 @@ router.post('/chat', async (req, res) => {
       let out
       try { out = await tool.run(args, ctx) } catch (e) { out = { error: e.message || String(e) } }
       await logInternalAction(req, 'ai.tool', { resourceType: 'assistant', resourceId: conv.id, details: { tool: name, kind: tool.kind, ok: !out?.error, ms: Date.now() - started } })
+      // 直接生效的写工具(link_conversation)不经过草稿确认, 在这里单独上报一次使用数据
+      if (tool.kind === 'write' && !out?.error) track(req.user.userId ?? req.user.id, 'assistant.tool.write', { via: 'ai', tool: name }).catch(() => {})
       return out
     }
 

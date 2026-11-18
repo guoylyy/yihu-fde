@@ -4,24 +4,45 @@
 import prisma from '../../lib/prisma.js'
 import { findMentions } from '../../lib/mentions.js'
 import { parseDate } from './dates.js'
+import { STAGES, firstSentence } from '../devlog/conversations.js'
+import { parsePaste, pasteTitle } from '../devlog/paste.js'
+import { ruleExtract } from '../devlog/summarize.js'
 
-export const DRAFT_KINDS = ['task', 'requirement', 'timesheet', 'comment']
-export const KIND_LABEL = { task: '任务', requirement: '需求', timesheet: '工时', comment: '评论' }
-/** 生成 / 确认某类草稿需要的权限点(与对应业务接口一致); null = 登录即可 */
-export const KIND_PERM = { task: 'task.create', requirement: 'projectRecord.create', timesheet: 'timesheet.create', comment: null }
+export const DRAFT_KINDS = ['task', 'requirement', 'timesheet', 'comment', 'conversation']
+export const KIND_LABEL = { task: '任务', requirement: '需求', timesheet: '工时', comment: '评论', conversation: '会话' }
+/** 生成 / 确认某类草稿需要的权限点(与对应业务接口一致); null = 登录即可(粘贴会话接口只要登录) */
+export const KIND_PERM = { task: 'task.create', requirement: 'projectRecord.create', timesheet: 'timesheet.create', comment: null, conversation: null }
 
 /** 各类草稿可编辑字段(白名单)与必填字段 */
 export const FIELDS = {
   task: { keys: ['projectId', 'title', 'description', 'assigneeUserId', 'dueDate', 'priority'], required: ['projectId', 'title'] },
   requirement: { keys: ['projectId', 'title', 'detail', 'priority', 'ownerId'], required: ['projectId', 'title'] },
   timesheet: { keys: ['projectId', 'workDate', 'hours', 'workContent', 'taskId'], required: ['projectId', 'workDate', 'hours', 'workContent'] },
-  comment: { keys: ['entity', 'entityId', 'content'], required: ['entity', 'entityId', 'content'] }
+  comment: { keys: ['entity', 'entityId', 'content'], required: ['entity', 'entityId', 'content'] },
+  conversation: { keys: ['text', 'stage', 'projectId', 'title'], required: ['text'] }
 }
 export const FIELD_LABEL = {
   projectId: '项目', title: '标题', description: '描述', assigneeUserId: '负责人', dueDate: '截止日期', priority: '优先级',
   detail: '详情', ownerId: '责任人', workDate: '日期', hours: '小时', workContent: '工作内容', taskId: '关联任务',
-  entity: '评论对象', entityId: '评论对象', content: '内容'
+  entity: '评论对象', entityId: '评论对象', content: '内容', text: '对话内容', stage: '阶段'
 }
+
+// ---------- 会话阶段 ----------
+export const STAGE_LABEL = { REQUIREMENT: '需求', DESIGN: '设计', CODING: '编码', TEST: '测试', RETRO: '复盘', GENERAL: '通用' }
+const STAGE_WORDS = [
+  [/需求|口径|范围/, 'REQUIREMENT'], [/设计|方案|架构/, 'DESIGN'], [/编码|开发|实现|写代码|coding|dev/i, 'CODING'],
+  [/测试|验收|缺陷|test|qa/i, 'TEST'], [/复盘|回顾|总结|retro/i, 'RETRO'], [/通用|其它|其他|general/i, 'GENERAL']
+]
+/** 「测试」「test」「TEST」「需求阶段」→ 枚举; 认不出 null */
+export function parseStage(v) {
+  if (v == null || v === '') return null
+  const s = String(v).trim()
+  if (STAGES.includes(s.toUpperCase())) return s.toUpperCase()
+  for (const [re, st] of STAGE_WORDS) if (re.test(s)) return st
+  return null
+}
+/** 助手代录的对话最长字数(一轮用户消息本身 ≤4000 字, 这里只是兜底) */
+const MAX_CAPTURE_CHARS = 100_000
 
 const PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'URGENT']
 const PRIORITY_WORDS = [[/紧急|加急|urgent|最高|马上|立刻/i, 'URGENT'], [/高|重要|high/i, 'HIGH'], [/低|不急|low/i, 'LOW'], [/中|普通|一般|medium|normal/i, 'MEDIUM']]
@@ -140,7 +161,7 @@ async function resolvePerson(lookup, projectId, ref) {
 }
 
 /** 任务引用(id / 标题关键字) → 我看得到的任务; projectId 给了就限在该项目 */
-async function resolveTask(api, ref, projectId) {
+export async function resolveTask(api, ref, projectId) {
   const s = str(ref, 200)
   if (!s) return {}
   if (isId(s)) {
@@ -173,11 +194,12 @@ export async function buildDraft(kind, args = {}, { api, lookup, today = new Dat
   const warnings = []
   const options = {}
   const a = args || {}
+  let capturePreview = null   // 会话草稿的预览(来源 / 识别出的阶段 / 摘要首句)
 
   // ---- 项目(四类都可能用到; 评论挂在项目上时也靠它) ----
   let project = null
   const projectRef = a.project_id ?? a.projectId ?? a.project
-  if (kind !== 'comment' || (!a.task && !a.task_id && projectRef)) {
+  if ((kind !== 'comment' && kind !== 'conversation') || (kind === 'comment' && !a.task && !a.task_id && projectRef) || (kind === 'conversation' && projectRef)) {
     const r = await resolveProject(lookup, projectRef)
     if (r.project) project = r.project
     else if (r.candidates) warnings.push(`「${str(projectRef, 50)}」对上了多个项目：${r.candidates.map((p) => p.name).join('、')}，请选一个`)
@@ -254,11 +276,33 @@ export async function buildDraft(kind, args = {}, { api, lookup, today = new Dat
       if (name && !content.includes('@' + name)) content = `@${name} ${content}`
     }
     payload.content = content || undefined
+  } else if (kind === 'conversation') {
+    // 只读预览: 用和粘贴接口同一套解析 / 规则摘要, 让卡片上先看到「识别出的阶段 + 摘要首句」; 不落库
+    let text = String(a.text ?? a.content ?? '').replace(/\r\n?/g, '\n').trim()
+    if (text.length > MAX_CAPTURE_CHARS) { text = text.slice(0, MAX_CAPTURE_CHARS); warnings.push(`对话太长，只保留前 ${MAX_CAPTURE_CHARS} 字`) }
+    payload.text = text || undefined
+    payload.title = str(a.title, 200) || undefined
+    const { messages } = parsePaste(text)
+    const rules = text ? ruleExtract({ title: payload.title || '', body: messages, commitShas: [] }, []) : null
+    let stageAuto = false
+    const given = parseStage(a.stage)
+    if (given) payload.stage = given
+    else {
+      if (a.stage) warnings.push(`阶段「${str(a.stage, 20)}」认不出，按内容自动识别`)
+      if (rules?.stageSuggestion) { payload.stage = rules.stageSuggestion; stageAuto = true }
+    }
+    names.stage = STAGE_LABEL[payload.stage || 'GENERAL']
+    const summary = rules ? firstSentence(String(rules.summary).replace(/^1\.\s*/, '')) : ''
+    capturePreview = {
+      source: 'AI 助手', stageAuto, summary, messages: messages.length,
+      autoTitle: payload.title ? null : pasteTitle(messages)
+    }
   }
 
   for (const k of Object.keys(payload)) if (payload[k] === undefined) delete payload[k]
   const missing = FIELDS[kind].required.filter((k) => payload[k] == null || payload[k] === '')
   const labels = { names, options }
+  if (capturePreview) labels.preview = capturePreview
   if (kind === 'comment') {
     labels.mentions = await mentionsOf(payload.content)
     const said = (String(payload.content || '').match(/@([^\s@,，。:：]+)/g) || []).map((x) => x.slice(1))
@@ -299,6 +343,13 @@ export async function normalizeForSubmit(kind, draftPayload, override, { lookup,
     } else if (k === 'hours') {
       v = parseHours(v)
       if (!v) return { error: '小时数要在 0.25 到 24 之间' }
+    } else if (k === 'stage') {
+      v = parseStage(v)
+      if (!v) return { error: `阶段只能是 ${Object.values(STAGE_LABEL).join('/')}` }
+    } else if (k === 'text') {
+      v = String(v).trim()
+      if (!v) continue
+      if (v.length > MAX_CAPTURE_CHARS) return { error: `对话内容最多 ${MAX_CAPTURE_CHARS} 字` }
     } else if (k === 'entity') {
       if (!['task', 'project'].includes(v)) return { error: '评论只能挂在任务或项目上' }
     } else {
@@ -333,6 +384,10 @@ export function submitSpec(kind, p) {
       link: () => (p.entity === 'task' ? `/admin/tasks?open=${p.entityId}` : `/admin/projects/${p.entityId}`)
     }
   }
+  if (kind === 'conversation') {
+    // 与「记一笔会话」同一个接口: 按文本哈希幂等, 同一段对话再确认也不会多一条
+    return { method: 'POST', path: '/api/dev/conversations/paste', body: p, link: (r) => `/admin/conversations/${r.id}` }
+  }
   throw new Error(`不支持的草稿类型 ${kind}`)
 }
 
@@ -347,6 +402,7 @@ export function draftView(d) {
     names: labels.names || {},
     options: labels.options || {},
     mentions: labels.mentions || [],
+    preview: labels.preview || null,
     warnings: labels.warnings || [],
     missing: d.missing || [],
     resultId: d.resultId || null,
@@ -368,8 +424,9 @@ export function draftToolResult(d) {
     draft: true,
     kind: d.kind,
     note: '已生成草稿卡片，等用户在界面上核对后点「确认」才会保存。不要说「已创建」。',
-    filled: Object.fromEntries(Object.entries(d.payload).map(([k, v]) => [FIELD_LABEL[k] || k, d.labels.names[k] || v])),
+    filled: Object.fromEntries(Object.entries(d.payload).map(([k, v]) => [FIELD_LABEL[k] || k, d.labels.names[k] || (k === 'text' ? `${String(v).slice(0, 60)}…（共 ${String(v).length} 字）` : v)])),
     missing: d.missing.map((k) => FIELD_LABEL[k] || k),
-    warnings: d.warnings
+    warnings: d.warnings,
+    ...(d.labels.preview ? { preview: { stage: d.labels.names.stage, stageAuto: d.labels.preview.stageAuto, summary: d.labels.preview.summary } } : {})
   }
 }

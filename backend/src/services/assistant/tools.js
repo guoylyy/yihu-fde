@@ -5,7 +5,8 @@
 // perm: 用这个工具需要的权限点(与背后的业务接口一致); 没权限的工具不给模型看, 模型硬调也会被拒并留痕
 import { hasPermission } from '../../lib/auth.js'
 import prisma from '../../lib/prisma.js'
-import { buildDraft, resolveProject, KIND_PERM, draftToolResult } from './drafts.js'
+import { buildDraft, resolveProject, resolveTask, parseStage, KIND_PERM, STAGE_LABEL, draftToolResult } from './drafts.js'
+import { firstSentence } from '../devlog/conversations.js'
 import { fmt, weekRange, parseWeek, parseDate, dbDay, tsDay, businessDay } from './dates.js'
 
 const DONE = ['DONE', 'VERIFIED']
@@ -59,6 +60,39 @@ async function myTimesheets(ctx, from, to) {
 }
 
 const projectParam = { type: 'string', description: '项目名称、编号或 id，口语简称也行（如「电梯导轨」）' }
+const stageParam = { type: 'string', description: '阶段：需求 / 设计 / 编码 / 测试 / 复盘 / 通用（中英文都行）' }
+const EXPERIENCE_KIND_LABEL = { EXPERIENCE: '经验', DECISION: '决策', PITFALL: '踩坑', HOWTO: '做法', DRIFT: '口径漂移' }
+const EXPERIENCE_KIND_WORDS = [[/坑|pitfall/i, 'PITFALL'], [/决策|决定|decision/i, 'DECISION'], [/做法|怎么做|步骤|howto/i, 'HOWTO'], [/漂移|drift/i, 'DRIFT'], [/经验|experience/i, 'EXPERIENCE']]
+const SOURCE_LABEL = { PLATFORM_ASSISTANT: '平台助手', HERMES: 'Hermes', CLAUDE_CODE: 'Claude Code', CODEX: 'Codex', PASTE: '粘贴' }
+const MAIN_STAGES = ['REQUIREMENT', 'DESIGN', 'CODING', 'TEST']   // 时间线上的四个主阶段; 复盘 / 通用另列
+
+function parseExperienceKind(v) {
+  if (v == null || v === '') return null
+  const s = String(v).trim()
+  if (EXPERIENCE_KIND_LABEL[s.toUpperCase()]) return s.toUpperCase()
+  for (const [re, k] of EXPERIENCE_KIND_WORDS) if (re.test(s)) return k
+  return undefined
+}
+
+/** 项目参数可选: 没给返回 {}; 给了解析不出返回 { error } */
+async function optionalProject(ctx, ref) {
+  if (ref == null || ref === '') return {}
+  return projectOrError(ctx, String(ref))
+}
+
+/** 本周 OKR 交没交(与「我的今日」同一口径) */
+function okrSubmitState(week) {
+  if (!week?.cycle) return { state: 'NO_CYCLE', text: '本周还没有 OKR 周期' }
+  const live = (week.objectives || []).filter((o) => o.status !== 'DROPPED')
+  const submitted = live.length > 0 && live.every((o) => o.submittedAt)
+  if (!submitted) return week.cycle.deadlinePassed ? { state: 'OVERDUE', text: '未交（已过截止）' } : { state: 'PENDING', text: '未交' }
+  return live.some((o) => o.lateSubmit) ? { state: 'LATE', text: '已交（迟交）' } : { state: 'ON_TIME', text: '已交' }
+}
+
+const convBrief = (c) => ({
+  id: String(c.id), title: c.title || '（无标题会话）', stage: STAGE_LABEL[c.stage] || c.stage,
+  source: SOURCE_LABEL[c.source] || c.source, at: tsDay(c.startedAt || c.createdAt)
+})
 
 export const TOOLS = [
   // ================= 查 =================
@@ -268,6 +302,196 @@ export const TOOLS = [
       required: ['content']
     },
     run: (a, ctx) => ctx.addDraft('comment', a)
+  },
+
+  // ================= 开发会话 / 经验(0.5.0) =================
+  {
+    name: 'capture_conversation', kind: 'draft', perm: KIND_PERM.conversation,
+    description: '把一段和 AI 的开发对话记进平台的「会话」（出草稿卡片，用户确认后才保存，与「记一笔会话」同一个接口，同一段文本重复确认不会多一条）。用户说「把这段对话记下来」「存一下这段会话」「记一笔会话」并贴了对话原文时用。必填 text（对话原文，原样传，不要改写或总结）；可选 stage（不给就按内容自动识别）、project（要挂到的项目）、title。只是要查会话、关联已有会话时不要用它。',
+    parameters: {
+      type: 'object',
+      properties: {
+        text: { type: 'string', description: '对话原文，原样传；可带「用户: / 助手:」角色标记' },
+        stage: stageParam,
+        project: { ...projectParam, description: '可选，要挂到的项目；不给就进「待关联」' },
+        title: { type: 'string', description: '可选，会话标题；不给自动取第一句' }
+      },
+      required: ['text']
+    },
+    run: (a, ctx) => ctx.addDraft('conversation', { ...a, project: a.project ?? a.projectId ?? a.project_id })
+  },
+  {
+    name: 'link_conversation', kind: 'write', perm: 'project.view',
+    description: '把一条已有的开发会话关联到项目 / 任务 / 阶段（只改关联，不改会话内容，直接生效，不出草稿）。用户说「把会话 #123 挂到 XX 项目」「刚才那段对话算测试阶段」「这条会话关联到 XX 任务」时用。conversationId 填会话 id；用户说「刚才那段 / 最近一条」时填 latest。project / task / stage 至少给一个。调用后必须在回复里逐条说明改了什么（改前 → 改后）。',
+    parameters: {
+      type: 'object',
+      properties: {
+        conversationId: { type: 'string', description: '会话 id；「刚才那段 / 最近一条」填 latest' },
+        project: { ...projectParam, description: '要关联的项目（名称/编号/id）' },
+        task: { type: 'string', description: '要关联的任务（标题关键字或 id）；只给任务会自动带上所属项目' },
+        stage: stageParam
+      },
+      required: ['conversationId']
+    },
+    async run(a, ctx) {
+      // 会话: id, 或 latest = 我最近一条(不算平台助手自己这条)
+      let id = String(a.conversationId ?? a.conversation_id ?? '').trim().replace(/^#/, '')
+      if (!id || /^(latest|last|最近|刚才)/i.test(id)) {
+        const r = await ctx.api('GET', '/api/dev/conversations', { query: { engineerId: 'me', size: 20 } })
+        if (r.code !== 0) return { error: r.message || '查会话失败' }
+        const mine = (r.data.list || []).filter((c) => c.source !== 'PLATFORM_ASSISTANT')
+          .sort((x, y) => new Date(y.createdAt) - new Date(x.createdAt))
+        if (!mine.length) return { error: '你还没有可关联的会话，先用 capture_conversation 记一段' }
+        id = String(mine[0].id)
+      }
+      if (!/^[1-9]\d{0,17}$/.test(id)) return { error: `会话 id「${id.slice(0, 20)}」不合法` }
+      const before = await ctx.api('GET', `/api/dev/conversations/${id}`)
+      if (before.code !== 0) return { error: before.message || '会话不存在或无权查看' }
+
+      const body = {}
+      const names = {}
+      const projectRef = a.project ?? a.projectId ?? a.project_id ?? a.projectName
+      if (projectRef) {
+        const pr = await projectOrError(ctx, String(projectRef))
+        if (pr.error) return pr
+        body.projectId = pr.project.id; names.projectId = pr.project.name
+      }
+      const taskRef = a.task ?? a.taskId ?? a.task_id
+      if (taskRef) {
+        const r = await resolveTask(ctx.api, String(taskRef), body.projectId)
+        if (r.candidates) return { error: `任务对上了多个，请让用户选：${r.candidates.map((t) => `${t.title}(id ${t.id})`).join('、')}` }
+        if (!r.task) return { error: `你看得到的任务里没有「${String(taskRef).slice(0, 40)}」` }
+        body.taskId = r.task.id; names.taskId = r.task.title
+        if (!body.projectId && r.task.projectName) names.projectId = r.task.projectName
+      }
+      if (a.stage) {
+        const st = parseStage(a.stage)
+        if (!st) return { error: `阶段「${String(a.stage).slice(0, 20)}」认不出，只能是 ${Object.values(STAGE_LABEL).join('/')}` }
+        body.stage = st
+      }
+      if (!Object.keys(body).length) return { error: '要关联到什么？project / task / stage 至少给一个' }
+
+      const r = await ctx.api('POST', `/api/dev/conversations/${id}/link`, { body })
+      if (r.code !== 0) return { error: r.message || '关联失败' }
+      const old = before.data
+      const projectName = async (pid) => {
+        if (pid == null) return '无'
+        if (names.projectId && String(pid) === String(r.data.projectId)) return names.projectId
+        return (await ctx.lookup.projects()).find((p) => p.id === String(pid))?.name || `项目#${pid}`
+      }
+      const label = { projectId: '项目', taskId: '任务', milestoneId: '里程碑', stage: '阶段' }
+      const changes = []
+      for (const k of r.data.changed || []) {
+        if (k === 'projectId') changes.push({ field: '项目', before: await projectName(old.projectId), after: await projectName(r.data.projectId) })
+        else if (k === 'stage') changes.push({ field: '阶段', before: STAGE_LABEL[old.stage] || old.stage, after: STAGE_LABEL[r.data.stage] || r.data.stage })
+        else if (k === 'taskId') changes.push({ field: '任务', before: old.taskId ? `任务#${old.taskId}` : '无', after: names.taskId || (r.data.taskId ? `任务#${r.data.taskId}` : '无') })
+        else changes.push({ field: label[k] || k, before: old[k] ?? '无', after: r.data[k] ?? '无' })
+      }
+      return {
+        conversation: { id, title: old.title || '（无标题会话）' },
+        changed: changes,
+        note: changes.length
+          ? '关联已直接生效（只改关联，不改内容）。回复里逐条告诉用户改了什么：字段 改前 → 改后。'
+          : '关联本来就是这样，没有改动；如实告诉用户。'
+      }
+    }
+  },
+  {
+    name: 'search_experience', kind: 'read', perm: null,
+    description: '在经验库里搜沉淀下来的经验 / 决策 / 踩坑 / 做法。用户问「这个坑谁踩过」「之前 XX 是怎么做的」「有没有关于 XX 的经验」时用。可选 keyword、kind（经验/决策/踩坑/做法/口径漂移）、project；最多返回 5 条（标题 + 摘要首句 + id）。要找项目、任务等其它东西用 search_anything。',
+    parameters: {
+      type: 'object',
+      properties: {
+        keyword: { type: 'string', description: '关键字，可选' },
+        kind: { type: 'string', description: '经验 / 决策 / 踩坑 / 做法 / 口径漂移，可选' },
+        project: { ...projectParam, description: '可选，只看某个项目沉淀的' }
+      }
+    },
+    async run(a, ctx) {
+      const kind = parseExperienceKind(a.kind)
+      if (kind === undefined) return { error: `kind「${String(a.kind).slice(0, 20)}」认不出，只能是 ${Object.values(EXPERIENCE_KIND_LABEL).join('/')}` }
+      const pr = await optionalProject(ctx, a.project ?? a.projectId ?? a.project_id)
+      if (pr.error) return pr
+      const keyword = String(a.keyword || '').trim().slice(0, 100) || undefined
+      const r = await ctx.api('GET', '/api/experience', { query: { keyword, kind, projectId: pr.project?.id, size: 5 } })
+      if (r.code !== 0) return { error: r.message || '查经验失败' }
+      return {
+        total: r.data.total,
+        items: (r.data.list || []).slice(0, 5).map((x) => ({
+          id: String(x.id), title: x.title, kind: EXPERIENCE_KIND_LABEL[x.kind] || x.kind,
+          summary: firstSentence(String(x.body || '').replace(/^#+\s.*\n/, ''))
+        })),
+        ...(r.data.total > 5 ? { more: `还有 ${r.data.total - 5} 条，可以让用户换个更具体的关键字` } : {})
+      }
+    }
+  },
+  {
+    name: 'project_timeline', kind: 'read', perm: 'project.view',
+    description: '看一个项目的开发会话时间线：需求 / 设计 / 编码 / 测试四个阶段各有几条会话（复盘、通用另列），以及最近 3 条会话标题。用户问「XX 项目各阶段聊了多少」「XX 项目最近有什么会话」「XX 项目的过程记录」时用。必填 project（名称、编号或 id）。',
+    parameters: {
+      type: 'object',
+      properties: {
+        project: projectParam,
+        projectId: { type: 'string', description: '项目 id（和 project 二选一）' },
+        projectName: { type: 'string', description: '项目名称（和 project 二选一）' }
+      }
+    },
+    async run(a, ctx) {
+      const pr = await projectOrError(ctx, a.projectId ?? a.project ?? a.projectName ?? a.project_id)
+      if (pr.error) return pr
+      const r = await ctx.api('GET', `/api/projects/${pr.project.id}/timeline`)
+      if (r.code !== 0) return { error: r.message || '查时间线失败' }
+      const all = Object.values(r.data).flat()
+      const count = (st) => (r.data[st] || []).length
+      return {
+        project: { id: pr.project.id, name: pr.project.name },
+        total: all.length,
+        stages: Object.fromEntries(MAIN_STAGES.map((st) => [STAGE_LABEL[st], count(st)])),
+        others: { 复盘: count('RETRO'), 通用: count('GENERAL') },
+        recent: all
+          .map((c) => ({ ...c, at: c.startedAt || '' }))
+          .sort((x, y) => String(y.at).localeCompare(String(x.at)) || Number(y.id) - Number(x.id))
+          .slice(0, 3)
+          .map((c) => ({ id: c.id, title: c.title || '（无标题会话）', stage: STAGE_LABEL[c.stage] || null, date: c.startedAt ? tsDay(c.startedAt) : null })),
+        link: `/admin/projects/${pr.project.id}`
+      }
+    }
+  },
+  {
+    name: 'today', kind: 'read', perm: null,
+    description: '我今天的概览：我进行中的任务（最多 5 条）、待我审批的数量、本周 OKR 交没交、最近 3 条开发会话。用户说「我今天该干啥」「今天有什么事」「给我看下今天的情况」这类笼统地问自己今天时用；只问任务用 list_my_tasks，只问工时用 list_my_timesheets。无参数。',
+    parameters: { type: 'object', properties: {} },
+    async run(a, ctx) {
+      const now = ctx.today
+      const safe = async (fn, fallback) => { try { return await fn() } catch (e) { return { ...fallback, error: e.message } } }
+      const [tasks, approvals, okr, conversations] = await Promise.all([
+        safe(async () => {
+          const list = (await myTasks(ctx)).filter((t) => ['IN_PROGRESS', 'REWORK'].includes(t.status))
+            .sort((x, y) => (x.dueDate ? day(x.dueDate) : '9999').localeCompare(y.dueDate ? day(y.dueDate) : '9999'))
+          return { total: list.length, list: list.slice(0, 5).map((t) => taskBrief(t, now)) }
+        }, { total: 0, list: [] }),
+        safe(async () => {
+          const r = await ctx.api('GET', '/api/fde/me/approvals', { query: { limit: 1 } })
+          if (r.code !== 0) throw new Error(r.message)
+          return { canApprove: !!r.data.canApprove, total: r.data.total, timesheets: r.data.counts?.timesheets || 0, tasksToVerify: r.data.counts?.tasksToVerify || 0 }
+        }, { total: 0 }),
+        safe(async () => {
+          const r = await ctx.api('GET', '/api/okr/my')
+          if (r.code !== 0) throw new Error(r.message)
+          return { week: r.data.cycle ? `${r.data.cycle.year}-W${String(r.data.cycle.weekNo).padStart(2, '0')}` : r.data.week, ...okrSubmitState(r.data) }
+        }, { state: 'UNKNOWN', text: '查不到' }),
+        safe(async () => {
+          const r = await ctx.api('GET', '/api/dev/conversations', { query: { engineerId: 'me', size: 3 } })
+          if (r.code !== 0) throw new Error(r.message)
+          return { list: (r.data.list || []).map(convBrief) }
+        }, { list: [] })
+      ])
+      return {
+        today: fmt(businessDay(now)),
+        inProgressTasks: tasks, pendingApprovals: approvals, okrThisWeek: okr, recentConversations: conversations,
+        format: '分四行简短说：进行中任务（列标题与截止日）、待我审批几条、本周 OKR 交没交、最近会话；没有的写「无」。'
+      }
+    }
   },
 
   // ================= 总结(不改数据) =================

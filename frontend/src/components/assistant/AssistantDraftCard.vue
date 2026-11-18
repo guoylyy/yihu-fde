@@ -15,10 +15,10 @@
     </div>
 
     <!-- 只读视图 -->
-    <dl v-if="!editing" class="d-fields">
+    <dl v-if="!editing" class="d-fields" :class="`f-${draft.kind}`">
       <template v-for="f in fields" :key="f.key">
         <dt>{{ $t(f.label) }}</dt>
-        <dd :class="{ need: isMissing(f.key), multiline: f.type === 'textarea' }">
+        <dd :class="{ need: isMissing(f.key), multiline: f.type === 'textarea', clamp: f.key === 'text', muted: f.type === 'project' && !has(draft.payload[f.key]) }" :data-test="`draft-${f.key}`">
           <template v-if="isMissing(f.key)">{{ $t('assistant.need') }}</template>
           <template v-else>{{ display(f) }}</template>
         </dd>
@@ -35,11 +35,14 @@
     <!-- 改一改 -->
     <el-form v-else label-position="top" size="default" class="d-form" @submit.prevent>
       <el-form-item v-for="f in editableFields" :key="f.key" :label="$t(f.label)" :required="required.includes(f.key)">
-        <el-select v-if="f.type === 'project'" v-model="form[f.key]" filterable style="width: 100%" @change="onProjectChange">
+        <el-select v-if="f.type === 'project'" v-model="form[f.key]" filterable :clearable="!required.includes(f.key)" style="width: 100%" @change="onProjectChange">
           <el-option v-for="p in projectOptions" :key="p.id" :label="p.name" :value="p.id" />
         </el-select>
         <el-select v-else-if="f.type === 'member'" v-model="form[f.key]" filterable clearable style="width: 100%">
           <el-option v-for="m in memberOptions" :key="m.userId" :label="m.name" :value="m.userId" />
+        </el-select>
+        <el-select v-else-if="f.type === 'stage'" v-model="form[f.key]" style="width: 100%">
+          <el-option v-for="st in STAGES" :key="st" :label="$t(`conversations.stages.${st}`)" :value="st" />
         </el-select>
         <el-select v-else-if="f.type === 'priority'" v-model="form[f.key]" style="width: 100%">
           <el-option v-for="p in PRIORITIES" :key="p" :label="$t(`assistant.p_${p}`)" :value="p" />
@@ -81,6 +84,7 @@ const props = defineProps({ draft: { type: Object, required: true } })
 defineEmits(['navigate'])
 
 const PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'URGENT']
+const STAGES = ['REQUIREMENT', 'DESIGN', 'CODING', 'TEST', 'RETRO', 'GENERAL']
 // 每类草稿的字段: key / 文案 / 类型(决定显示与编辑控件)
 const FIELDS = {
   task: [
@@ -95,11 +99,19 @@ const FIELDS = {
     ['projectId', 'f_project', 'project'], ['workDate', 'f_work_date', 'date'], ['hours', 'f_hours', 'hours'],
     ['workContent', 'f_work_content', 'textarea'], ['taskId', 'f_task', 'readonly']
   ],
-  comment: [['entityId', 'f_target', 'readonly'], ['content', 'f_content', 'textarea']]
+  comment: [['entityId', 'f_target', 'readonly'], ['content', 'f_content', 'textarea']],
+  // 记会话: 来源 / 阶段 / 将写入的项目三行总在(和别的草稿一样的卡片), 再给识别出的摘要首句
+  conversation: [
+    ['source', 'f_source', 'fixed'], ['stage', 'f_stage', 'stage'], ['projectId', 'f_target_project', 'project'],
+    ['summary', 'f_summary', 'preview'], ['title', 'f_title'], ['text', 'f_conversation', 'textarea']
+  ]
 }
+// 选填但总要显示的行(没值时给说明, 而不是藏起来)
+const ALWAYS = { conversation: ['source', 'stage', 'projectId'] }
 const REQUIRED = {
   task: ['projectId', 'title'], requirement: ['projectId', 'title'],
-  timesheet: ['projectId', 'workDate', 'hours', 'workContent'], comment: ['entityId', 'content']
+  timesheet: ['projectId', 'workDate', 'hours', 'workContent'], comment: ['entityId', 'content'],
+  conversation: ['text']
 }
 const LABEL = Object.fromEntries(Object.values(FIELDS).flat().map(([k, l]) => [k, `assistant.${l}`]))
 const labelOf = (k) => LABEL[k] || k
@@ -108,10 +120,11 @@ const required = computed(() => REQUIRED[props.draft.kind] || [])
 const fields = computed(() => (FIELDS[props.draft.kind] || [])
   .map(([key, label, type = 'text']) => ({ key, label: `assistant.${label}`, type }))
   // 选填且没值的不占地方(描述、关联任务等)
-  .filter((f) => required.value.includes(f.key) || has(props.draft.payload[f.key])))
+  .filter((f) => required.value.includes(f.key) || (ALWAYS[props.draft.kind] || []).includes(f.key) ||
+    (f.type === 'preview' ? !!props.draft.preview?.summary : has(props.draft.payload[f.key]))))
 const editableFields = computed(() => (FIELDS[props.draft.kind] || [])
   .map(([key, label, type = 'text']) => ({ key, label: `assistant.${label}`, type }))
-  .filter((f) => f.type !== 'readonly'))
+  .filter((f) => !['readonly', 'fixed', 'preview'].includes(f.type)))
 
 const has = (v) => v !== undefined && v !== null && v !== ''
 const missingNow = computed(() => required.value.filter((k) => !has(props.draft.payload[k])))
@@ -123,6 +136,10 @@ const memberOptions = ref(props.draft.options?.members || [])
 function display(f) {
   const v = props.draft.payload[f.key]
   const name = props.draft.names?.[f.key]
+  if (f.type === 'fixed') return $t('assistant.source_ai')
+  if (f.type === 'preview') return props.draft.preview?.summary || '—'
+  if (f.type === 'stage') return $t(`conversations.stages.${v || 'GENERAL'}`) + (props.draft.preview?.stageAuto ? $t('assistant.stage_auto') : '')
+  if (f.type === 'project' && !has(v)) return $t('assistant.no_project')
   if (f.type === 'priority') return $t(`assistant.p_${v}`)
   if (f.type === 'hours') return `${v} h`
   if (f.type === 'project') return name || projectOptions.value.find((p) => p.id === String(v))?.name || `#${v}`
@@ -155,7 +172,14 @@ async function onProjectChange(id) {
 }
 function finishEdit() {
   const d = props.draft
+  const before = d.payload
   d.payload = Object.fromEntries(Object.entries(form).filter(([, v]) => has(v)))
+  if (d.kind === 'conversation') {
+    // 记会话的项目是选填: 人清空了要显式传 null, 服务端才会去掉(否则按草稿原值)
+    if (has(before.projectId) && !has(d.payload.projectId)) d.payload.projectId = null
+    // 人改了阶段就不再是「自动识别」
+    if (d.preview && d.payload.stage !== before.stage) d.preview = { ...d.preview, stageAuto: false }
+  }
   const names = { ...d.names }
   for (const f of editableFields.value) {
     if (f.type === 'project') names[f.key] = projectOptions.value.find((p) => p.id === String(form[f.key]))?.name
@@ -210,6 +234,7 @@ async function discard() {
 .d-kind.k-requirement { background: #7c3aed; }
 .d-kind.k-timesheet { background: #0f766e; }
 .d-kind.k-comment { background: #b45309; }
+.d-kind.k-conversation { background: #4f46e5; }
 .d-label { font-size: 13px; font-weight: 600; color: #44403c; margin-right: auto; }
 .d-done { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: #15803d; font-weight: 600; }
 .d-link { margin-left: 6px; color: #2563eb; font-weight: 500; text-decoration: none; }
@@ -220,6 +245,9 @@ async function discard() {
 .d-fields dd { margin: 0; color: #1c1917; word-break: break-word; }
 .d-fields dd.multiline { white-space: pre-wrap; }
 .d-fields dd.need { color: #dc2626; font-weight: 600; }
+.d-fields dd.muted { color: #a8a29e; }
+.d-fields dd.clamp { max-height: 7.5em; overflow: hidden; -webkit-mask-image: linear-gradient(#000 70%, transparent); mask-image: linear-gradient(#000 70%, transparent); }
+.d-fields.f-conversation { grid-template-columns: 84px 1fr; }
 .mention { margin: 0 4px 2px 0; }
 .d-form { padding: 10px 12px 0; }
 .d-form :deep(.el-form-item) { margin-bottom: 10px; }

@@ -2367,7 +2367,16 @@
     "p_MEDIUM": "中",
     "p_HIGH": "高",
     "p_URGENT": "紧急",
-    "me": "我"
+    "me": "我",
+    "kind_conversation": "会话",
+    "f_source": "来源",
+    "f_stage": "阶段",
+    "f_target_project": "将写入的项目",
+    "f_summary": "摘要",
+    "f_conversation": "对话内容",
+    "source_ai": "AI 助手",
+    "stage_auto": "（自动识别）",
+    "no_project": "不挂项目（进「待关联」）"
   },
   "nav": {
     "today": "今日",

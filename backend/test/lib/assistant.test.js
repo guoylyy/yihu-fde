@@ -97,15 +97,18 @@ describe('草稿字段解析', () => {
 })
 
 describe('工具按角色收敛', () => {
-  test('工程师拿不到审批类工具, 经理/管理员能拿到; 写类工具全是 draft_*', () => {
+  test('工程师拿不到审批类工具, 经理/管理员能拿到; 写类工具全是草稿(只有改会话关联直接生效)', () => {
     const eng = toolsFor({ role: 'FDE_ENGINEER' }).map((t) => t.name)
     assert.ok(!eng.includes('list_pending_approvals'))
     assert.ok(eng.includes('draft_task') && eng.includes('weekly_report'))
     assert.ok(toolsFor({ role: 'MANAGER' }).some((t) => t.name === 'list_pending_approvals'))
     for (const t of TOOLS) {
-      if (t.kind === 'draft') assert.match(t.name, /^draft_/)
+      if (t.kind === 'draft') assert.ok(/^draft_/.test(t.name) || t.name === 'capture_conversation', `${t.name} 是草稿类工具`)
+      assert.ok(['read', 'draft', 'summary', 'write'].includes(t.kind), `${t.name} 的 kind 不认识`)
       assert.ok(t.description.length > 30, `${t.name} 的说明要写清楚什么时候用`)
     }
+    // 不经确认直接写的只允许这一个: 只改会话的关联, 不改内容
+    assert.deepEqual(TOOLS.filter((t) => t.kind === 'write').map((t) => t.name), ['link_conversation'])
   })
 })
 

@@ -117,7 +117,8 @@ export async function request(method, path, body, token, opts = {}) {
 export const TAG = 'unit-test-'
 let counter = 0
 export function uniqName(prefix = 'item') {
-  return `${TAG}${prefix}-${Date.now()}-${++counter}`
+  // 带上 pid: 各测试文件是并行的子进程, 计数器各自从 0 起, 同一毫秒会撞名(用户名唯一约束)
+  return `${TAG}${prefix}-${Date.now()}-${process.pid}-${++counter}`
 }
 
 /**

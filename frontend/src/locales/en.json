@@ -2367,7 +2367,16 @@
     "p_MEDIUM": "Medium",
     "p_HIGH": "High",
     "p_URGENT": "Urgent",
-    "me": "Me"
+    "me": "Me",
+    "kind_conversation": "Conversation",
+    "f_source": "Source",
+    "f_stage": "Stage",
+    "f_target_project": "Will be filed under",
+    "f_summary": "Summary",
+    "f_conversation": "Conversation",
+    "source_ai": "AI assistant",
+    "stage_auto": " (auto-detected)",
+    "no_project": "No project (stays Unlinked)"
   },
   "nav": {
     "today": "Today",
