@@ -1,0 +1,10 @@
+{
+  "name": "yh-devlog",
+  "version": "0.5.0",
+  "description": "把 Claude Code / Codex 会话推进 FDE 开发会话回流（/api/devlog/conversations）",
+  "type": "module",
+  "bin": { "yh-devlog": "./cli.js" },
+  "engines": { "node": ">=18" },
+  "license": "MIT",
+  "dependencies": {}
+}
