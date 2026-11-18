@@ -3,9 +3,12 @@
 `yh-devlog` 读本机的 AI 编码会话记录，整理成 FDE 的「开发会话」，上报到 `POST /api/devlog/conversations`。上报的会话带 `source=CLAUDE_CODE|CODEX`、`stage=CODING`。
 
 - 按 `uid` 幂等：同一个会话报多少次，平台上都只有一条，内容取最新一次。uid 是 `claude:<sessionId>` 或 `codex:<会话 id>`。
-- 正文（用户 / 助手的文字）一定会上报。发出去之前客户端先脱敏一遍（规则见 `redact.js`），服务端入库前再脱敏一遍。
+- 正文（用户 / 助手的文字）一定会上报。发出去之前客户端先脱敏一遍（规则见 `backend/src/services/devlog/redact.js`，另外盖掉平台自己的 `yh_` / `fde_` Key），服务端入库前再脱敏一遍。
+- 解析逻辑和平台「经验 → 会话 → 上传对话」共用一份：`backend/src/services/devlog/parseSessions.js`（`parse.js` 只是转发），所以 CLI 要在仓库里跑（`npm link` 或 `node 仓库/scripts/devlog/cli.js`），不能把 `scripts/devlog` 单独拷走。
 - 只读会话记录，不读代码文件。执行过的命令记为 `COMMAND` 事件，改过的文件只记路径，记为 `ARTIFACT` 事件。
-- 不依赖任何 npm 包，Node ≥ 18 即可。解压 Codex 的 `.jsonl.zst` 需要系统里有 `zstd`。
+- 不依赖任何 npm 包，Node ≥ 18 即可。解压 Codex 的 `.jsonl.zst`：Node 22.15+ 用内置 zstd，更老的 Node 需要系统里有 `zstd` 命令。
+
+> **小会话可以直接在平台上传**：经验 → 会话 →「上传对话」，拖进 `.jsonl` / `.json` / `.log` / `.txt` / `.md` / `.zst`（一次最多 20 个、单个 50MB）。**超过 50MB 的会话（长期 resume 的 Claude Code 会话很容易上百 MB）平台会拒收，请用本工具 `yh-devlog import <文件>`**：大文件只取最后 200 条消息上报，不受上传大小限制。
 
 ## 安装
 
@@ -70,6 +73,7 @@ chmod 600 ~/.fde-devlog.json   # 文件里有 Key。权限不是 600 时，每�
 yh-devlog import ~/.claude/projects/-Users-me-proj/0df0042b-....jsonl          # Claude Code
 yh-devlog import ~/.codex/sessions/2026/11/01/rollout-....jsonl                 # Codex（.jsonl.zst 也行）
 yh-devlog import ./codex-session.log                                           # Codex 纯文本日志
+yh-devlog import ./notes.md                                                    # 带「用户: / 助手:」标记的文本、[{role, content}] json 也认
 yh-devlog import a.jsonl b.jsonl --dry-run                                     # 只解析不上报
 ```
 
@@ -141,7 +145,8 @@ yh-devlog sync --force      # 忽略状态文件，全部重报（uid 幂等，�
 | `连不上 …：bad port` | Node 的 fetch 会拒绝 9、25 这类端口，换个端口 |
 | `这个 uid 已被别人的会话占用` | 同一会话之前被别的账号报过。非管理员只能更新自己报过的会话 |
 | `解压 … 需要 zstd 命令` | `brew install zstd` |
-| `不认识的会话格式` | 只支持 Claude Code jsonl、Codex rollout jsonl（含 `.zst`），以及按 `user` / `codex` 分段的纯文本日志 |
+| `识别不出格式：…` | 支持 Claude Code jsonl、Codex rollout jsonl（含 `.zst`）、按 `user` / `codex` 分段的纯文本日志、带「用户: / 助手:」或「Human: / Assistant:」标记的文本、`[{role, content}]` / `{messages: [...]}` 的 json |
+| `不支持该压缩格式` | `.zst` 解不开：文件不是 zstd，或 Node 太老（< 22.15）且没装 `zstd` |
 | 配置文件权限提示 | `chmod 600 ~/.fde-devlog.json` |
 
 排查时加 `DEBUG=1` 可以打印调用栈。设置 `FDE_DEVLOG_HOME=/tmp/x` 可以把配置、状态和队列文件整体换到别的目录，便于测试。

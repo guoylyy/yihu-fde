@@ -5,6 +5,7 @@
 //   POST /api/dev/conversations/:id/link       关联项目/任务/里程碑/阶段 → LINKED, 写审计
 //   POST /api/dev/conversations/:id/summarize  出摘要: 有模型走 chatJSON, 没有降级规则(mode:'rules'); GENERAL 时按建议回填 stage
 //   POST /api/dev/conversations/paste          粘贴一段对话 → 会话(uid 按文本哈希, 重复粘贴不新增) + 自动摘要
+//   POST /api/devlog/upload                    上传对话文件(multipart files[], 最多 20 个、单个 50MB) → 逐个解析入库 + 自动摘要
 //   GET  /api/projects/:id/timeline            项目下会话按阶段分组
 //   POST /api/experience/from-conversation     从会话沉淀经验, 写审计; auto:true 由摘要生成草稿(preview:true 只返回草稿不落库)
 //   GET  /api/experience                       经验列表
@@ -16,6 +17,9 @@
 // 数据范围: 角色 dataScope=ALL(管理员)看全部; 其余看自己的(engineerId=本人 或 本人上报);
 //          经理型(OWN_PROJECTS)另外能看自己负责/参与项目下的会话
 import express from 'express'
+import multer from 'multer'
+import path from 'node:path'
+import { decodeOriginalName } from '../../lib/storage.js'
 import prisma from '../../lib/prisma.js'
 import { internalAuth, hasPermission, getDataScope, buildScopeWhere } from '../../lib/auth.js'
 import { mcpAuth } from '../../lib/apiKey.js'
@@ -28,6 +32,7 @@ import {
 import { summarizeAndApply, ruleExtract, strList } from '../../services/devlog/summarize.js'
 import { parsePaste, pasteUid, pasteTitle, MAX_PASTE_CHARS } from '../../services/devlog/paste.js'
 import { draftFromSummary } from '../../services/devlog/experience.js'
+import { decodeSessionBuffer, parseSessionText, contentUid } from '../../services/devlog/parseSessions.js'
 import { syncExperience, syncAll } from '../../services/obsidian.js'
 
 const router = express.Router()
@@ -277,6 +282,128 @@ router.post('/dev/conversations/paste', internalAuth, async (req, res) => {
       data: { ...summaryView(c.id, r), uid: c.uid, created: saved.created, title: c.title, messages: messages.length }
     })
   } catch (e) { serverError('paste')(res, e) }
+})
+
+// ---------- 上传对话文件 ----------
+
+export const UPLOAD_MAX_BYTES = 50 * 1024 * 1024
+export const UPLOAD_MAX_FILES = 20
+const UPLOAD_EXT = /\.(jsonl|json|log|txt|md|zst)$/i
+
+// 内存存储引擎: 超过 50MB / 扩展名不支持的文件不让整个请求失败, 只丢弃内容、标记出来, 由路由逐个报错
+// (multer 自带的 limits.fileSize / fileFilter 会中断整批, 一个大文件就把同批其它文件也挡掉了)
+const memoryCapped = {
+  _handleFile(req, file, cb) {
+    file.originalname = decodeOriginalName(file.originalname)
+    const chunks = []
+    let size = 0
+    let rejected = UPLOAD_EXT.test(file.originalname) ? null : 'ext'
+    file.stream.on('data', (c) => {
+      size += c.length
+      if (rejected) return
+      if (size > UPLOAD_MAX_BYTES) { rejected = 'size'; chunks.length = 0; return }
+      chunks.push(c)
+    })
+    file.stream.on('error', cb)
+    file.stream.on('end', () => cb(null, { buffer: rejected ? null : Buffer.concat(chunks), size, rejected }))
+  },
+  _removeFile(req, file, cb) { file.buffer = null; cb(null) }
+}
+const sessionUpload = multer({ storage: memoryCapped, limits: { files: UPLOAD_MAX_FILES } })
+
+function uploadFiles(req, res, next) {
+  sessionUpload.array('files', UPLOAD_MAX_FILES)(req, res, (err) => {
+    if (!err) return next()
+    const message = err.code === 'LIMIT_FILE_COUNT' || err.code === 'LIMIT_UNEXPECTED_FILE'
+      ? (err.field && err.field !== 'files' ? `文件字段名应为 files（收到 ${err.field}）` : `一次最多上传 ${UPLOAD_MAX_FILES} 个文件`)
+      : `上传失败：${err.message}`
+    fail(res, 400, 9002, message)
+  })
+}
+
+const mb = (n) => `${(n / 1024 / 1024).toFixed(1)}MB`
+
+/** 一个上传文件 → 解析出的会话(上报结构); 认不出 / 太大 / 类型不对抛 Error(文案直接给前端) */
+function parseUploaded(file, stage) {
+  const name = file.originalname
+  if (file.rejected === 'size') {
+    throw new Error(`文件 ${mb(file.size)}，超过 ${mb(UPLOAD_MAX_BYTES)} 上限；大会话请用命令行导入：yh-devlog import <文件>（见 scripts/devlog/README.md）`)
+  }
+  if (file.rejected === 'ext') throw new Error(`不支持的文件类型 ${path.extname(name) || '（无扩展名）'}：支持 .jsonl / .json / .log / .txt / .md / .zst`)
+  const text = decodeSessionBuffer(file.buffer, name)
+  if (!text.trim()) throw new Error('文件是空的')
+  const parsed = parseSessionText(text, { file: name, size: file.buffer.length, stage, fallbackUid: contentUid(text) })
+  if (!parsed.conversations.length) throw new Error('文件里没有可用的对话消息')
+  return parsed.conversations
+}
+
+router.post('/devlog/upload', internalAuth, uploadFiles, async (req, res) => {
+  try {
+    const files = req.files || []
+    if (!files.length) return fail(res, 400, 9002, '请选择要上传的对话文件（字段名 files）')
+    const b = req.body || {}
+    let stage
+    if (b.stage) {
+      stage = String(b.stage).toUpperCase()
+      if (!STAGES.includes(stage)) return fail(res, 400, 9002, `stage 只能是 ${STAGES.join('/')}`)
+    }
+    let projectId
+    if (b.projectId) {
+      if (!isId(b.projectId)) return fail(res, 400, 9002, 'projectId 不合法')
+      projectId = BigInt(b.projectId)
+      const p = await prisma.project.findFirst({ where: { id: projectId, deletedAt: null }, select: { id: true } })
+      if (!p) return fail(res, 404, 9004, '项目不存在')
+      if (!(await isProjectInScope(req.user, projectId))) return fail(res, 403, 1003, '无权关联到该项目')
+    }
+    const actor = { userId: userIdOf(req), engineerId: await engineerIdOf(req), all: getDataScope(req.user.role) === 'ALL' }
+    let engineerId
+    if (b.engineerId) {
+      if (!isId(b.engineerId)) return fail(res, 400, 9002, 'engineerId 不合法')
+      engineerId = BigInt(b.engineerId)
+      if (!actor.all && engineerId !== actor.engineerId) return fail(res, 403, 1003, '只有管理员能把会话指派给别人')
+      const eng = await prisma.engineer.findFirst({ where: { id: engineerId, deletedAt: null }, select: { id: true } })
+      if (!eng) return fail(res, 404, 9004, '工程师不存在')
+    }
+
+    const items = []
+    const errors = []
+    for (const file of files) {
+      const name = file.originalname
+      let convs
+      try { convs = parseUploaded(file, stage) } catch (e) { errors.push({ file: name, message: e.message }); continue }
+      file.buffer = null
+      for (const conv of convs) {
+        try {
+          const { sessionId, truncated, ...raw } = conv
+          const existing = await prisma.devConversation.findUnique({ where: { uid: raw.uid }, select: { id: true } })
+          // 重复上传没指定阶段: 保留原来的阶段(可能是人改过的)
+          if (existing && !stage) delete raw.stage
+          const item = normalizeItem({ ...raw, ...(projectId ? { projectId: String(projectId) } : {}), ...(engineerId ? { engineerId: String(engineerId) } : {}) })
+          const saved = await upsertConversation(item, actor)
+          const c = await prisma.devConversation.findUnique({ where: { id: saved.id }, include: { events: { orderBy: { seq: 'asc' } } } })
+          let r = null
+          try { r = await summarizeAndApply(c, c.events) } catch (e) { console.error('[devlog upload summarize]', e) }
+          items.push({
+            file: name, ok: true, conversationId: String(c.id), uid: c.uid, created: saved.created,
+            source: c.source, stage: r?.stage || c.stage, turns: c.turns, title: c.title,
+            summary: r?.summary ?? c.summary, mode: r?.mode || null, truncated: !!truncated
+          })
+        } catch (e) {
+          if (!(e instanceof InputError)) console.error('[devlog upload]', name, e)
+          errors.push({ file: name, message: e instanceof InputError ? e.message : `保存失败：${String(e.message || e).slice(0, 200)}` })
+        }
+      }
+    }
+    await logInternalAction(req, 'DEVLOG_UPLOAD', {
+      resourceType: 'dev_conversation',
+      details: {
+        files: files.map((f) => f.originalname), items: items.length, created: items.filter((i) => i.created).length, errors: errors.length,
+        sources: [...new Set(items.map((i) => i.source))],
+        ...(projectId ? { projectId: String(projectId) } : {}), ...(engineerId ? { engineerId: String(engineerId) } : {})
+      }
+    })
+    res.status(items.some((i) => i.created) ? 201 : 200).json({ code: 0, data: { items, errors } })
+  } catch (e) { serverError('upload')(res, e) }
 })
 
 // ---------- 项目时间线 ----------
