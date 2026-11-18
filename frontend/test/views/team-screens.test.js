@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { compileView, renderView, t } from '../helpers/sfc-render.js'
-import { takeTop, relativeTime, skillName, loadBand, loadColor, loadBarPct, promiseFlagsOf, PROMISE_FLAG_TONE, totalWeight } from '../../src/views/admin/team/teamUtils.js'
+import { takeTop, relativeTime, skillName, loadBand, loadColor, loadBarPct, promiseFlagsOf, PROMISE_FLAG_TONE, totalWeight, buildSkillMatrix, levelDots } from '../../src/views/admin/team/teamUtils.js'
 
 // 0.5.0 R4b 团队四屏: 用真实模板 + /api/team/* 的返回结构渲染, 看画出来的字
 
@@ -122,4 +122,48 @@ test('promise 页: 一行一人四列, 标记出文案, 页面上没有分数/�
   assert.match(html, /type="info"[^>]*flag-ELSEWHERE|flag-ELSEWHERE[^>]*type="info"/)
   assert.doesNotMatch(html.slice(html.indexOf('role="table"')), /score|rank|分数|排名/i, '表格里不出分数/排名')
   assert.ok(html.indexOf('甲') < html.indexOf('乙') && html.indexOf('乙') < html.indexOf('丙'), '保持接口顺序, 不排序')
+})
+
+// ---------------------------------------------------------------- 4. 能力矩阵
+
+const SKILLS = {
+  skills: [{ id: '1', name: 'Go' }, { id: '2', name: 'Vue' }, { id: '3', name: 'Rust' }],
+  members: [{ engineerId: '10', name: '甲' }, { engineerId: '11', name: '乙' }],
+  cells: [
+    { engineerId: '10', skillId: '1', level: 4, source: 'MANUAL' },
+    { engineerId: '10', skillId: '2', level: 3, source: 'MANUAL' },
+    { engineerId: '11', skillId: '2', level: 2, source: 'MANUAL' },
+    { engineerId: '11', skillId: '3', level: null, source: 'DERIVED', candidate: true, hits: 4 }
+  ],
+  singlePoints: ['1']
+}
+
+test('矩阵: 行技能列人; 只有 1 人会的技能标单点风险, 候选不算人头', () => {
+  const m = buildSkillMatrix(SKILLS)
+  assert.deepEqual(m.map(r => [r.skill.name, r.holders, r.candidates, r.singlePoint]), [['Go', 1, 0, true], ['Vue', 2, 0, false], ['Rust', 0, 1, false]])
+  assert.equal(m[0].cells[1], null, '乙不会 Go: 空格')
+  assert.equal(m[2].cells[1].source, 'DERIVED')
+  // 后端没给 singlePoints 时按人工标注人数兜底
+  assert.deepEqual(buildSkillMatrix({ ...SKILLS, singlePoints: undefined }).map(r => r.singlePoint), [true, false, false])
+  assert.deepEqual(levelDots(3), [true, true, true, false, false])
+  assert.deepEqual(levelDots(null), [false, false, false, false, false])
+})
+
+const skillsRender = compileView('views/admin/team/TeamSkills.vue')
+test('矩阵页: 实心点数 = 等级, 候选出灰点 + 确认, 单点风险只出在那一行', async () => {
+  const pick = { visible: false }
+  const add = { visible: false }
+  const html = await renderView(skillsRender, {
+    loading: false, error: '', meta: { derivedWindowDays: 90 }, members: SKILLS.members, skills: SKILLS.skills,
+    matrix: buildSkillMatrix(SKILLS), levelDots, pick, add, pickTitle: '', openPick() {}, openAdd() {}, savePick() {}, saveAdd() {}, load() {}
+  })
+  const rows = html.split('data-test="skill-row"').slice(1)
+  assert.equal(rows.length, 3)
+  const filled = (r) => (r.match(/class="dot on"/g) || []).length
+  assert.equal(filled(rows[0]), 4, 'Go: 甲 4 级')
+  assert.equal(filled(rows[1]), 5, 'Vue: 3 + 2')
+  assert.ok(rows[0].includes('data-test="single-point"'))
+  assert.ok(!rows[1].includes('data-test="single-point"') && !rows[2].includes('data-test="single-point"'))
+  assert.ok(rows[2].includes('data-test="skill-candidate"') && rows[2].includes('data-test="skill-confirm"'))
+  assert.ok(rows[2].includes('Mentioned 4 times'))
 })
