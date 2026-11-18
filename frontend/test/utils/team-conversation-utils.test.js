@@ -1,18 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { sortByLoad, skillName } from '../../src/views/admin/team/teamUtils.js'
+import { skillName } from '../../src/views/admin/team/teamUtils.js'
 import { strList, bodyMessages, convTime } from '../../src/views/admin/conversations/conversationUtils.js'
-
-test('sortByLoad: 档位重的在前, 同档逾期多/活多的在前, 不改原数组', () => {
-  const rows = [
-    { name: 'a', load: 'IDLE', open: 0 },
-    { name: 'b', load: 'BUSY', open: 7, overdue: 0 },
-    { name: 'c', load: 'BUSY', open: 3, overdue: 1 },
-    { name: 'd', load: 'OVERLOAD', open: 12 }
-  ]
-  assert.deepEqual(sortByLoad(rows).map(r => r.name), ['d', 'c', 'b', 'a'])
-  assert.equal(rows[0].name, 'a')
-})
 
 test('skillName 兼容字符串和对象', () => {
   assert.equal(skillName('Vue'), 'Vue')

@@ -14,11 +14,21 @@ test('新页面路由都已注册, 工时路由保留', () => {
   assert.match(src, /path: 'conversations\/:id\(\\\\d\+\)'/)
 })
 
-test('团队页 requiredRoles 只有 ADMIN: 工程师直达会被弹回今日', () => {
-  const idx = src.indexOf("path: 'team/members'")
-  assert.match(src.slice(idx, idx + 220), /requiredRoles: \['ADMIN'\]/)
-  const matched = [{ meta: { requiresInternalAuth: true } }, { meta: { requiredRoles: ['ADMIN'] } }]
-  const r = resolveGuard(matched, { internalToken: 't', role: 'FDE_ENGINEER' }, () => true)
-  assert.notEqual(r, true)
-  assert.equal(resolveGuard(matched, { internalToken: 't', role: 'ADMIN' }, () => true), true)
+test('团队页按 team.view 拦(组长+老板), 承诺 vs 交付要 team.view.all: 工程师直达弹回今日', () => {
+  for (const p of ['team/members', 'team/load', 'team/skills']) {
+    const idx = src.indexOf(`path: '${p}'`)
+    assert.match(src.slice(idx, idx + 260), /requiredPerm: 'team\.view'/, p)
+  }
+  const idx = src.indexOf("path: 'team/promise'")
+  assert.match(src.slice(idx, idx + 260), /requiredPerm: 'team\.view\.all'/)
+  assert.ok(src.includes("path: 'team/members/:engineerId(\\\\d+)'"), '个人页路由')
+
+  const matched = [{ meta: { requiresInternalAuth: true } }, { meta: { requiredPerm: 'team.view', requiredRoles: ['ADMIN', 'TEAM_LEAD'] } }]
+  const perms = { FDE_ENGINEER: [], TEAM_LEAD: ['team.view'], ADMIN: ['team.view', 'team.view.all'] }
+  const canAs = (role) => (p) => perms[role].includes(p)
+  assert.deepEqual(resolveGuard(matched, { internalToken: 't', role: 'FDE_ENGINEER' }, canAs('FDE_ENGINEER')), { name: 'AdminWorkbench' })
+  assert.equal(resolveGuard(matched, { internalToken: 't', role: 'TEAM_LEAD' }, canAs('TEAM_LEAD')), true)
+  const promise = [{ meta: { requiresInternalAuth: true } }, { meta: { requiredPerm: 'team.view.all', requiredRoles: ['ADMIN'] } }]
+  assert.deepEqual(resolveGuard(promise, { internalToken: 't', role: 'TEAM_LEAD' }, canAs('TEAM_LEAD')), { name: 'AdminWorkbench' })
+  assert.equal(resolveGuard(promise, { internalToken: 't', role: 'ADMIN' }, canAs('ADMIN')), true)
 })

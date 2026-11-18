@@ -77,7 +77,9 @@ export const PERMISSIONS = {
   "notification.send": ["ADMIN","MANAGER"],
   "okr.view.all": ["ADMIN"],
   "okr.score.manager": ["ADMIN"],
-  "okr.cycle.manage": ["ADMIN"]
+  "okr.cycle.manage": ["ADMIN"],
+  "team.view": ["TEAM_LEAD","ADMIN"],
+  "team.view.all": ["ADMIN"]
 }
 function getUser() {
   if (typeof localStorage === 'undefined') return null

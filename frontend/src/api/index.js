@@ -75,7 +75,8 @@ async function request(url, options = {}) {
   }
   // 操作成功但有需要知道的事(如关闭里程碑时还有任务没做完)
   if (data._warn) ElMessage.warning({ message: data._warn, duration: 6000 })
-  return data.data
+  // full: 连同 meta 一起要(如团队接口的统计周、阈值), 返回 { data, meta }
+  return options.full ? { data: data.data, meta: data.meta || {} } : data.data
 }
 
 /** 去掉空参数, 免得拼出 week=&ownerId= */
@@ -382,9 +383,16 @@ export const fde = {
   meWorkbench: () => request('/api/fde/me/workbench'),
   // 0.5.0 今日页「等我处理」: 待审批总数 + 最近几条
   meApprovals: (limit = 3) => request(`/api/fde/me/approvals?limit=${limit}`),
-  // 0.5.0 团队: 成员卡片 / 负载共用
+  // 0.5.0 团队: overview 是 R3 老接口(engineer.view, 带 userId); 其余是 R4 团队四屏(/api/team, team.view),
+  // 返回 { data, meta }: meta.week 是统计周, meta.threshold 是负载口径
   team: {
-    overview: () => request('/api/fde/team/overview')
+    overview: () => request('/api/fde/team/overview'),
+    members: () => request('/api/team/members', { full: true }),
+    load: (week) => request('/api/team/load?' + new URLSearchParams(clean({ week })).toString(), { full: true }),
+    promise: (week) => request('/api/team/promise?' + new URLSearchParams(clean({ week })).toString(), { full: true }),
+    skills: () => request('/api/team/skills', { full: true }),
+    setSkill: (engineerId, data) => request(`/api/team/skills/${engineerId}`, { method: 'POST', body: JSON.stringify(data) }),
+    confirmSkill: (data) => request('/api/team/skills/confirm', { method: 'POST', body: JSON.stringify(data) })
   },
   // 0.5.0 开发会话 / 经验(后端挂在 /api 下, 不带 /fde 前缀)
   devConversations: {

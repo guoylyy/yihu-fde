@@ -1,8 +1,9 @@
 // 0.5.0 侧栏导航: 一级 5 组(今日/团队/交付/经验/设置), 桌面侧栏与手机抽屉共用这一份。
 // 纯函数: 传入权限判断, 返回过滤后的分组, 方便单测; 图标用名字, 由 AdminLayout 映射成组件。
 //
-// 可见性约定(第 4 轮再细化到组长):
-//   - 团队组: 暂时只给 ADMIN(组长可见留到第 4 轮)
+// 可见性约定:
+//   - 团队组: team.view(组长 + 老板); 周 OKR 仍只给 ADMIN
+//   - 「承诺 vs 交付」(team.view.all) 不单占菜单(业务二级菜单 ≤12 项), 从负载页顶部的切换进, 侧栏高亮负载
 //   - 经验组的经验库/会话: can('projects') 兜底
 //   - 资产库并在「经验库」里(页内切换), 路径仍是 /admin/assets, 侧栏高亮经验库
 
@@ -28,10 +29,10 @@ export function buildNav({ can, moduleEnabled = () => true, role } = {}) {
     {
       key: 'team', index: NAV_GROUPS.team, title: 'nav.team',
       items: [
-        { path: '/admin/team/members', title: 'nav.team_members', icon: 'Avatar', show: isAdmin },
-        { path: '/admin/team/load', title: 'nav.team_load', icon: 'TrendCharts', show: isAdmin },
+        { path: '/admin/team/members', title: 'nav.team_members', icon: 'Avatar', show: can('team.view') },
+        { path: '/admin/team/load', title: 'nav.team_load', icon: 'TrendCharts', show: can('team.view') },
         { path: '/admin/okr', title: 'okr.menu', icon: 'Aim', show: isAdmin && moduleEnabled('okr') },
-        { path: '/admin/team/skills', title: 'nav.team_skills', icon: 'DataAnalysis', show: isAdmin }
+        { path: '/admin/team/skills', title: 'nav.team_skills', icon: 'DataAnalysis', show: can('team.view') }
       ]
     },
     {
@@ -79,7 +80,8 @@ export function activeMenuPath(path) {
   if (p === '/admin/assets' || p.startsWith('/admin/assets/')) {
     return '/admin/experience'
   }
-  const prefixes = ['/admin/projects', '/admin/knowledge', '/admin/conversations', '/admin/experience', '/admin/okr']
+  if (p === '/admin/team/promise') return '/admin/team/load'
+  const prefixes = ['/admin/team/members', '/admin/projects', '/admin/knowledge', '/admin/conversations', '/admin/experience', '/admin/okr']
   for (const pre of prefixes) {
     if (p.startsWith(pre + '/')) return pre
   }

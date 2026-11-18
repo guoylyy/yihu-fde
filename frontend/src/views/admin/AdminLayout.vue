@@ -264,6 +264,7 @@ const titles = {
   '/admin/workbench': $t('nav.my_today'),
   '/admin/team/members': $t('nav.team_members'),
   '/admin/team/load': $t('nav.team_load'),
+  '/admin/team/promise': $t('nav.team_promise'),
   '/admin/team/skills': $t('nav.team_skills'),
   '/admin/experience': $t('nav.experience_library'),
   '/admin/conversations': $t('nav.conversations'),

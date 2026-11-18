@@ -385,7 +385,8 @@
     "choose_project_first": "Choose a project first",
     "default_tagline": "Engineers and their agents, shipping together",
     "list_sep": ", ",
-    "list_sep_semi": "; "
+    "list_sep_semi": "; ",
+    "retry": "Retry"
   },
   "error": {
     "data_doesnt_exist_or_was_deleted": "Data doesn't exist or was deleted",
@@ -2374,6 +2375,7 @@
     "team": "Team",
     "team_members": "Members",
     "team_load": "Workload",
+    "team_promise": "Commitments vs delivery",
     "team_skills": "Skill matrix",
     "delivery": "Delivery",
     "experience": "Experience",
@@ -2416,25 +2418,106 @@
   },
   "team": {
     "search_member": "Search name / skill",
-    "no_members": "No engineers yet",
-    "open_tasks": "Open",
-    "overdue": "Overdue",
-    "projects": "Projects",
-    "conversations_7d": "Chats (7d)",
-    "load": "Load",
-    "load_level": {
-      "OVERLOAD": "Overloaded",
-      "BUSY": "Busy",
-      "NORMAL": "Normal",
-      "IDLE": "Idle"
+    "no_members": "No members in your team yet",
+    "weight": "weight {n}",
+    "week_promise": "This week's commitments",
+    "no_promise": "No commitments submitted this week",
+    "active_tasks": "Open tasks",
+    "last_conversation": "Last conversation",
+    "never": "No conversations yet",
+    "ago": {
+      "just": "just now",
+      "minutes": "{n} min ago",
+      "hours": "{n} h ago",
+      "days": "{n} d ago"
     },
-    "load_hint": "Sorted from heaviest to lightest. Open = to do / queued / in progress / rework. Overloaded: 3+ overdue or 12+ open. Busy: any overdue, 7+ open, or 4+ due within 7 days.",
-    "member": "Member",
-    "in_progress": "In progress",
-    "due_7d": "Due in 7d",
-    "high_priority": "High priority",
-    "done_week": "Done this week",
-    "actual_hours_week": "Actual hours (week)"
+    "load": "Load",
+    "load_band": {
+      "OK": "OK",
+      "WARN": "Busy",
+      "OVER": "Overloaded"
+    },
+    "load_formula": "Load = open tasks ÷ {n}",
+    "week": {
+      "prev": "Previous week",
+      "this": "This week",
+      "next": "Next week",
+      "label": "{year} week {n}"
+    },
+    "detail": {
+      "back": "Back to members",
+      "tasks": "Open tasks",
+      "no_tasks": "This person has no open tasks",
+      "no_due": "No due date",
+      "okr": "This week's OKR",
+      "no_okr": "No OKR submitted this week",
+      "okr_no_perm": "Viewing other people's OKR needs the \"view all OKR\" permission",
+      "kr_done": "KR {done}/{total}",
+      "conversations": "Recent conversations",
+      "no_conversations": "No dev conversations yet",
+      "not_found": "This person is outside your team, or their profile was deleted"
+    },
+    "load_page": {
+      "hint": "Who is too full and who has room. Load = open tasks ÷ {n}; yellow at 100%, red at 150%.",
+      "name": "Name",
+      "active": "Open tasks",
+      "planned": "Planned hours (week)",
+      "planned_tip": "Tasks have no estimate field yet, so this column stays empty rather than being filled with another number",
+      "weight": "Committed weight (week)",
+      "convs": "Conversations (week)",
+      "load_pct": "Load %"
+    },
+    "promise": {
+      "hint": "Three numbers side by side to spot gaps. No ranking, no scores.",
+      "said": "Said they'd do",
+      "done": "Done in the system",
+      "actual": "Actually worked on",
+      "flag": "Flag",
+      "objectives": "{n} objectives",
+      "no_objectives": "No commitments",
+      "completed": "{n} tasks completed",
+      "convs": "{n} conversations",
+      "projects": "{n} projects",
+      "flags": {
+        "ONLY_WORDS": "Words only",
+        "ELSEWHERE": "Maybe working elsewhere",
+        "DRIFT": "Drifting"
+      },
+      "flag_tips": {
+        "ONLY_WORDS": "Committed this week, but no task was completed in the system",
+        "ELSEWHERE": "Has tasks, but no dev conversation this week; the work may be happening elsewhere",
+        "DRIFT": "3+ conversations this week but no completed task: lots of talk, nothing landed yet"
+      }
+    },
+    "skills": {
+      "hint": "Rows are skills, columns are people. Solid dots = level set by a person (1–5); grey dot = candidate inferred from the last {days} days of conversations. Click a cell to set a level.",
+      "skill": "Skill",
+      "single_point": "Single point of failure",
+      "single_point_tip": "Only one person has this skill",
+      "candidate": "Candidate",
+      "candidate_tip": "Mentioned {n} times in conversations over the last {days} days; not confirmed yet",
+      "confirm": "Confirm",
+      "set_title": "{name} · {skill}",
+      "confirm_title": "Confirm candidate: {name} · {skill}",
+      "level": "Level",
+      "level_desc": {
+        "1": "Aware",
+        "2": "Can use",
+        "3": "Proficient",
+        "4": "Expert",
+        "5": "Can teach"
+      },
+      "saved": "Saved",
+      "empty": "No skill data yet. Click \"Add\" to tag someone with a skill.",
+      "add": "Add",
+      "add_title": "Add a skill",
+      "member": "Member",
+      "skill_name": "Skill name",
+      "skill_name_ph": "e.g. Vue, Go, data governance",
+      "need_fields": "Pick a member, enter a skill name and choose a level",
+      "legend_manual": "Set by a person",
+      "legend_candidate": "Candidate"
+    }
   },
   "experience": {
     "tab_entries": "Entries",

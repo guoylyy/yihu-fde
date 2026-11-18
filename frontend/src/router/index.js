@@ -30,13 +30,18 @@ const routes = [
       // 个人工作台: 登录后的默认落地页。不设权限点 —— 这里只有"我自己的事"
       // (后端 /api/fde/me/* 同样只要登录), 且它是越权访问的兜底目标, 加权限会把只读角色转晕
       { path: 'workbench', name: 'AdminWorkbench', component: () => import('@/views/admin/Workbench.vue') },
-      // 0.5.0 团队组: 先只给 ADMIN(第 4 轮再放给组长); 能力矩阵复用工程师画像页
+      // 0.5.0 团队组(R4): team.view = 组长 + 老板; 「承诺 vs 交付」只给老板(team.view.all)。
+      // 工程师直达 → 守卫弹回今日页; 后端 /api/team/* 同样按这两个权限点拦
       { path: 'team/members', name: 'AdminTeamMembers', component: () => import('@/views/admin/team/TeamMembers.vue'),
-        meta: { requiredRoles: ['ADMIN'] } },
+        meta: { requiredPerm: 'team.view', requiredRoles: ['ADMIN', 'TEAM_LEAD'] } },
+      { path: 'team/members/:engineerId(\\d+)', name: 'AdminTeamMemberDetail', component: () => import('@/views/admin/team/TeamMemberDetail.vue'),
+        meta: { requiredPerm: 'team.view', requiredRoles: ['ADMIN', 'TEAM_LEAD'] } },
       { path: 'team/load', name: 'AdminTeamLoad', component: () => import('@/views/admin/team/TeamLoad.vue'),
-        meta: { requiredRoles: ['ADMIN'] } },
-      { path: 'team/skills', name: 'AdminTeamSkills', component: () => import('@/views/admin/EngineerProfiles.vue'),
-        meta: { requiredRoles: ['ADMIN'] } },
+        meta: { requiredPerm: 'team.view', requiredRoles: ['ADMIN', 'TEAM_LEAD'] } },
+      { path: 'team/promise', name: 'AdminTeamPromise', component: () => import('@/views/admin/team/TeamPromise.vue'),
+        meta: { requiredPerm: 'team.view.all', requiredRoles: ['ADMIN'] } },
+      { path: 'team/skills', name: 'AdminTeamSkills', component: () => import('@/views/admin/team/TeamSkills.vue'),
+        meta: { requiredPerm: 'team.view', requiredRoles: ['ADMIN', 'TEAM_LEAD'] } },
       // 0.5.0 经验组: 经验库 / 开发会话(后端按数据范围过滤, 前端先用 project.view 兜底)
       { path: 'experience', name: 'AdminExperience', component: () => import('@/views/admin/experience/Experience.vue'),
         meta: { requiredPerm: 'project.view', requiredRoles: ['ADMIN', 'MANAGER', 'FDE_ENGINEER'] } },

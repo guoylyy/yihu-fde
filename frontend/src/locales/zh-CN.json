@@ -385,7 +385,8 @@
     "choose_project_first": "先选择项目",
     "default_tagline": "工程师与智能体协作交付平台",
     "list_sep": "、",
-    "list_sep_semi": "；"
+    "list_sep_semi": "；",
+    "retry": "重试"
   },
   "error": {
     "data_doesnt_exist_or_was_deleted": "数据不存在或已删除",
@@ -2374,6 +2375,7 @@
     "team": "团队",
     "team_members": "成员卡片",
     "team_load": "负载",
+    "team_promise": "承诺 vs 交付",
     "team_skills": "能力矩阵",
     "delivery": "交付",
     "experience": "经验",
@@ -2416,25 +2418,106 @@
   },
   "team": {
     "search_member": "搜姓名 / 技能",
-    "no_members": "还没有工程师",
-    "open_tasks": "未完成",
-    "overdue": "逾期",
-    "projects": "在手项目",
-    "conversations_7d": "7 天会话",
-    "load": "负载",
-    "load_level": {
-      "OVERLOAD": "过载",
-      "BUSY": "偏满",
-      "NORMAL": "正常",
-      "IDLE": "空闲"
+    "no_members": "你的团队里还没有成员",
+    "weight": "权重 {n}",
+    "week_promise": "本周承诺",
+    "no_promise": "本周还没提交承诺",
+    "active_tasks": "手上任务",
+    "last_conversation": "最近会话",
+    "never": "还没有会话",
+    "ago": {
+      "just": "刚刚",
+      "minutes": "{n} 分钟前",
+      "hours": "{n} 小时前",
+      "days": "{n} 天前"
     },
-    "load_hint": "按负载从重到轻排。口径：未完成 = 待办/排队/进行中/返工；逾期 ≥3 或未完成 ≥12 算过载，有逾期或未完成 ≥7 或 7 天内到期 ≥4 算偏满。",
-    "member": "成员",
-    "in_progress": "进行中",
-    "due_7d": "7 天内到期",
-    "high_priority": "高优",
-    "done_week": "本周完成",
-    "actual_hours_week": "本周实际工时"
+    "load": "负载",
+    "load_band": {
+      "OK": "正常",
+      "WARN": "偏满",
+      "OVER": "过载"
+    },
+    "load_formula": "负载 = 进行中任务数 ÷ {n}",
+    "week": {
+      "prev": "上一周",
+      "this": "本周",
+      "next": "下一周",
+      "label": "{year} 年第 {n} 周"
+    },
+    "detail": {
+      "back": "返回成员卡片",
+      "tasks": "进行中的任务",
+      "no_tasks": "这个人手上没有进行中的任务",
+      "no_due": "无到期日",
+      "okr": "本周 OKR",
+      "no_okr": "本周没有提交 OKR",
+      "okr_no_perm": "查看别人的 OKR 需要「OKR 全员查看」权限",
+      "kr_done": "KR {done}/{total}",
+      "conversations": "最近会话",
+      "no_conversations": "还没有开发会话",
+      "not_found": "这个人不在你的团队范围内，或档案已删除"
+    },
+    "load_page": {
+      "hint": "谁手上太满、谁空着。负载 = 进行中任务数 ÷ {n}，到 100% 标黄、150% 标红。",
+      "name": "姓名",
+      "active": "进行中任务",
+      "planned": "本周计划工时",
+      "planned_tip": "任务还没有预估工时字段，这一列先空着，不拿别的数凑",
+      "weight": "本周承诺权重",
+      "convs": "本周会话数",
+      "load_pct": "负载%"
+    },
+    "promise": {
+      "hint": "三个数摆在一起看差异，不排名、不打分",
+      "said": "说要做",
+      "done": "系统里做了",
+      "actual": "实际干了多少",
+      "flag": "标记",
+      "objectives": "{n} 个目标",
+      "no_objectives": "没写承诺",
+      "completed": "完成 {n} 个任务",
+      "convs": "{n} 次会话",
+      "projects": "{n} 个项目",
+      "flags": {
+        "ONLY_WORDS": "只在嘴上",
+        "ELSEWHERE": "可能在别处干",
+        "DRIFT": "方向漂移"
+      },
+      "flag_tips": {
+        "ONLY_WORDS": "写了本周承诺，但这周系统里没有完成的任务",
+        "ELSEWHERE": "手上有任务，但这周没有一条开发会话，活可能在别的地方干",
+        "DRIFT": "这周会话 ≥3 次，但没有完成的任务：一直在聊，还没落地"
+      }
+    },
+    "skills": {
+      "hint": "行是技能，列是人。实心点 = 人工标注的等级（1–5），灰点 = 从近 {days} 天会话里推断的候选。点格子直接标等级。",
+      "skill": "技能",
+      "single_point": "单点风险",
+      "single_point_tip": "只有 1 个人会，这个人请假就没人能接",
+      "candidate": "候选",
+      "candidate_tip": "近 {days} 天会话里提到 {n} 次，还没人工确认",
+      "confirm": "确认",
+      "set_title": "{name} · {skill}",
+      "confirm_title": "确认候选：{name} · {skill}",
+      "level": "等级",
+      "level_desc": {
+        "1": "了解",
+        "2": "能用",
+        "3": "熟练",
+        "4": "精通",
+        "5": "能带人"
+      },
+      "saved": "已保存",
+      "empty": "还没有技能数据。点「添加标注」给某人标一项技能。",
+      "add": "添加标注",
+      "add_title": "添加技能标注",
+      "member": "成员",
+      "skill_name": "技能名",
+      "skill_name_ph": "如 Vue、Go、数据治理",
+      "need_fields": "请选成员、填技能名、选等级",
+      "legend_manual": "人工标注",
+      "legend_candidate": "候选"
+    }
   },
   "experience": {
     "tab_entries": "经验条目",

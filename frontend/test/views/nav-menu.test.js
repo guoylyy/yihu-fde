@@ -30,7 +30,7 @@ test('工时从菜单移除(任何角色都不出现 /admin/timesheets)', () => 
   }
 })
 
-test('非 ADMIN 看不到团队组(组长可见留到第 4 轮), 落地页仍是我的今日', () => {
+test('没有 team.view 的工程师看不到团队组, 落地页仍是我的今日', () => {
   const engineerPerms = new Set(['projects', 'project.view', 'knowledge', 'idea.view', 'asset.view'])
   const groups = buildNav({ can: p => engineerPerms.has(p), role: 'FDE_ENGINEER' })
   const keys = groups.map(g => g.key)
@@ -39,6 +39,15 @@ test('非 ADMIN 看不到团队组(组长可见留到第 4 轮), 落地页仍是
   assert.deepEqual(paths(byKey(groups).today), ['/admin/workbench'])
   assert.ok(paths(byKey(groups).delivery).includes('/admin/tasks'), '工程师兜底能看到任务')
   assert.deepEqual(paths(byKey(groups).experience), ['/admin/ideas', '/admin/experience', '/admin/conversations'])
+})
+
+test('组长(team.view)看到团队组成员/负载/能力矩阵, 不出现周 OKR; 承诺 vs 交付不单占菜单', () => {
+  const lead = byKey(buildNav({ can: p => p === 'team.view', role: 'TEAM_LEAD' }))
+  assert.deepEqual(paths(lead.team), ['/admin/team/members', '/admin/team/load', '/admin/team/skills'])
+  const admin = buildNav({ can: allow, role: 'ADMIN' }).flatMap(paths)
+  assert.ok(!admin.includes('/admin/team/promise'))
+  assert.equal(activeMenuPath('/admin/team/promise'), '/admin/team/load')
+  assert.equal(activeMenuPath('/admin/team/members/36'), '/admin/team/members')
 })
 
 test('OKR 模块关掉时团队组不出现周 OKR', () => {
