@@ -10,11 +10,11 @@
       </div>
       <el-menu
         :default-active="route.path"
-        :default-openeds="[]"
+        :default-openeds="DEFAULT_OPENEDS"
         router
         :collapse="sidebarCollapsed"
         :collapse-transition="false"
-        :unique-opened="true"
+        :unique-opened="false"
         class="menu"
       >
         <!-- v2.6.0(#959) 我的工作台: 个人要做/要交/要批/要报的事都在这一页 -->
@@ -23,31 +23,24 @@
           <span>{{ $t('common.my_workbench') }}</span>
         </el-menu-item>
 
-        <!-- AI 助手: 不是路由, 点了只打开右侧抽屉(el-menu 是 router 模式, 用 el-menu-item 会被 push 成路由, 所以手写同款 li) -->
-        <li v-if="moduleEnabled('agent')" class="el-menu-item ai-menu-item" :class="{ 'ai-on': assistant.open }" role="menuitem" tabindex="0"
-          :title="sidebarCollapsed ? $t('assistant.title') : ''" @click="openAssistant" @keydown.enter.prevent="openAssistant" @keydown.space.prevent="openAssistant">
-          <el-icon><MagicStick /></el-icon>
-          <span>{{ $t('assistant.title') }}</span>
-        </li>
-
-        <!-- 周 OKR(公司管理级): 人人都要交, 只看模块开没开 -->
-        <el-menu-item v-if="moduleEnabled('okr')" index="/admin/okr">
-          <el-icon><Aim /></el-icon>
-          <span>{{ $t('okr.menu') }}</span>
-        </el-menu-item>
-
-        <!-- v2.10.0(#1180) 创意中心: 生产流程最前端, 想法从这里进来再分到项目 -->
-        <el-menu-item v-if="can('idea.view')" index="/admin/ideas">
-          <el-icon><Opportunity /></el-icon>
-          <span>{{ $t('common.ideas') }}</span>
-        </el-menu-item>
+        <!-- AI 助手入口在右上角(.header-right), 不占侧栏 -->
 
         <!-- 项目交付 (2026-07-31 主人拍板: 提到仅次于仪表盘, 交付是主业) -->
-        <el-sub-menu index="biz">
+        <el-sub-menu :index="SUBMENUS.delivery">
           <template #title>
             <BrandMark :size="16" class="menu-claw" />
             <span>{{ $t('layout.delivery') }}</span>
           </template>
+          <!-- v2.10.0(#1180) 创意中心: 生产流程最前端, 想法从这里进来再分到项目; 2026-11 收进交付组排第一 -->
+          <el-menu-item v-if="can('idea.view')" index="/admin/ideas">
+            <el-icon><Opportunity /></el-icon>
+            <span>{{ $t('common.ideas') }}</span>
+          </el-menu-item>
+          <!-- 周 OKR(公司管理级): 人人都要交, 只看模块开没开; 2026-11 收进交付组排第二 -->
+          <el-menu-item v-if="moduleEnabled('okr')" index="/admin/okr">
+            <el-icon><Aim /></el-icon>
+            <span>{{ $t('okr.menu') }}</span>
+          </el-menu-item>
           <el-menu-item v-if="can('projects')" index="/admin/projects">
             <el-icon><Document /></el-icon>
             <span>{{ $t('common.projects') }}</span>
@@ -83,7 +76,7 @@
 
 
         <!-- 基础配置 (2026-07-20) -->
-        <el-sub-menu v-if="can('engineers') || can('users') || can('rolePermission.manage') || can('team.manage')" index="base-config">
+        <el-sub-menu v-if="can('engineers') || can('users') || can('rolePermission.manage') || can('team.manage')" :index="SUBMENUS.config">
           <template #title>
             <BrandMark :size="16" class="menu-claw" />
             <span>{{ $t('layout.settings') }}</span>
@@ -140,6 +133,12 @@
           <div class="breadcrumb">{{ pageTitle }}</div>
         </div>
         <div class="header-right">
+          <!-- AI 助手入口(2026-11 老板拍板: 放右上角显眼处, 不进侧栏); 未配模型也照常显示, 抽屉里自有禁用态 -->
+          <el-button v-if="moduleEnabled('agent')" type="primary" plain class="ai-entry" :class="{ 'is-active': assistant.open }"
+            :aria-label="$t('assistant.open')" :aria-pressed="assistant.open" data-test="assistant-entry" @click="toggleAssistant">
+            <el-icon :size="16"><MagicStick /></el-icon>
+            <span class="ai-entry-text">{{ $t('assistant.title') }}</span>
+          </el-button>
           <el-popover v-model:visible="notifVisible" placement="bottom" :width="380" trigger="click" @show="loadNotifs">
             <template #reference>
               <el-badge :value="unreadCount" :hidden="unreadCount === 0" :max="99" class="todo-bell">
@@ -228,9 +227,10 @@
         </div>
         <el-menu
           :default-active="route.path"
+          :default-openeds="DEFAULT_OPENEDS"
           router
           :collapse-transition="false"
-          :unique-opened="true"
+          :unique-opened="false"
           class="menu"
           @select="mobileMenuVisible = false"
         >
@@ -238,20 +238,16 @@
             <BrandMark :size="16" :dark="route.path === '/admin/workbench'" class="menu-claw" />
             <span>{{ $t('common.my_workbench') }}</span>
           </el-menu-item>
-          <li v-if="moduleEnabled('agent')" class="el-menu-item ai-menu-item" :class="{ 'ai-on': assistant.open }" role="menuitem" tabindex="0"
-            @click="openAssistant" @keydown.enter.prevent="openAssistant" @keydown.space.prevent="openAssistant">
-            <el-icon><MagicStick /></el-icon><span>{{ $t('assistant.title') }}</span>
-          </li>
-          <el-menu-item v-if="moduleEnabled('okr')" index="/admin/okr">
-            <el-icon><Aim /></el-icon><span>{{ $t('okr.menu') }}</span>
-          </el-menu-item>
-          <el-menu-item v-if="can('idea.view')" index="/admin/ideas">
-            <el-icon><Opportunity /></el-icon><span>{{ $t('common.ideas') }}</span>
-          </el-menu-item>
-          <el-sub-menu index="biz">
+          <el-sub-menu :index="SUBMENUS.delivery">
             <template #title>
               <BrandMark :size="16" class="menu-claw" /><span>{{ $t('layout.delivery') }}</span>
             </template>
+            <el-menu-item v-if="can('idea.view')" index="/admin/ideas">
+              <el-icon><Opportunity /></el-icon><span>{{ $t('common.ideas') }}</span>
+            </el-menu-item>
+            <el-menu-item v-if="moduleEnabled('okr')" index="/admin/okr">
+              <el-icon><Aim /></el-icon><span>{{ $t('okr.menu') }}</span>
+            </el-menu-item>
             <el-menu-item v-if="can('projects')" index="/admin/projects">
               <el-icon><Document /></el-icon><span>{{ $t('common.projects') }}</span>
             </el-menu-item>
@@ -274,7 +270,7 @@
               <el-icon><Guide /></el-icon><span>{{ $t('common.developer_onboarding') }}</span>
             </el-menu-item>
           </el-sub-menu>
-          <el-sub-menu v-if="can('engineers') || can('users') || can('rolePermission.manage') || can('team.manage')" index="base-config">
+          <el-sub-menu v-if="can('engineers') || can('users') || can('rolePermission.manage') || can('team.manage')" :index="SUBMENUS.config">
             <template #title>
               <BrandMark :size="16" class="menu-claw" /><span>{{ $t('layout.settings') }}</span>
             </template>
@@ -331,12 +327,21 @@ const { isMobile } = useResponsive()
 // H5(#1250): 手机抽屉菜单
 const mobileMenuVisible = ref(false)
 
-// AI 助手: 侧栏入口与右下角药丸共用同一个抽屉状态
+// AI 助手: 右上角按钮与右下角药丸共用同一个抽屉状态; 按钮再点一次收起
 const { state: assistant, openPanel: openAssistantPanel } = useAssistant()
 function openAssistant() {
   mobileMenuVisible.value = false
   openAssistantPanel()
 }
+function toggleAssistant() {
+  if (assistant.open) assistant.open = false
+  else openAssistant()
+}
+
+// 侧栏分组(el-sub-menu)的 index 单一来源: 模板里 :index 用它, 默认展开也用它 —— 新加分组只在这里加一行即可默认展开。
+// el-menu 的 default-openeds 只在首次渲染读一次, 用户手动收起后不会被强制展开
+const SUBMENUS = { delivery: 'biz', config: 'base-config' }
+const DEFAULT_OPENEDS = Object.values(SUBMENUS)
 
 const route = useRoute()
 const router = useRouter()
@@ -623,9 +628,6 @@ function onCommand(cmd) {
   height: 38px;
   line-height: 38px;
 }
-/* AI 助手菜单项: 抽屉开着时给个浅底, 不用墨底(墨底留给当前路由) */
-.menu .ai-menu-item.ai-on { background: #f0eee9; color: #1c1917; }
-.menu .ai-menu-item:focus-visible { outline: 2px solid #93c5fd; outline-offset: -2px; }
 /* VI: 一级模块用爪痕替代功能图标; 对齐 el-icon 默认右距 */
 .menu-claw {
   margin-right: 10px;
@@ -654,6 +656,14 @@ function onCommand(cmd) {
   display: flex;
   align-items: center;
   gap: 16px;
+}
+/* AI 助手入口: 主色描边 + 文字, 34px 高与铃铛对齐; 抽屉开着时实心 */
+.ai-entry { height: 34px; padding: 0 14px; font-weight: 600; margin: 0; }
+.ai-entry .ai-entry-text { margin-left: 6px; }
+.ai-entry.is-active {
+  background: var(--el-color-primary);
+  border-color: var(--el-color-primary);
+  color: #fff;
 }
 .todo-bell :deep(.el-badge__content) {
   font-size: 11px;
@@ -713,6 +723,11 @@ function onCommand(cmd) {
   .role-tag { display: none; }
   .user-name { max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .header-right { gap: 8px; }
+}
+/* 手机: AI 入口只留图标, 点击区 44×44 */
+@media (max-width: 640px) {
+  .ai-entry { width: 44px; height: 44px; padding: 0; flex-shrink: 0; }
+  .ai-entry .ai-entry-text { display: none; }
 }
 /* 抽屉内部: 复用侧栏视觉; drawer 被 teleport 到 body, 要穿透 scoped 边界 */
 .mobile-menu { display: flex; flex-direction: column; height: 100%; background: #faf9f7; }
