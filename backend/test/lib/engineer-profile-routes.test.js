@@ -49,7 +49,7 @@ test('list, detail and suggestions consistently exclude deleted, disabled and no
     assert.equal(where.deletedAt, null)
     assert.equal(where.user.deletedAt, null)
     assert.equal(where.user.status, 1)
-    assert.deepEqual(where.user.role.in, ['FDE_ENGINEER', 'MANAGER'])
+    assert.deepEqual(where.user.role.in, ['FDE_ENGINEER', 'TEAM_LEAD', 'MANAGER'])
     const body = await res.json()
     assert.ok(path === '/1' ? body.data.engineerId === '1' : body.data.list.length === 1)
   }

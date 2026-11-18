@@ -142,7 +142,8 @@ async function scopedPeople(req) {
     orderBy: { id: 'asc' },
     select: { id: true, name: true, username: true, role: true, engineer: { select: { id: true, level: true } } }
   })
-  const people = users.map(u => ({
+  // 关系 select 是 Prisma 的第二条查询: 两条查询之间档案被删(并发删人)时 engineer 会是 null, 跳过
+  const people = users.filter(u => u.engineer).map(u => ({
     userId: u.id, engineerId: u.engineer.id, name: u.name || u.username, role: u.role, level: u.engineer.level || null
   }))
   return { scope, people }

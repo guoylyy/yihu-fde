@@ -541,10 +541,10 @@ describe('周 OKR /api/okr', () => {
       const summary = await prisma.notification.findFirst({ where: { type: REMIND_SUMMARY_TYPE, userId: BigInt(O.id), data: JSON.stringify({ week: RK }) } })
       assert.match(summary.body, new RegExp(`^本周 ${r.missing.length} 人未交：`))
       assert.ok(summary.body.includes(A.name))
-      const again = await okrMondayReminder(at(0, 11, 5))
-      assert.equal(again.reminded, 0)
-      assert.equal(again.summarized, 0)
+      // 再跑不重发: 只看本用例自己的人 —— 并行套件随时在建新工程师/组长, 全局 reminded 计数不稳定
+      await okrMondayReminder(at(0, 11, 5))
       assert.equal(await sent(REMIND_TYPE, A.id), 1)
+      assert.equal(await sent(REMIND_SUMMARY_TYPE, O.id), 1)
     })
 
     test('周期已不是 PLANNING → 不发', async () => {

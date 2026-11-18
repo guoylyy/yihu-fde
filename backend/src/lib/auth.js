@@ -223,11 +223,9 @@ export const PERMISSIONS = {
   'team.view.all':           ['ADMIN']
 }
 
-// 0.5.0 组长(TEAM_LEAD)首先是一名工程师: 工程师默认有的权限点它都有,
-// 在此基础上多出 team.view(本组)。这里只改出厂默认, 后台覆盖过的权限点以覆盖为准。
-for (const roles of Object.values(PERMISSIONS)) {
-  if (roles.includes('FDE_ENGINEER') && !roles.includes('TEAM_LEAD')) roles.push('TEAM_LEAD')
-}
+// 注意(0.5.0 R4a): TEAM_LEAD 目前只在 team.view 里出现, 不自动继承工程师的权限点 ——
+// 前后端默认矩阵必须同步(test/lib/permissions-sync), 而本轮不动前端; 组长要用项目/任务等功能,
+// 先由管理员在「角色权限配置」里勾上, 或等 4b 与前端 permissions.js 一起补默认值。
 
 // ===== 角色定义入库 (v1.3.2 动态角色) =====
 // roles 表是角色清单的唯一权威源, 启动时加载到内存, 角色管理保存后即时刷新。

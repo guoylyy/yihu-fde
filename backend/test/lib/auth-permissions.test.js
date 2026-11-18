@@ -182,7 +182,7 @@ describe('lib/auth.js - 角色/权限', () => {
     })
 
     test('所有角色都是合法角色', () => {
-      const VALID = ['ADMIN', 'MANAGER', 'FDE_ENGINEER']
+      const VALID = ['ADMIN', 'MANAGER', 'TEAM_LEAD', 'FDE_ENGINEER']
       for (const [perm, roles] of Object.entries(PERMISSIONS)) {
         for (const r of roles) {
           assert.ok(VALID.includes(r), `${perm} 含未知角色: ${r}`)
