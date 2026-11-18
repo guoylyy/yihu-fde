@@ -135,6 +135,7 @@ app.use('/api/fde/uploads', uploadsRouter)
 app.use('/api/fde/users', usersRouter)
 app.use('/api/fde/teams', teamsRouter)
 app.use('/api/fde/team', teamRouter)
+app.use('/api/team', teamRouter) // 0.5.0 R4 团队四屏
 app.use('/api/fde/roles', rolesRouter)
 app.use('/api/fde/role-permissions', rolePermissionsRouter)
 app.use('/api/fde/notifications', notificationsRouter)

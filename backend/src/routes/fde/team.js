@@ -1,12 +1,21 @@
-// 0.5.0 团队视图(成员卡片 / 负载): 一个接口给两页用
-//   GET /api/fde/team/overview   工程师池(FDE_ENGINEER/MANAGER)每人的档案摘要 + 手上任务负载
-// 权限: 暂按 engineer.view(默认 ADMIN/MANAGER), 第 4 轮再细化到组长只看本组
+// 0.5.0 团队视图
+// 挂在 /api/fde/team(老接口) 和 /api/team(R4 团队四屏) 两处, 同一个 router:
+//   GET /overview                 工程师池每人的档案摘要 + 手上任务负载(R3, 权限 engineer.view)
+//   GET /members                  成员卡片            (team.view; 组长本组 / 老板全部)
+//   GET /load?week=YYYY-MM-DD     负载               (team.view)
+//   GET /promise?week=YYYY-MM-DD  承诺 vs 实际        (team.view.all; 只给提示标记, 不打分不排名)
+//   GET /skills                   技能矩阵            (team.view)
+//   POST /skills/confirm          确认一条技能(没有就建技能)  (team.view, 写审计)
+//   POST /skills/:engineerId      设某人某技能等级           (team.view, 写审计)
+// 数据范围统一走 lib/teamScope.js resolveTeamScope。
 import express from 'express'
 import prisma from '../../lib/prisma.js'
 import { internalAuth, requirePermission } from '../../lib/auth.js'
 import { ENGINEER_ROLES } from '../../lib/engineerRoles.js'
 import { getTeamsByUserIds } from '../../lib/teams.js'
-import { loadLevel, OPEN_TASK_STATUSES } from '../../lib/teamLoad.js'
+import { loadLevel, OPEN_TASK_STATUSES, LOAD_THRESHOLD, loadPct, loadBand } from '../../lib/teamLoad.js'
+import { resolveTeamScope, userWhereOf } from '../../lib/teamScope.js'
+import { isoWeekOf, weekRange } from '../../services/okrRules.js'
 import { ARCHIVED_STATUSES } from '../../services/projectArchive.js'
 
 const router = express.Router()
@@ -98,6 +107,167 @@ router.get('/overview', requirePermission('engineer.view'), async (req, res) => 
     console.error('[fde/team/overview]', e)
     res.status(500).json({ code: 9001, message: e.message })
   }
+})
+
+// ================================================================ R4 团队四屏
+
+const fail = (res, e, tag) => {
+  console.error(`[team/${tag}]`, e)
+  res.status(500).json({ code: 9001, message: e.message })
+}
+
+/** ?week=YYYY-MM-DD(该周任意一天, 上海日期) → ISO 周 + 起止; 缺省本周; 格式不对返回 null */
+function parseWeek(q) {
+  let at = new Date()
+  if (q != null && q !== '') {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(q))) return null
+    at = new Date(`${q}T12:00:00+08:00`)
+    if (Number.isNaN(at.getTime())) return null
+  }
+  const { year, weekNo } = isoWeekOf(at)
+  const { start, end } = weekRange(year, weekNo)
+  return { year, weekNo, start, end }
+}
+const weekMeta = w => ({ year: w.year, weekNo: w.weekNo, start: w.start, end: w.end })
+
+/**
+ * 范围内的人: 工程师池角色 + 有工程师档案(团队视图以 engineerId 为键)
+ * @returns {Promise<{scope, people: Array<{userId, engineerId, name, role, level}>}>}
+ */
+async function scopedPeople(req) {
+  const scope = await resolveTeamScope(req.user)
+  const users = await prisma.user.findMany({
+    where: { ...userWhereOf(scope), role: { in: ENGINEER_ROLES }, deletedAt: null, status: 1, engineer: { is: { deletedAt: null } } },
+    orderBy: { id: 'asc' },
+    select: { id: true, name: true, username: true, role: true, engineer: { select: { id: true, level: true } } }
+  })
+  const people = users.map(u => ({
+    userId: u.id, engineerId: u.engineer.id, name: u.name || u.username, role: u.role, level: u.engineer.level || null
+  }))
+  return { scope, people }
+}
+
+const byKey = (rows, key) => new Map(rows.map(r => [String(r[key]), r]))
+const countOf = (map, id) => map.get(String(id))?._count._all || 0
+
+/** 每人手上未完成任务数(与 R3 负载同一口径: 未删除/未归档, 状态 TODO/QUEUED/IN_PROGRESS/REWORK) */
+async function activeTaskCounts(engIds) {
+  if (!engIds.length) return new Map()
+  const rows = await prisma.task.groupBy({
+    by: ['assigneeId'],
+    where: { assigneeId: { in: engIds }, deletedAt: null, archivedAt: null, status: { in: OPEN_TASK_STATUSES } },
+    _count: { _all: true }
+  })
+  return byKey(rows, 'assigneeId')
+}
+
+/** 某周已提交(= 承诺了)且没放弃的 OKR 目标, 按 ownerId(userId) 分组 */
+async function committedObjectives(week, userIds) {
+  const map = new Map()
+  if (!userIds.length) return map
+  const rows = await prisma.okrObjective.findMany({
+    where: {
+      ownerId: { in: userIds }, submittedAt: { not: null }, status: { not: 'DROPPED' },
+      cycle: { year: week.year, weekNo: week.weekNo }
+    },
+    orderBy: [{ ownerId: 'asc' }, { seq: 'asc' }],
+    select: { ownerId: true, title: true, weight: true }
+  })
+  for (const r of rows) {
+    const k = String(r.ownerId)
+    if (!map.has(k)) map.set(k, [])
+    map.get(k).push({ title: r.title, weight: r.weight })
+  }
+  return map
+}
+
+/** 某段时间内每人的开发会话条数 */
+async function conversationCounts(engIds, start, end) {
+  if (!engIds.length) return new Map()
+  const rows = await prisma.devConversation.groupBy({
+    by: ['engineerId'],
+    where: { engineerId: { in: engIds }, deletedAt: null, createdAt: { gte: start, lte: end } },
+    _count: { _all: true }
+  })
+  return byKey(rows, 'engineerId')
+}
+
+/**
+ * GET /api/team/members
+ * [{ engineerId, name, role, level, skills:[{name,level,source}], committedObjectives:[{title,weight}],
+ *    activeTaskCount, lastConversationAt, loadPct }]
+ * committedObjectives 取本周; skills 只列人工确认过的(MANUAL), 推断的候选看 /skills
+ */
+router.get('/members', requirePermission('team.view'), async (req, res) => {
+  try {
+    const week = parseWeek()
+    const { scope, people } = await scopedPeople(req)
+    const engIds = people.map(p => p.engineerId)
+    const userIds = people.map(p => p.userId)
+    const [skills, objectives, active, lastConv] = await Promise.all([
+      engIds.length ? prisma.engineerSkill.findMany({
+        where: { engineerId: { in: engIds }, skill: { deletedAt: null } },
+        orderBy: [{ level: 'desc' }, { skillId: 'asc' }],
+        select: { engineerId: true, level: true, skill: { select: { name: true } } }
+      }) : [],
+      committedObjectives(week, userIds),
+      activeTaskCounts(engIds),
+      engIds.length ? prisma.devConversation.groupBy({
+        by: ['engineerId'], where: { engineerId: { in: engIds }, deletedAt: null }, _max: { createdAt: true }
+      }) : []
+    ])
+    const lastMap = byKey(lastConv, 'engineerId')
+    const data = people.map(p => {
+      const activeTaskCount = countOf(active, p.engineerId)
+      return {
+        engineerId: String(p.engineerId),
+        name: p.name,
+        role: p.role,
+        level: p.level,
+        skills: skills.filter(s => s.engineerId === p.engineerId).map(s => ({ name: s.skill.name, level: s.level, source: 'MANUAL' })),
+        committedObjectives: objectives.get(String(p.userId)) || [],
+        activeTaskCount,
+        lastConversationAt: lastMap.get(String(p.engineerId))?._max.createdAt || null,
+        loadPct: loadPct(activeTaskCount)
+      }
+    })
+    res.json({ code: 0, data, meta: { scope: scope.kind, week: weekMeta(week), threshold: LOAD_THRESHOLD } })
+  } catch (e) { fail(res, e, 'members') }
+})
+
+/**
+ * GET /api/team/load?week=YYYY-MM-DD
+ * [{ engineerId, name, activeTaskCount, plannedHours, committedWeight, conversationCount, loadPct, level }]
+ * plannedHours: 任务表没有预估工时字段(只有人填的 actualHours), 一律 null —— 不拿别的数凑
+ * loadPct = activeTaskCount / meta.threshold × 100; ≥100 WARN, ≥150 OVER
+ */
+router.get('/load', requirePermission('team.view'), async (req, res) => {
+  try {
+    const week = parseWeek(req.query.week)
+    if (!week) return res.status(400).json({ code: 9002, message: 'week 格式应为 YYYY-MM-DD' })
+    const { scope, people } = await scopedPeople(req)
+    const engIds = people.map(p => p.engineerId)
+    const [active, objectives, convs] = await Promise.all([
+      activeTaskCounts(engIds),
+      committedObjectives(week, people.map(p => p.userId)),
+      conversationCounts(engIds, week.start, week.end)
+    ])
+    const data = people.map(p => {
+      const activeTaskCount = countOf(active, p.engineerId)
+      const pct = loadPct(activeTaskCount)
+      return {
+        engineerId: String(p.engineerId),
+        name: p.name,
+        activeTaskCount,
+        plannedHours: null,
+        committedWeight: (objectives.get(String(p.userId)) || []).reduce((s, o) => s + (o.weight || 0), 0),
+        conversationCount: countOf(convs, p.engineerId),
+        loadPct: pct,
+        level: loadBand(pct)
+      }
+    })
+    res.json({ code: 0, data, meta: { scope: scope.kind, week: weekMeta(week), threshold: LOAD_THRESHOLD, warnPct: 100, overPct: 150 } })
+  } catch (e) { fail(res, e, 'load') }
 })
 
 export default router

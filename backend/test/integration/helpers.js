@@ -58,7 +58,7 @@ export async function createTestUser(role = 'FDE_ENGINEER', { name } = {}) {
   const user = await prisma.user.create({
     data: { username, name: (name || uniqName('测试用户')).slice(0, 50), role, roleSource: 'MANUAL', status: 1, email: `${username}@test.local` }
   })
-  if (['FDE_ENGINEER', 'MANAGER'].includes(role)) await prisma.engineer.create({ data: { userId: user.id, available: 1 } })
+  if (['FDE_ENGINEER', 'TEAM_LEAD', 'MANAGER'].includes(role)) await prisma.engineer.create({ data: { userId: user.id, available: 1 } })
   const token = await login(username)
   return {
     id: String(user.id),
