@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { compileView, renderView, t } from '../helpers/sfc-render.js'
-import { takeTop, relativeTime, skillName, loadBand, loadColor, loadBarPct } from '../../src/views/admin/team/teamUtils.js'
+import { takeTop, relativeTime, skillName, loadBand, loadColor, loadBarPct, promiseFlagsOf, PROMISE_FLAG_TONE, totalWeight } from '../../src/views/admin/team/teamUtils.js'
 
 // 0.5.0 R4b 团队四屏: 用真实模板 + /api/team/* 的返回结构渲染, 看画出来的字
 
@@ -90,4 +90,36 @@ test('负载表: 色块 + 数字, 表头写清口径, 计划工时没有就写 �
   }
   assert.match(html, /160%/)
   assert.ok(html.includes('—'))
+})
+
+// ---------------------------------------------------------------- 3. 承诺 vs 交付
+
+test('promise 标记文案与色调: 只在嘴上=黄 / 可能在别处干=灰 / 方向漂移=红', async () => {
+  const zh = (await import('../../src/locales/zh-CN.json', { with: { type: 'json' } })).default
+  assert.deepEqual(zh.team.promise.flags, { ONLY_WORDS: '只在嘴上', ELSEWHERE: '可能在别处干', DRIFT: '方向漂移' })
+  assert.equal(zh.team.promise.hint, '三个数摆在一起看差异，不排名、不打分')
+  assert.deepEqual(PROMISE_FLAG_TONE, { ONLY_WORDS: 'warning', ELSEWHERE: 'info', DRIFT: 'danger' })
+  assert.deepEqual(promiseFlagsOf({ flag: 'DRIFT', flags: ['DRIFT', 'ONLY_WORDS'] }), ['DRIFT', 'ONLY_WORDS'])
+  assert.deepEqual(promiseFlagsOf({ flag: 'ELSEWHERE' }), ['ELSEWHERE'], '只给 flag 也认')
+  assert.deepEqual(promiseFlagsOf({ flags: ['SCORE_LOW'] }), [], '未知标记丢掉')
+  assert.equal(totalWeight([{ weight: 60 }, { weight: 40 }, { weight: null }]), 100)
+})
+
+const promiseRender = compileView('views/admin/team/TeamPromise.vue')
+test('promise 页: 一行一人四列, 标记出文案, 页面上没有分数/排名字样', async () => {
+  const rows = [
+    { engineerId: '1', name: '甲', objectives: [{ title: 'O1', weight: 60 }, { title: 'O2', weight: 40 }], completedTasks: 0, conversationCount: 4, projectCount: 2, flag: 'DRIFT', flags: ['DRIFT', 'ONLY_WORDS'] },
+    { engineerId: '2', name: '乙', objectives: [], completedTasks: 2, conversationCount: 0, projectCount: 1, flag: 'ELSEWHERE', flags: ['ELSEWHERE'] },
+    { engineerId: '3', name: '丙', objectives: [], completedTasks: 0, conversationCount: 0, projectCount: 0, flag: null, flags: [] }
+  ]
+  const html = await renderView(promiseRender, { rows, meta: {}, loading: false, error: '', promiseFlagsOf, PROMISE_FLAG_TONE, totalWeight, load() {} })
+  assert.equal((html.match(/data-test="promise-row"/g) || []).length, 3)
+  for (const s of ['Drifting', 'Words only', 'Maybe working elsewhere', '2 objectives', 'weight 100', '2 tasks completed', '4 conversations', '2 projects', t('team.promise.hint')]) {
+    assert.ok(html.includes(s), s)
+  }
+  assert.match(html, /type="danger"[^>]*flag-DRIFT|flag-DRIFT[^>]*type="danger"/)
+  assert.match(html, /type="warning"[^>]*flag-ONLY_WORDS|flag-ONLY_WORDS[^>]*type="warning"/)
+  assert.match(html, /type="info"[^>]*flag-ELSEWHERE|flag-ELSEWHERE[^>]*type="info"/)
+  assert.doesNotMatch(html.slice(html.indexOf('role="table"')), /score|rank|分数|排名/i, '表格里不出分数/排名')
+  assert.ok(html.indexOf('甲') < html.indexOf('乙') && html.indexOf('乙') < html.indexOf('丙'), '保持接口顺序, 不排序')
 })

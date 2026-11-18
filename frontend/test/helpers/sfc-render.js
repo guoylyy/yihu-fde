@@ -18,7 +18,7 @@ export function compileView(relPath) {
   return new Function('Vue', code)(Vue)
 }
 
-const passthrough = { inheritAttrs: false, setup: (_, { slots }) => () => Vue.h('div', slots.default?.()) }
+const passthrough = { setup: (_, { slots }) => () => Vue.h('div', slots.default?.()) }
 const STUBS = ['el-input', 'el-button', 'el-tag', 'el-progress', 'el-avatar', 'el-skeleton', 'el-empty', 'el-tooltip',
   'el-dialog', 'el-radio-group', 'el-radio-button', 'el-select', 'el-option', 'el-form', 'el-form-item', 'el-icon',
   'LoadError', 'router-link', 'TaskDetailDialog']
