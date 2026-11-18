@@ -31,8 +31,9 @@
           <span v-if="takeTop(m.skills, 3).rest" class="more">+{{ takeTop(m.skills, 3).rest }}</span>
         </div>
 
-        <div class="promise">
-          <span class="label">{{ $t('team.week_promise') }}</span>
+        <!-- 有承诺: 标题 + 列表; 没承诺: 只一行「本周还没提交承诺」(不再同时出「本周承诺」标题) -->
+        <div class="promise" data-test="member-promise">
+          <span v-if="m.committedObjectives.length" class="label" data-test="member-promise-label">{{ $t('team.week_promise') }}</span>
           <ul v-if="m.committedObjectives.length" data-test="member-objectives">
             <li v-for="(o, i) in takeTop(m.committedObjectives, 2).shown" :key="i">
               <span class="o-title">{{ o.title }}</span>
@@ -40,7 +41,7 @@
             </li>
             <li v-if="takeTop(m.committedObjectives, 2).rest" class="more">+{{ takeTop(m.committedObjectives, 2).rest }}</li>
           </ul>
-          <span v-else class="muted">{{ $t('team.no_promise') }}</span>
+          <span v-else class="muted" data-test="member-no-promise">{{ $t('team.no_promise') }}</span>
         </div>
 
         <div class="facts">

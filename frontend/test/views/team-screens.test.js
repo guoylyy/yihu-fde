@@ -29,6 +29,8 @@ test('成员卡: 姓名/角色/等级、技能最多 3 个 +N、承诺最多 2 �
   }
   assert.ok(!html.includes('K8s') && !html.includes('第三条不显示'))
   assert.match(html, /data-test="member-active"[^>]*>8</)
+  assert.equal((html.match(/data-test="member-promise-label"/g) || []).length, 1)
+  assert.ok(!html.includes(t('team.no_promise')))
   assert.match(html, /band-OVER/)
 })
 
@@ -36,7 +38,8 @@ test('成员卡: 没承诺/没会话/没技能时给说明, 不出空块', async
   const html = await renderView(membersRender, membersState([{
     engineerId: '1', name: 'Sam', role: 'FDE_ENGINEER', level: null, skills: [], committedObjectives: [], activeTaskCount: 0, lastConversationAt: null, loadPct: 0
   }]))
-  assert.ok(html.includes(t('team.no_promise')))
+  assert.equal(html.split(t('team.no_promise')).length - 1, 1, '没承诺的说明只出现一次')
+  assert.ok(!html.includes('data-test="member-promise-label"'), '没承诺时不再同时出「本周承诺」标题')
   assert.ok(html.includes(t('team.never')))
   assert.ok(!html.includes('data-test="member-skills"'))
   assert.ok(!html.includes('data-test="member-level"'))
