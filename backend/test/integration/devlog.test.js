@@ -1,6 +1,6 @@
 // 集成测试 - 0.5.0 开发会话回流(/api/devlog、/api/dev、/api/projects/:id/timeline、/api/experience)
 // 覆盖: uid 幂等 upsert、正文脱敏、列表默认不带正文、link → LINKED + 审计、时间线按阶段分组、
-//       经验沉淀、数据范围(工程师只看自己的)、API Key 上报、单条失败不影响其它条、规则摘要降级、平台助手落库。
+//       经验沉淀、数据范围(工程师只看自己的)、API Key 上报、单条失败不影响其它条、规则摘要降级、粘贴通道、平台助手落库。
 // 平台助手那条要求后端以 FDE_LLM_STUB=1 启动(与 assistant.test.js 一致)。账号 / 项目现建现删
 import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
@@ -254,6 +254,60 @@ describe('开发会话回流 devlog', () => {
     assert.equal(logs.length, 1)
     // 看不到的会话不能拿来沉淀
     assert.equal((await o.post('/api/experience/from-conversation', { conversationId: String(conv.id), title: 'x', body: 'y' })).status, 404)
+  })
+
+  test('paste: 识别角色分块; 同一段文本粘贴两次只有 1 条会话; 自动出规则摘要', async () => {
+    const text = [
+      `用户：${RUN} 对一下需求口径，导出范围包含哪些字段？`,
+      '助手: 结论：只导出已验收的工单。',
+      'Human: 那历史数据呢',
+      'Assistant: 决定历史数据走一次性脚本，因为口径不同。\n踩坑：旧表 created_at 是字符串。'
+    ].join('\n')
+    const p1 = await e.post('/api/dev/conversations/paste', { text })
+    assert.equal(p1.status, 201, p1.message)
+    assert.equal(p1.data.created, true)
+    assert.match(p1.data.uid, /^paste_[0-9a-f]{24}$/)
+    assert.equal(p1.data.messages, 4)
+    assert.equal(p1.data.mode, 'rules')
+    assert.ok(p1.data.summary.includes('对一下需求口径'))
+    assert.deepEqual(p1.data.decisions, ['结论：只导出已验收的工单。', '决定历史数据走一次性脚本，因为口径不同。'])
+    assert.deepEqual(p1.data.pitfalls, ['踩坑：旧表 created_at 是字符串。'])
+    assert.equal(p1.data.stageSuggestion, 'REQUIREMENT')
+    const p2 = await e.post('/api/dev/conversations/paste', { text: text + '\n\n' })
+    assert.equal(p2.status, 200, p2.message)
+    assert.equal(p2.data.created, false)
+    assert.equal(p2.data.id, p1.data.id)
+    const rows = await rowsOf(p1.data.uid)
+    assert.equal(rows.length, 1, '同一段文本重复粘贴不产生重复会话')
+    const row = rows[0]
+    assert.equal(row.source, 'PASTE')
+    assert.equal(row.stage, 'REQUIREMENT', 'GENERAL 按建议回填')
+    assert.equal(String(row.engineerId), engineerId)
+    assert.deepEqual(row.body.map((m) => m.role), ['user', 'assistant', 'user', 'assistant'])
+    assert.equal(row.title, `${RUN} 对一下需求口径，导出范围包含哪些字段？`)
+    assert.equal(row.summary, p1.data.summary)
+    // 别人粘贴同一段 → 409, 不串到别人的会话上
+    assert.equal((await o.post('/api/dev/conversations/paste', { text })).status, 409)
+  })
+
+  test('paste: 带 stage/projectId/title 时按传入的; 没有角色标记整段算一条; 不能挂到无权的项目', async () => {
+    const text = `${RUN} 一段没有标记的笔记：报错 测试 用例 报错`
+    const p = await e.post('/api/dev/conversations/paste', { text, stage: 'design', projectId, title: '手填标题' })
+    assert.equal(p.status, 201, p.message)
+    assert.equal(p.data.stageSuggestion, 'TEST')
+    assert.equal(p.data.stageApplied, false)
+    const row = (await rowsOf(p.data.uid))[0]
+    assert.equal(row.stage, 'DESIGN', '不覆盖用户选的阶段')
+    assert.equal(String(row.projectId), String(projectId))
+    assert.equal(row.status, 'LINKED')
+    assert.equal(row.title, '手填标题')
+    assert.deepEqual(row.body, [{ role: 'user', content: text }])
+    const again = await e.post('/api/dev/conversations/paste', { text })
+    assert.equal(again.data.created, false)
+    assert.equal((await rowsOf(p.data.uid))[0].title, '手填标题', '重复粘贴不带 title 不覆盖原标题')
+    assert.equal((await o.post('/api/dev/conversations/paste', { text: `${RUN} x`, projectId })).status, 403)
+    assert.equal((await e.post('/api/dev/conversations/paste', { text: '  ' })).status, 400)
+    assert.equal((await e.post('/api/dev/conversations/paste', { text: 'x', stage: 'NOPE' })).status, 400)
   })
 
   test('平台助手: 每轮对话 upsert 成一条 PLATFORM_ASSISTANT 会话, 多轮累加不新增行', async () => {

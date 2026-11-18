@@ -5,8 +5,17 @@ import { normalizeSetting, publicBaseUrl, mcpUrl, SETTING_DEFS } from '../../src
 
 describe('normalizeSetting', () => {
   test('只有本系统的开关, 品牌 / 地址不在这里配', () => {
-    assert.deepEqual(SETTING_DEFS.map(d => d.key).sort(), ['auth.leaderIsManager', 'notify.platform'])
+    assert.deepEqual(SETTING_DEFS.map(d => d.key).sort(), ['auth.leaderIsManager', 'notify.platform', 'obsidianVaultPath'])
+    // 0.5.0: Obsidian 经验库同步路径归在 devlog(开发会话回流)分组, 不是 auth / notify
+    const groups = Object.fromEntries(SETTING_DEFS.map(d => [d.key, d.group]))
+    assert.deepEqual(groups, { 'auth.leaderIsManager': 'auth', 'notify.platform': 'notify', obsidianVaultPath: 'devlog' })
     assert.throws(() => normalizeSetting('brand.name', 'x'), /未知/)
+  })
+  test('字符串开关去首尾空白, 空串恢复默认, 超长拒绝', () => {
+    assert.equal(normalizeSetting('obsidianVaultPath', '  /tmp/vault  '), '/tmp/vault')
+    assert.equal(normalizeSetting('obsidianVaultPath', '   '), null)
+    assert.equal(normalizeSetting('obsidianVaultPath', null), null)
+    assert.throws(() => normalizeSetting('obsidianVaultPath', 'x'.repeat(501)), /500/)
   })
   test('布尔开关只收 true / false, 空值恢复默认', () => {
     assert.equal(normalizeSetting('auth.leaderIsManager', true), true)

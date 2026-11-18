@@ -12,8 +12,10 @@ describe('API: /api/fde/system-settings', () => {
     original = (await admin.get('/api/fde/system-settings')).data.settings
   })
 
+  // 只还原本文件改过的两项: 其它套件(experience)会并行改 obsidianVaultPath, 整体回写会把它的临时值固化
   after(async () => {
-    await admin.put('/api/fde/system-settings', { values: Object.fromEntries(original.map(s => [s.key, s.value])) })
+    const mine = ['auth.leaderIsManager', 'notify.platform']
+    await admin.put('/api/fde/system-settings', { values: Object.fromEntries(original.filter(s => mine.includes(s.key)).map(s => [s.key, s.value])) })
   })
 
   test('只有管理员能看和改', async () => {
@@ -25,7 +27,8 @@ describe('API: /api/fde/system-settings', () => {
     const r = await admin.get('/api/fde/system-settings')
     assert.equal(r.code, 0)
     const keys = r.data.settings.map(s => s.key)
-    assert.deepEqual(keys.sort(), ['auth.leaderIsManager', 'notify.platform'])
+    assert.deepEqual(keys.sort(), ['auth.leaderIsManager', 'notify.platform', 'obsidianVaultPath'])
+    assert.equal(r.data.settings.find(s => s.key === 'obsidianVaultPath').default, '~/智存同步空间')
     assert.equal(r.data.platform, null)
   })
 

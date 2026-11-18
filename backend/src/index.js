@@ -88,6 +88,7 @@ mountMcp(app)
 
 // 会话上报带完整正文, 默认 100kb 不够: 单独放宽, 须在全局 express.json 之前
 app.use('/api/devlog', express.json({ limit: '20mb' }))
+app.use('/api/dev/conversations/paste', express.json({ limit: '10mb' }))
 app.use(express.json())
 
 // 版本开关: 本实例未启用的模块一律 404(配了 ENABLED_MODULES / DISABLED_MODULES 才会收敛)

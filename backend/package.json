@@ -5,8 +5,8 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "test": "node --test --test-reporter=spec test/**/*.test.js",
-    "test:single": "node --test --test-reporter=spec",
+    "test": "node --test --test-global-setup=test/global-setup.js --test-reporter=spec test/**/*.test.js",
+    "test:single": "node --test --test-global-setup=test/global-setup.js --test-reporter=spec",
     "test:watch": "node --test --watch test/**/*.test.js"
   },
   "dependencies": {

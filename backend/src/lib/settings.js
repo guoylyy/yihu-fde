@@ -9,7 +9,9 @@ export const SETTING_DEFS = [
   // 部门负责人(以虎 One 里负责某个部门的人)首次登录 / 未被手动改过角色时自动成为项目经理
   { key: 'auth.leaderIsManager', group: 'auth', type: 'bool', default: false },
   // 站内通知同时经以虎 One 发到本人的钉钉 / 飞书 / 企业微信
-  { key: 'notify.platform', group: 'notify', type: 'bool', default: true }
+  { key: 'notify.platform', group: 'notify', type: 'bool', default: true },
+  // 经验库单向同步到 Obsidian 的 vault 根目录(支持 ~), 只写其下 07.FDE经验/
+  { key: 'obsidianVaultPath', group: 'devlog', type: 'string', default: '~/智存同步空间' }
 ]
 const DEF_BY_KEY = new Map(SETTING_DEFS.map(d => [d.key, d]))
 
@@ -47,7 +49,9 @@ export function normalizeSetting(key, raw) {
     if (typeof raw !== 'boolean') throw new Error(`${key} 须为 true / false`)
     return raw
   }
-  return String(raw)
+  const s = String(raw).trim()
+  if (s.length > 500) throw new Error(`${key} 最长 500 字`)
+  return s || null
 }
 
 /** 批量保存: values = { key: 值 | null }; 先全部校验再写库, 写完立即生效 */

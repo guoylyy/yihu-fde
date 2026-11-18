@@ -3,10 +3,15 @@
 //   GET  /api/dev/conversations                列表(默认不带正文, ?withBody=1 才带)
 //   GET  /api/dev/conversations/:id            详情(含事件与正文)
 //   POST /api/dev/conversations/:id/link       关联项目/任务/里程碑/阶段 → LINKED, 写审计
-//   POST /api/dev/conversations/:id/summarize  出摘要: 有模型走 chatJSON, 没有降级规则(mode:'rules')
+//   POST /api/dev/conversations/:id/summarize  出摘要: 有模型走 chatJSON, 没有降级规则(mode:'rules'); GENERAL 时按建议回填 stage
+//   POST /api/dev/conversations/paste          粘贴一段对话 → 会话(uid 按文本哈希, 重复粘贴不新增) + 自动摘要
 //   GET  /api/projects/:id/timeline            项目下会话按阶段分组
-//   POST /api/experience/from-conversation     从会话沉淀经验, 写审计
+//   POST /api/experience/from-conversation     从会话沉淀经验, 写审计; auto:true 由摘要生成草稿(preview:true 只返回草稿不落库)
 //   GET  /api/experience                       经验列表
+//   GET  /api/experience/:id                   详情(含 obsidianPath、来源会话摘要)
+//   PATCH /api/experience/:id                  改标题/正文/kind/tags/可复用度(本人或管理员)
+//   POST /api/experience/:id/sync-obsidian     单条同步到 Obsidian(本人或管理员), 返回路径
+//   POST /api/experience/sync-all              批量补同步(管理员), 返回 { synced, skipped, failed }
 //
 // 数据范围: 角色 dataScope=ALL(管理员)看全部; 其余看自己的(engineerId=本人 或 本人上报);
 //          经理型(OWN_PROJECTS)另外能看自己负责/参与项目下的会话
@@ -15,13 +20,15 @@ import prisma from '../../lib/prisma.js'
 import { internalAuth, hasPermission, getDataScope, buildScopeWhere } from '../../lib/auth.js'
 import { mcpAuth } from '../../lib/apiKey.js'
 import { logInternalAction } from '../../lib/audit.js'
-import { chatJSON, getActiveLlmConfig, LlmNotConfiguredError } from '../../lib/llm.js'
-import { stubEnabled } from '../../services/assistant/stub.js'
 import { isProjectInScope } from './projects.js'
 import {
   SOURCES, STAGES, STATUSES, EXPERIENCE_KINDS, MAX_BATCH, InputError,
-  normalizeItem, upsertConversation, fillProjectFromRefs, ruleSummary, transcriptForModel
+  normalizeItem, upsertConversation, fillProjectFromRefs
 } from '../../services/devlog/conversations.js'
+import { summarizeAndApply, ruleExtract, strList } from '../../services/devlog/summarize.js'
+import { parsePaste, pasteUid, pasteTitle, MAX_PASTE_CHARS } from '../../services/devlog/paste.js'
+import { draftFromSummary } from '../../services/devlog/experience.js'
+import { syncExperience, syncAll } from '../../services/obsidian.js'
 
 const router = express.Router()
 
@@ -206,50 +213,64 @@ router.post('/dev/conversations/:id/link', internalAuth, async (req, res) => {
   } catch (e) { serverError('link')(res, e) }
 })
 
-const SUMMARY_SYSTEM = [
-  '你在整理一段软件开发过程中的 AI 会话记录，输出给交付平台做过程沉淀。',
-  '只输出一个 JSON 对象，不要任何解释：{"summary": string, "decisions": string[], "pitfalls": string[], "tags": string[]}',
-  'summary：3~6 句中文，讲清楚这次会话要解决什么、做了什么、结论是什么。',
-  'decisions：做出的技术/方案决策，每条一句；没有就空数组。',
-  'pitfalls：踩到的坑及原因，每条一句；没有就空数组。',
-  'tags：3~8 个短标签（技术栈、模块名）。只用记录里出现的事实，不要编造。'
-].join('\n')
-
-const strList = (v, n = 20) => (Array.isArray(v) ? v.map((x) => String(x ?? '').trim()).filter(Boolean).slice(0, n).map((s) => s.slice(0, 500)) : [])
-
 router.post('/dev/conversations/:id/summarize', internalAuth, async (req, res) => {
   try {
     const c = await findVisibleConversation(req, { events: { orderBy: { seq: 'asc' } } })
     if (!c) return fail(res, 404, 9004, '会话不存在或无权查看')
-
-    let result = null
-    let mode = 'rules'
-    let reason = null
-    // stub 模式没有摘要能力, 与「没配模型」一样走规则
-    if (!stubEnabled()) {
-      try {
-        const config = await getActiveLlmConfig()
-        const out = await chatJSON({ system: SUMMARY_SYSTEM, user: transcriptForModel(c, c.events), maxTokens: 1500, config, timeoutMs: 60_000 })
-        if (out && typeof out.summary === 'string' && out.summary.trim()) {
-          result = { summary: out.summary.trim().slice(0, 20000), decisions: strList(out.decisions), pitfalls: strList(out.pitfalls), tags: strList(out.tags, 10) }
-          mode = 'model'
-        } else reason = '模型没有返回 summary'
-      } catch (e) {
-        reason = e instanceof LlmNotConfiguredError ? e.message : `模型调用失败：${String(e.message || e).slice(0, 200)}`
-        if (!(e instanceof LlmNotConfiguredError)) console.error('[devlog summarize]', e.message)
-      }
-    } else reason = 'stub 模式'
-    let files
-    if (!result) {
-      const r = ruleSummary(c, c.events)
-      files = r.files
-      result = { summary: r.summary, decisions: r.decisions, pitfalls: r.pitfalls, tags: r.tags }
-    }
-
-    await prisma.devConversation.update({ where: { id: c.id }, data: result })
-    await logInternalAction(req, 'devlog.conversation.summarize', { resourceType: 'dev_conversation', resourceId: c.id, details: { mode, ...(reason ? { reason } : {}) } })
-    res.json({ code: 0, data: { id: String(c.id), mode, ...(reason && mode === 'rules' ? { reason } : {}), ...result, ...(files ? { files } : {}) } })
+    const r = await summarizeAndApply(c, c.events)
+    await logInternalAction(req, 'devlog.conversation.summarize', {
+      resourceType: 'dev_conversation', resourceId: c.id,
+      details: { mode: r.mode, ...(r.reason ? { reason: r.reason } : {}), ...(r.stageApplied ? { stage: r.stage } : {}) }
+    })
+    res.json({ code: 0, data: summaryView(c.id, r) })
   } catch (e) { serverError('summarize')(res, e) }
+})
+
+/** 摘要接口的返回: 规则模式带 reason 与 files */
+function summaryView(id, r) {
+  const { reason, files, ...rest } = r
+  return { id: String(id), ...rest, ...(r.mode === 'rules' && reason ? { reason } : {}), ...(files ? { files } : {}) }
+}
+
+// ---------- 粘贴通道 ----------
+
+router.post('/dev/conversations/paste', internalAuth, async (req, res) => {
+  try {
+    const b = req.body || {}
+    if (typeof b.text !== 'string' || !b.text.trim()) return fail(res, 400, 9002, '请粘贴对话内容（text）')
+    if (b.text.length > MAX_PASTE_CHARS) return fail(res, 400, 9002, `内容太长（最多 ${MAX_PASTE_CHARS} 字）`)
+    const { messages } = parsePaste(b.text)
+    const uid = pasteUid(b.text)
+    // 自动标题只在新建时用; 重复粘贴不带 title 时保留原标题(可能是人填的)
+    const given = b.title != null && String(b.title).trim() ? String(b.title).trim() : null
+    const isNew = !(await prisma.devConversation.findUnique({ where: { uid }, select: { id: true } }))
+    let item
+    try {
+      item = normalizeItem({
+        uid, source: 'PASTE', stage: b.stage, projectId: b.projectId,
+        title: given || (isNew ? pasteTitle(messages) : undefined),
+        body: messages
+      })
+    } catch (e) { if (e instanceof InputError) return fail(res, 400, 9002, e.message); throw e }
+    if (item.data.projectId && !(await isProjectInScope(req.user, item.data.projectId))) return fail(res, 403, 1003, '无权关联到该项目')
+
+    const actor = { userId: userIdOf(req), engineerId: await engineerIdOf(req), all: getDataScope(req.user.role) === 'ALL' }
+    let saved
+    try { saved = await upsertConversation(item, actor) } catch (e) {
+      if (e instanceof InputError) return fail(res, /占用/.test(e.message) ? 409 : 400, 9002, e.message)
+      throw e
+    }
+    const c = await prisma.devConversation.findUnique({ where: { id: saved.id }, include: { events: { orderBy: { seq: 'asc' } } } })
+    const r = await summarizeAndApply(c, c.events)
+    await logInternalAction(req, 'devlog.conversation.paste', {
+      resourceType: 'dev_conversation', resourceId: c.id,
+      details: { uid: c.uid, created: saved.created, messages: messages.length, mode: r.mode }
+    })
+    res.status(saved.created ? 201 : 200).json({
+      code: 0,
+      data: { ...summaryView(c.id, r), uid: c.uid, created: saved.created, title: c.title, messages: messages.length }
+    })
+  } catch (e) { serverError('paste')(res, e) }
 })
 
 // ---------- 项目时间线 ----------
@@ -284,34 +305,149 @@ router.get('/projects/:id/timeline', internalAuth, async (req, res) => {
 
 // ---------- 经验沉淀 ----------
 
+/** 经验字段校验(新建/修改共用); partial=true 时只校验给了的字段。返回 { data } 或 { error } */
+function experienceInput(b, partial) {
+  const data = {}
+  if (!partial || b.title !== undefined) {
+    const title = String(b.title ?? '').trim()
+    if (!title) return { error: '请填写标题' }
+    if (title.length > 200) return { error: '标题最长 200 字' }
+    data.title = title
+  }
+  if (!partial || b.body !== undefined) {
+    const body = String(b.body ?? '').trim()
+    if (!body) return { error: '请填写正文' }
+    if (body.length > 60000) return { error: '正文最长 60000 字' }
+    data.body = body
+  }
+  if (b.kind !== undefined && b.kind !== null && b.kind !== '') {
+    const kind = String(b.kind).toUpperCase()
+    if (!EXPERIENCE_KINDS.includes(kind)) return { error: `kind 只能是 ${EXPERIENCE_KINDS.join('/')}` }
+    data.kind = kind
+  } else if (!partial) data.kind = 'EXPERIENCE'
+  if (b.reusableLevel != null && b.reusableLevel !== '') {
+    const n = Number(b.reusableLevel)
+    if (!Number.isInteger(n) || n < 1 || n > 5) return { error: 'reusableLevel 取 1~5' }
+    data.reusableLevel = n
+  }
+  if (b.tags != null) {
+    if (!Array.isArray(b.tags)) return { error: 'tags 必须是数组' }
+    data.tags = strList(b.tags, 10)
+  }
+  return { data }
+}
+
+const pick = (v, fallback) => (v === undefined || v === null || (typeof v === 'string' && !v.trim()) ? fallback : v)
+
 router.post('/experience/from-conversation', internalAuth, async (req, res) => {
   try {
     const b = req.body || {}
     if (!isId(b.conversationId)) return fail(res, 400, 9002, 'conversationId 不合法')
-    const title = String(b.title ?? '').trim()
-    const body = String(b.body ?? '').trim()
-    if (!title) return fail(res, 400, 9002, '请填写标题')
-    if (title.length > 200) return fail(res, 400, 9002, '标题最长 200 字')
-    if (!body) return fail(res, 400, 9002, '请填写正文')
-    const kind = b.kind ? String(b.kind).toUpperCase() : 'EXPERIENCE'
-    if (!EXPERIENCE_KINDS.includes(kind)) return fail(res, 400, 9002, `kind 只能是 ${EXPERIENCE_KINDS.join('/')}`)
-    let reusableLevel = 2
-    if (b.reusableLevel != null && b.reusableLevel !== '') {
-      reusableLevel = Number(b.reusableLevel)
-      if (!Number.isInteger(reusableLevel) || reusableLevel < 1 || reusableLevel > 5) return fail(res, 400, 9002, 'reusableLevel 取 1~5')
-    }
-    if (b.tags != null && !Array.isArray(b.tags)) return fail(res, 400, 9002, 'tags 必须是数组')
-
     req.params.id = String(b.conversationId)
-    const c = await findVisibleConversation(req)
+    const c = await findVisibleConversation(req, { events: { orderBy: { seq: 'asc' } } })
     if (!c) return fail(res, 404, 9004, '会话不存在或无权查看')
 
+    // auto: 用会话摘要生成草稿; 会话还没摘要就先跑一次(规则兜底)并落到会话上。人填了的字段优先
+    let draft = null
+    let mode = null
+    if (b.auto === true || b.auto === 'true') {
+      let s
+      if (c.summary) {
+        const rules = ruleExtract(c, c.events)
+        s = { summary: c.summary, decisions: strList(c.decisions), pitfalls: strList(c.pitfalls), tags: strList(c.tags, 10), artifacts: rules.artifacts }
+        mode = 'stored'
+      } else {
+        s = await summarizeAndApply(c, c.events)
+        mode = s.mode
+      }
+      draft = draftFromSummary(s, c)
+      if (b.preview === true || b.preview === 'true') {
+        return res.json({ code: 0, data: { ...draft, conversationId: String(c.id), projectId: c.projectId != null ? String(c.projectId) : null, reusableLevel: 2, mode } })
+      }
+    }
+    const merged = draft
+      ? { title: pick(b.title, draft.title), body: pick(b.body, draft.body), kind: pick(b.kind, draft.kind), tags: pick(b.tags, draft.tags), reusableLevel: b.reusableLevel }
+      : b
+    const { data, error } = experienceInput(merged, false)
+    if (error) return fail(res, 400, 9002, error)
+
     const row = await prisma.devExperience.create({
-      data: { title, kind, body, projectId: c.projectId, conversationId: c.id, tags: b.tags ? strList(b.tags) : undefined, reusableLevel, createdBy: userIdOf(req) }
+      data: { reusableLevel: 2, ...data, projectId: c.projectId, conversationId: c.id, createdBy: userIdOf(req) }
     })
-    await logInternalAction(req, 'devlog.experience.create', { resourceType: 'dev_experience', resourceId: row.id, details: { conversationId: String(c.id), kind, title } })
-    res.status(201).json({ code: 0, data: row })
+    await logInternalAction(req, 'devlog.experience.create', {
+      resourceType: 'dev_experience', resourceId: row.id,
+      details: { conversationId: String(c.id), kind: row.kind, title: row.title, ...(draft ? { auto: true, mode } : {}) }
+    })
+    res.status(201).json({ code: 0, data: { ...row, ...(draft ? { auto: true, mode } : {}) } })
   } catch (e) { serverError('experience create')(res, e) }
+})
+
+/** 经验本人或管理员才能改 / 同步 */
+const canEditExperience = (req, exp) => getDataScope(req.user.role) === 'ALL' || (exp.createdBy != null && exp.createdBy === userIdOf(req))
+
+async function findExperience(req) {
+  if (!isId(req.params.id)) return null
+  return prisma.devExperience.findFirst({ where: { id: BigInt(req.params.id), deletedAt: null } })
+}
+
+router.post('/experience/sync-all', internalAuth, async (req, res) => {
+  try {
+    if (getDataScope(req.user.role) !== 'ALL') return fail(res, 403, 1003, '只有管理员能批量同步')
+    const where = {}
+    const projectId = req.body?.projectId ?? req.query.projectId
+    if (projectId != null && projectId !== '') {
+      if (!isId(projectId)) return fail(res, 400, 9002, 'projectId 不合法')
+      where.projectId = BigInt(projectId)
+    }
+    let r
+    try { r = await syncAll(where) } catch (e) { return fail(res, 400, 9002, e.message) } // vault 路径不可用
+    await logInternalAction(req, 'devlog.experience.sync_all', { resourceType: 'dev_experience', details: { ...r, errors: r.errors.length, ...(where.projectId ? { projectId: String(where.projectId) } : {}) } })
+    res.json({ code: 0, data: r })
+  } catch (e) { serverError('experience sync-all')(res, e) }
+})
+
+router.get('/experience/:id', internalAuth, async (req, res) => {
+  try {
+    const exp = await findExperience(req)
+    if (!exp) return fail(res, 404, 9004, '经验不存在')
+    const project = exp.projectId ? await prisma.project.findUnique({ where: { id: exp.projectId }, select: { id: true, name: true } }) : null
+    // 来源会话: 在自己数据范围内才给摘要, 否则只给 id
+    let conversation = null
+    if (exp.conversationId) {
+      req.params.id = String(exp.conversationId)
+      const c = await findVisibleConversation(req)
+      conversation = c
+        ? { id: String(c.id), uid: c.uid, title: c.title, summary: c.summary, source: c.source, stage: c.stage, startedAt: c.startedAt, createdAt: c.createdAt, visible: true }
+        : { id: String(exp.conversationId), visible: false }
+    }
+    res.json({ code: 0, data: { ...exp, projectName: project?.name ?? null, conversation, canEdit: canEditExperience(req, exp) } })
+  } catch (e) { serverError('experience detail')(res, e) }
+})
+
+router.patch('/experience/:id', internalAuth, async (req, res) => {
+  try {
+    const exp = await findExperience(req)
+    if (!exp) return fail(res, 404, 9004, '经验不存在')
+    if (!canEditExperience(req, exp)) return fail(res, 403, 1003, '只能改自己沉淀的经验')
+    const { data, error } = experienceInput(req.body || {}, true)
+    if (error) return fail(res, 400, 9002, error)
+    if (!Object.keys(data).length) return res.json({ code: 0, data: exp })
+    const row = await prisma.devExperience.update({ where: { id: exp.id }, data })
+    await logInternalAction(req, 'devlog.experience.update', { resourceType: 'dev_experience', resourceId: exp.id, details: { changed: Object.keys(data) } })
+    res.json({ code: 0, data: row })
+  } catch (e) { serverError('experience update')(res, e) }
+})
+
+router.post('/experience/:id/sync-obsidian', internalAuth, async (req, res) => {
+  try {
+    const exp = await findExperience(req)
+    if (!exp) return fail(res, 404, 9004, '经验不存在')
+    if (!canEditExperience(req, exp)) return fail(res, 403, 1003, '只能同步自己沉淀的经验')
+    const r = await syncExperience(exp.id)
+    await logInternalAction(req, 'devlog.experience.sync', { resourceType: 'dev_experience', resourceId: exp.id, details: r })
+    // 写文件失败不是请求错误: 数据库记录照旧, 返回 ok:false 让前端提示
+    res.json({ code: 0, data: r })
+  } catch (e) { serverError('experience sync')(res, e) }
 })
 
 router.get('/experience', internalAuth, async (req, res) => {

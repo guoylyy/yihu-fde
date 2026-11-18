@@ -197,7 +197,8 @@ export function ownedBy(conv, actor) {
 
 // ---------- 规则版摘要(模型不可用时降级) ----------
 
-const FILE_RE = /(?:^|[\s`'"(\[])((?:\.{0,2}\/)?(?:[\w@.-]+\/)+[\w@.-]+\.[A-Za-z0-9]{1,8}|[\w-]+\.(?:js|mjs|cjs|ts|tsx|jsx|vue|py|go|rs|java|kt|rb|php|sql|prisma|json|ya?ml|toml|md|sh|css|scss|html))(?::\d+)?(?=$|[\s`'",)\]:;])/g
+// 前后边界认中文标点与汉字(「看下src/a.js。」), 否则中文正文里的路径抓不到
+const FILE_RE = /(?:^|[\s`'"(\[（，。：；、\u4e00-\u9fff])((?:\.{0,2}\/)?(?:[\w@.-]+\/)+[\w@.-]+\.[A-Za-z0-9]{1,8}|[\w-]+\.(?:js|mjs|cjs|ts|tsx|jsx|vue|py|go|rs|java|kt|rb|php|sql|prisma|json|ya?ml|toml|md|sh|css|scss|html))(?::\d+)?(?=$|[\s`'",)\]:;，。；：！？、）\u4e00-\u9fff])/g
 
 /** 文本里提到的文件路径(去重, 最多 30 个) */
 export function detectFiles(texts) {
