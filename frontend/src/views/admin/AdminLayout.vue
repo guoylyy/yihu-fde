@@ -327,7 +327,7 @@ const { isMobile } = useResponsive()
 // H5(#1250): 手机抽屉菜单
 const mobileMenuVisible = ref(false)
 
-// AI 助手: 右上角按钮与右下角药丸共用同一个抽屉状态; 按钮再点一次收起
+// AI 助手: 右上角按钮是唯一入口, 再点一次收起
 const { state: assistant, openPanel: openAssistantPanel } = useAssistant()
 function openAssistant() {
   mobileMenuVisible.value = false

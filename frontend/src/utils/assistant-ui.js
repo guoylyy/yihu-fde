@@ -1,15 +1,5 @@
-// AI 助手入口与抽屉顶部的纯逻辑(无 Vue 依赖, 便于单测)
+// AI 助手抽屉顶部的纯逻辑(无 Vue 依赖, 便于单测)
 
-/** 首次提示(药丸上的小圆点)是否已看过: 点开过一次助手就记下, 之后不再出现 */
-export const SEEN_KEY = 'fde_assistant_seen'
-
-export function hasSeen(storage) {
-  try { return storage?.getItem(SEEN_KEY) === '1' } catch { return true }
-}
-
-export function markSeen(storage) {
-  try { storage?.setItem(SEEN_KEY, '1') } catch { /* 隐私模式写不进就算了 */ }
-}
 
 /**
  * 抽屉顶部模型区的状态。

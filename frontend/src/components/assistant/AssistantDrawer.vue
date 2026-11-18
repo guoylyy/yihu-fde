@@ -1,15 +1,8 @@
 <!--
-  AI 助手抽屉: 右下角气泡 → 抽屉(桌面右侧 420px, 手机全屏)。挂在后台主布局上, 所有页面可用。
+  AI 助手抽屉: 入口是顶栏右上角按钮(AdminLayout) → 抽屉(桌面右侧 420px, 手机全屏)。挂在后台主布局上, 所有页面可用。
   顶部: 当前模型 + 历史 + 新对话; 中间: 消息流(助手产出的草稿单独渲染成卡片); 底部: 输入框(Enter 发送, Shift+Enter 换行)
 -->
 <template>
-  <button v-if="!state.open" type="button" class="ai-fab" :aria-label="$t('assistant.open')" @click="openPanel">
-    <el-icon :size="20"><MagicStick /></el-icon>
-    <span class="ai-fab-text">{{ $t('assistant.fab') }}</span>
-    <!-- 首次提示: 没点开过助手时亮一个小圆点, 点开一次后消失(localStorage) -->
-    <span v-if="!state.seen" class="ai-fab-dot" aria-hidden="true" />
-  </button>
-
   <transition name="ai-slide">
     <aside v-if="state.open" class="ai-panel" :class="{ mobile: isMobile }" role="dialog" :aria-label="$t('assistant.title')">
       <header class="ai-head">
@@ -88,7 +81,7 @@
 import { $t } from '@/i18n'
 import { computed, nextTick, ref, watch, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { MagicStick, Clock, Plus, Close, Delete } from '@element-plus/icons-vue'
+import { Clock, Plus, Close, Delete } from '@element-plus/icons-vue'
 import AssistantDraftCard from './AssistantDraftCard.vue'
 import { useAssistant } from '@/composables/useAssistant.js'
 import { useResponsive } from '@/composables/useResponsive.js'
@@ -176,23 +169,6 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.ai-fab {
-  position: fixed; right: 24px; bottom: 24px; z-index: 1990;
-  width: auto; white-space: nowrap;
-  display: inline-flex; align-items: center; gap: 6px;
-  height: 48px; padding: 0 18px; border: none; border-radius: 24px; cursor: pointer;
-  background: #1c1917; color: #fff; font-size: 15px; font-weight: 600;
-  box-shadow: 0 6px 20px rgba(28, 25, 23, 0.25);
-}
-.ai-fab:hover { background: #292524; }
-.ai-fab-text { white-space: nowrap; }
-/* 首次提示小圆点: 虎橙, 叠在药丸右上角 */
-.ai-fab-dot {
-  position: absolute; top: 2px; right: 4px; width: 10px; height: 10px; border-radius: 50%;
-  background: #d2521e; border: 2px solid #fff;
-}
-.ai-fab:focus-visible { outline: 3px solid #93c5fd; outline-offset: 2px; }
-
 .ai-panel {
   position: fixed; top: 0; right: 0; bottom: 0; z-index: 1990; width: 420px; max-width: 100vw;
   display: flex; flex-direction: column; background: #fff;
@@ -255,9 +231,8 @@ onMounted(() => {
 .ai-slide-enter-active, .ai-slide-leave-active { transition: transform 0.2s ease; }
 .ai-slide-enter-from, .ai-slide-leave-to { transform: translateX(100%); }
 
-/* 手机: 气泡贴边、避开底部安全区; 抽屉里的可点元素至少 44px */
+/* 手机: 抽屉里的可点元素至少 44px */
 @media (max-width: 767px) {
-  .ai-fab { right: 16px; bottom: calc(16px + env(safe-area-inset-bottom)); height: 52px; padding: 0 20px; }
   .ai-head { height: 56px; padding: 0 4px 0 14px; }
   .ai-icon-btn { width: 44px; height: 44px; }
   .ai-new { height: 44px; }

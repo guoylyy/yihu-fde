@@ -2381,7 +2381,6 @@
     "stub": "Local test",
     "tools_used": "Used {p0}",
     "model_unknown": "No model configured",
-    "fab": "AI Assistant",
     "not_connected": "Not connected to Yihu One. Ask an admin to configure it in System Settings.",
     "loading_model": "Connecting to the model…",
     "kind_task": "Task",

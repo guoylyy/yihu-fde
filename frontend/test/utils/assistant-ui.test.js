@@ -1,11 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { modelState, hasSeen, markSeen, SEEN_KEY } from '../../src/utils/assistant-ui.js'
-
-function mem() {
-  const m = new Map()
-  return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)) }
-}
+import { modelState } from '../../src/utils/assistant-ui.js'
 
 test('modelState: 状态未到时不能发送', () => {
   assert.deepEqual(modelState(null), { kind: 'loading', canSend: false })
@@ -35,18 +30,4 @@ test('modelState: stub 模式可发送', () => {
   const s = modelState({ available: true, stub: true, model: { name: 'STUB（本地测试）' } })
   assert.equal(s.kind, 'stub')
   assert.equal(s.canSend, true)
-})
-
-test('首次提示: 没看过 → 看过后记住', () => {
-  const st = mem()
-  assert.equal(hasSeen(st), false)
-  markSeen(st)
-  assert.equal(st.getItem(SEEN_KEY), '1')
-  assert.equal(hasSeen(st), true)
-})
-
-test('首次提示: storage 不可用时不报错, 也不再提示', () => {
-  const broken = { getItem: () => { throw new Error('denied') }, setItem: () => { throw new Error('denied') } }
-  assert.equal(hasSeen(broken), true)
-  assert.doesNotThrow(() => markSeen(broken))
 })
