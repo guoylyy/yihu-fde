@@ -6,7 +6,7 @@ import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import prisma from '../../src/lib/prisma.js'
 import { generateApiKey } from '../../src/lib/apiKey.js'
-import { login, api, request, uniqName, createTestUser } from './helpers.js'
+import { login, api, request, uniqName, createTestUser, probeStub, STUB_SKIP } from './helpers.js'
 
 describe('开发会话回流 devlog', () => {
   let admin, E, e, O, o, customerId, projectId, engineerId
@@ -310,9 +310,8 @@ describe('开发会话回流 devlog', () => {
     assert.equal((await e.post('/api/dev/conversations/paste', { text: 'x', stage: 'NOPE' })).status, 400)
   })
 
-  test('平台助手: 每轮对话 upsert 成一条 PLATFORM_ASSISTANT 会话, 多轮累加不新增行', async () => {
-    const st = await e.get('/api/fde/assistant/status')
-    assert.equal(st.data.stub, true, '要求后端以 FDE_LLM_STUB=1 启动')
+  test('平台助手: 每轮对话 upsert 成一条 PLATFORM_ASSISTANT 会话, 多轮累加不新增行', async (t) => {
+    if (!(await probeStub(e, 'devlog 平台助手'))) return t.skip(STUB_SKIP)
     const c1 = await e.post('/api/fde/assistant/chat', { message: '我这周有哪些任务要交', stage: 'coding' })
     assert.equal(c1.code, 0, c1.message)
     const uid = `pa_${c1.data.conversationId}`

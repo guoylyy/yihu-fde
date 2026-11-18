@@ -4,6 +4,7 @@
 // 否则会打到旧服务上, 一堆断言失败看着像功能坏了(打到没有该接口的服务会直接报"端口指错了")
 // 测试数据用 'unit-test-' 前缀，最后清理
 import assert from 'node:assert/strict'
+import { test } from 'node:test'
 import { readFileSync } from 'node:fs'
 import prisma from '../../src/lib/prisma.js'
 
@@ -125,3 +126,26 @@ export function uniqName(prefix = 'item') {
 export const sleep = (ms) => new Promise(r => setTimeout(r, ms))
 
 export { BASE }
+
+// ---------- 助手 stub 探测 ----------
+// 助手相关用例要靠 stub 大模型(按关键词出确定的工具调用)。后端没以 FDE_LLM_STUB=1 启动时这组用例跳过而不是失败,
+// 免得「打到了演示后端」被误读成功能坏了。判定: GET /api/fde/assistant/status 的 data.stub(只有 stub 模式为 true)
+export const STUB_SKIP = '需要后端以 FDE_LLM_STUB=1 启动'
+
+/** 后端是否以 stub 大模型启动; 没启动时打一行提示 */
+export async function probeStub(client, suite) {
+  const st = await client.get('/api/fde/assistant/status')
+  const on = st.code === 0 && st.data?.stub === true
+  if (!on) {
+    console.log(`ℹ [${suite}] ${BASE} 不是以 FDE_LLM_STUB=1 启动的后端，助手相关用例跳过（${STUB_SKIP}；不设 TEST_API_BASE 直接 npm test 会自动起一个）`)
+  }
+  return on
+}
+
+/** 只在 stub 后端上跑的用例: 否则 t.skip(STUB_SKIP)。stubOn 是取值函数(before 里才探测完) */
+export function stubTest(stubOn) {
+  return (name, fn) => test(name, async (t) => {
+    if (!stubOn()) return t.skip(STUB_SKIP)
+    return fn(t)
+  })
+}

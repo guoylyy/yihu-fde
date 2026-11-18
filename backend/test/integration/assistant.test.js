@@ -1,15 +1,17 @@
 // 集成测试 - AI 助手(/api/fde/assistant)
-// 后端要以 FDE_LLM_STUB=1 启动(stub 大模型按关键词出确定的工具调用, 工具 / 草稿 / 确认走的都是真实链路)。
+// 后端要以 FDE_LLM_STUB=1 启动(stub 大模型按关键词出确定的工具调用, 工具 / 草稿 / 确认走的都是真实链路); 不是 stub 后端时整组 skip。
 // 覆盖: 工具按权限收敛(工程师不能用经理工具)、草稿不落库、确认后经正常业务接口落库、重复确认幂等、
 //       丢弃留记录、人改过的字段生效、8 轮上限、会话只能看自己的。账号 / 项目现建现删
 import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import prisma from '../../src/lib/prisma.js'
-import { login, api, uniqName, createTestUser } from './helpers.js'
+import { login, api, uniqName, createTestUser, probeStub, stubTest } from './helpers.js'
 
 describe('AI 助手', () => {
   let admin, E, e, O, o, customerId, projectId, projectName
+  let stub = false
   const convIds = []
+  const test = stubTest(() => stub)   // 本组全部依赖 stub 大模型: 非 stub 后端上 t.skip, 不算失败
 
   const chat = async (who, message, conversationId) => {
     const r = await who.post('/api/fde/assistant/chat', { message, ...(conversationId ? { conversationId } : {}) })
@@ -21,9 +23,8 @@ describe('AI 助手', () => {
 
   before(async () => {
     admin = api(await login('admin'))
-    const st = await admin.get('/api/fde/assistant/status')
-    assert.equal(st.code, 0, st.message)
-    assert.equal(st.data.stub, true, '集成测试要求后端以 FDE_LLM_STUB=1 启动')
+    stub = await probeStub(admin, 'AI 助手')
+    if (!stub) return
     E = await createTestUser('FDE_ENGINEER', { name: 'unit-test-助手工程师' })
     O = await createTestUser('FDE_ENGINEER', { name: 'unit-test-助手旁人' })
     e = api(E.token); o = api(O.token)
