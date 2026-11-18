@@ -112,6 +112,8 @@ Set `OIDC_AUTO_CREATE=false` if an admin should add people before they can sign 
 claude mcp add --scope user yihu-one --transport http <Yihu One address>/api/mcp --header "Authorization: Bearer <your Yihu One API key>"
 ```
 
+To send your Claude Code / Codex sessions into FDE as development conversations (source `CLAUDE_CODE` / `CODEX`, stage `CODING`), use the zero-dependency collector in [`scripts/devlog/`](scripts/devlog/): `yh-devlog hook` (Claude Code `Stop` hook), `yh-devlog import <file>` and `yh-devlog sync --days 3`.
+
 The **Developer onboarding** page gives each engineer a ready-to-use kit. Guides for MCP, agent collaboration, auto-dev and robot dispatch are built into the app under `/docs`, and [`fde-agent-training/`](fde-agent-training/) has material for training a conversational agent on the API.
 
 ## Configuration
@@ -180,6 +182,7 @@ It checks the branch and working tree, then runs the tests that don't need a dat
 | [`frontend/`](frontend/) | Web UI: Vue 3, Element Plus, Vite |
 | [`frontend/src/docs/`](frontend/src/docs/) | In-app user guides (Markdown), served at `/docs` |
 | [`frontend/src/locales/`](frontend/src/locales/) | UI translations (`en`, `zh-CN`) |
+| [`scripts/devlog/`](scripts/devlog/) | `yh-devlog`, which collects Claude Code / Codex sessions and sends them to `/api/devlog/conversations` |
 | [`fde-agent-training/`](fde-agent-training/) | Material for training third-party agents on the API |
 | [`Dockerfile`](Dockerfile), [`yh-app.json`](yh-app.json) | Image and app manifest for Yihu One |
 | [`release.sh`](release.sh) | Test, then push `main` to `release` |

@@ -1,5 +1,5 @@
 // 客户端脱敏: 规则与后端 backend/src/services/devlog/redact.js 一致(双保险, 服务端还会再跑一遍),
-// 另外多盖一类: 平台自己签发的 API Key(fde_ / yhk_ 前缀, 24 位以上且带数字, 避开 fde_internal_token 这类变量名), 防止把采集器自己的 Key 报上去。
+// 另外多盖一类: 平台自己签发的 API Key(以虎 One 的 yh_ 与 FDE 的 fde_ / yhk_ 前缀, 24 位以上且带数字, 避开 fde_internal_token 这类变量名), 防止把采集器自己的 Key 报上去。
 // 改后端规则时请同步这里。
 export const MASK = '[REDACTED]'
 
@@ -12,7 +12,7 @@ const RULES = [
   // OpenAI / Anthropic 一类的 sk- 密钥
   [/\bsk-[A-Za-z0-9_-]{4,}/g, () => MASK],
   // 平台 API Key(仅客户端多盖的一条)
-  [/\b(?:fde|yhk)_(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]{24,}/g, () => MASK],
+  [/\b(?:fde|yhk|yh)_(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]{24,}/g, () => MASK],
   // AWS Access Key
   [/\b(?:AKIA|ASIA)[0-9A-Z]{12,}\b/g, () => MASK],
   // Authorization: Bearer xxx
