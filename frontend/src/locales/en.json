@@ -2026,7 +2026,7 @@
     "delete_these_hours": "Delete these hours?",
     "hours_deleted": "Hours deleted",
     "timesheets_xlsx": "timesheets_{p0}.xlsx",
-    "legacy_banner": "Hours now live on tasks; this page keeps historical records only. Enter new hours as \"Actual hours\" in task details."
+    "legacy_banner": "\"Actual hours\" in task details is the lighter way to jot time down; this page is for weekly summaries, submitting and approving hours, and exporting monthly reports."
   },
   "users": {
     "internal_accounts_administrators_only": "{p0} internal accounts · administrators only",

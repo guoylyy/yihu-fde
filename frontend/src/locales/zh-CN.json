@@ -2026,7 +2026,7 @@
     "delete_these_hours": "确定删除此工时？",
     "hours_deleted": "工时已删除",
     "timesheets_xlsx": "工时月报_{p0}.xlsx",
-    "legacy_banner": "工时已并入任务，本页仅保留历史记录。新的工时请在任务详情里填「实际工时」。"
+    "legacy_banner": "任务详情里的「实际工时」更轻，适合随手记；这里适合按周汇总、报工与审批、导出月报。"
   },
   "users": {
     "internal_accounts_administrators_only": "共 {p0} 个内部账号 · 仅管理员可访问",

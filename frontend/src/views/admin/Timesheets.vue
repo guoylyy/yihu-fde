@@ -1,7 +1,7 @@
 <template>
   <div class="timesheets-page">
     <!-- 0.5.0 工时降级: 菜单已摘, 页面与接口保留给历史数据 -->
-    <el-alert type="warning" :closable="false" show-icon class="legacy-banner" data-test="timesheets-legacy"
+    <el-alert type="info" :closable="false" show-icon class="legacy-banner" data-test="timesheets-legacy"
       :title="$t('timesheets.legacy_banner')" />
     <div class="page-header">
       <h2 class="page-title">{{ $t('common.hours') }}</h2>

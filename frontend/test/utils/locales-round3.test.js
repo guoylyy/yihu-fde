@@ -20,5 +20,7 @@ test('任务实际工时 / 工时页提示文案两种语言都有', () => {
     const [a, b] = k.split('.')
     assert.ok(zh[a][b] && en[a][b], k)
   }
-  assert.match(zh.timesheets.legacy_banner, /工时已并入任务，本页仅保留历史记录/)
+  assert.match(zh.timesheets.legacy_banner, /按周汇总、报工与审批、导出月报/)
+  assert.doesNotMatch(zh.timesheets.legacy_banner, /仅保留历史记录/, '0.5.2: 工时页不是废页')
+  assert.doesNotMatch(en.timesheets.legacy_banner, /historical records only/)
 })
