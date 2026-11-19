@@ -1,5 +1,5 @@
 // 0.5.1 上传对话文件: 前端先挡一遍(与后端 routes/fde/devlog.js 同口径), 免得 100MB 的文件传完了才被拒
-export const UPLOAD_EXTS = ['.jsonl', '.json', '.log', '.txt', '.md', '.zst']
+export const UPLOAD_EXTS = ['.jsonl', '.json', '.log', '.txt', '.md', '.zst', '.gz']
 export const UPLOAD_ACCEPT = UPLOAD_EXTS.join(',')
 export const UPLOAD_MAX_BYTES = 50 * 1024 * 1024
 export const UPLOAD_MAX_FILES = 20

@@ -5,7 +5,7 @@
 //   POST /api/dev/conversations/:id/link       关联项目/任务/里程碑/阶段 → LINKED, 写审计
 //   POST /api/dev/conversations/:id/summarize  出摘要: 有模型走 chatJSON, 没有降级规则(mode:'rules'); GENERAL 时按建议回填 stage
 //   POST /api/dev/conversations/paste          粘贴一段对话 → 会话(uid 按文本哈希, 重复粘贴不新增) + 自动摘要
-//   POST /api/devlog/upload                    上传对话文件(multipart files[], 最多 20 个、单个 50MB) → 逐个解析入库 + 自动摘要
+//   POST /api/devlog/upload                    上传对话文件(multipart files[], 最多 20 个、单个 50MB; .zst/.gz 先解压) → 逐个解析入库 + 自动摘要
 //   GET  /api/projects/:id/timeline            项目下会话按阶段分组
 //   POST /api/experience/from-conversation     从会话沉淀经验, 写审计; auto:true 由摘要生成草稿(preview:true 只返回草稿不落库)
 //   GET  /api/experience                       经验列表
@@ -32,7 +32,7 @@ import {
 import { summarizeAndApply, ruleExtract, strList } from '../../services/devlog/summarize.js'
 import { parsePaste, pasteUid, pasteTitle, MAX_PASTE_CHARS } from '../../services/devlog/paste.js'
 import { draftFromSummary } from '../../services/devlog/experience.js'
-import { decodeSessionBuffer, parseSessionText, contentUid } from '../../services/devlog/parseSessions.js'
+import { decodeSessionBuffer, parseSessionText, contentUid, UNKNOWN_FORMAT, unknownFormatMessage } from '../../services/devlog/parseSessions.js'
 import { syncExperience, syncAll } from '../../services/obsidian.js'
 
 const router = express.Router()
@@ -288,7 +288,7 @@ router.post('/dev/conversations/paste', internalAuth, async (req, res) => {
 
 export const UPLOAD_MAX_BYTES = 50 * 1024 * 1024
 export const UPLOAD_MAX_FILES = 20
-const UPLOAD_EXT = /\.(jsonl|json|log|txt|md|zst)$/i
+const UPLOAD_EXT = /\.(jsonl|json|log|txt|md|zst|gz)$/i
 
 // 内存存储引擎: 超过 50MB / 扩展名不支持的文件不让整个请求失败, 只丢弃内容、标记出来, 由路由逐个报错
 // (multer 自带的 limits.fileSize / fileFilter 会中断整批, 一个大文件就把同批其它文件也挡掉了)
@@ -329,11 +329,16 @@ function parseUploaded(file, stage) {
   if (file.rejected === 'size') {
     throw new Error(`文件 ${mb(file.size)}，超过 ${mb(UPLOAD_MAX_BYTES)} 上限；大会话请用命令行导入：yh-devlog import <文件>（见 scripts/devlog/README.md）`)
   }
-  if (file.rejected === 'ext') throw new Error(`不支持的文件类型 ${path.extname(name) || '（无扩展名）'}：支持 .jsonl / .json / .log / .txt / .md / .zst`)
+  if (file.rejected === 'ext') throw new Error(`不支持的文件类型 ${path.extname(name) || '（无扩展名）'}：支持 .jsonl / .json / .log / .txt / .md / .zst / .gz`)
   const text = decodeSessionBuffer(file.buffer, name)
   if (!text.trim()) throw new Error('文件是空的')
-  const parsed = parseSessionText(text, { file: name, size: file.buffer.length, stage, fallbackUid: contentUid(text) })
-  if (!parsed.conversations.length) throw new Error('文件里没有可用的对话消息')
+  let parsed
+  try {
+    parsed = parseSessionText(text, { file: name, size: file.buffer.length, stage, fallbackUid: contentUid(text) })
+  } catch (e) {
+    throw e.message === UNKNOWN_FORMAT ? new Error(unknownFormatMessage(text)) : e
+  }
+  if (!parsed.conversations.length) throw new Error(unknownFormatMessage(text))
   return parsed.conversations
 }
 

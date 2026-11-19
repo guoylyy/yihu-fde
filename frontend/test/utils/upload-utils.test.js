@@ -5,6 +5,7 @@ import { checkFile, mergeFiles, formatSize, summaryLead, UPLOAD_MAX_BYTES } from
 test('checkFile: 扩展名与 50MB 上限', () => {
   assert.equal(checkFile({ name: 'a.JSONL', size: 10 }), null)
   assert.equal(checkFile({ name: 'rollout.jsonl.zst', size: 10 }), null)
+  assert.equal(checkFile({ name: 'session.jsonl.gz', size: 10 }), null)
   assert.equal(checkFile({ name: '笔记.md', size: 10 }), null)
   assert.equal(checkFile({ name: 'a.exe', size: 10 }), 'bad_ext')
   assert.equal(checkFile({ name: 'big.jsonl', size: UPLOAD_MAX_BYTES + 1 }), 'too_big')

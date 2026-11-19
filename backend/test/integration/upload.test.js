@@ -1,5 +1,5 @@
 // 集成测试 - 0.5.1 上传对话文件 POST /api/devlog/upload(multipart files[])
-// 覆盖: 多文件 / 单文件、坏文件不影响好文件、同文件二次上传不新增、zst 解压、格式识别失败文案、50MB 上限、
+// 覆盖: 多文件 / 单文件、坏文件不影响好文件、同文件二次上传不新增、zst / gz 解压、无 sessionId 的 jsonl、格式识别失败文案、50MB 上限、
 //       通用 markdown / json、阶段与项目、管理员指派、审计 DEVLOG_UPLOAD。账号 / 项目现建现删
 import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
@@ -8,7 +8,7 @@ import zlib from 'node:zlib'
 import prisma from '../../src/lib/prisma.js'
 import { login, api, uniqName, createTestUser, BASE } from './helpers.js'
 
-const UNKNOWN = '识别不出格式：需要 Claude Code jsonl / Codex 日志 / 带角色标记的文本'
+const UNKNOWN = '识别不出格式：期望 Claude Code 的 .jsonl（每行含 sessionId + type + message）、Codex 的 rollout 日志，或带「用户:/助手:」标记的 .md/.txt'
 
 /** multipart 上传: files = [[文件名, 内容(string|Buffer)]], fields = 其它表单字段 */
 async function upload(token, files, fields = {}) {
@@ -128,7 +128,7 @@ describe('上传对话文件 /api/devlog/upload', () => {
     assert.equal(r.status, 201, r.message)
     assert.deepEqual(r.data.items.map((i) => [i.file, i.source, i.turns]), [['good.json', 'PASTE', 1]])
     const errs = Object.fromEntries(r.data.errors.map((e) => [e.file, e.message]))
-    assert.equal(errs['bad.log'], UNKNOWN)
+    assert.equal(errs['bad.log'], `${UNKNOWN}。当前文件首行不是 JSON 对象：${RUN} 这只是一段随便写的文字`)
     assert.match(errs['virus.exe'], /不支持的文件类型 \.exe/)
     assert.equal(errs['empty.txt'], '文件是空的')
   })
@@ -174,7 +174,56 @@ describe('上传对话文件 /api/devlog/upload', () => {
     ])
     assert.equal(r.status, 200)
     assert.equal(r.data.items.length, 0)
-    assert.deepEqual(r.data.errors, [{ file: 'notes.txt', message: UNKNOWN }, { file: 'other.jsonl', message: UNKNOWN }])
+    assert.deepEqual(r.data.errors, [
+      { file: 'notes.txt', message: `${UNKNOWN}。当前文件首行不是 JSON 对象：今天天气不错` },
+      { file: 'other.jsonl', message: `${UNKNOWN}。当前文件首行字段：foo` }
+    ])
+  })
+
+  // 从 Claude Code 会话里截一段贴成 .jsonl: 没有 sessionId、content 是字符串
+  const anonJsonl = (run) => [
+    { type: 'user', timestamp: '2026-11-18T10:00:00Z', message: { role: 'user', content: `${run} 帮我看下这个报错` } },
+    { type: 'assistant', timestamp: '2026-11-18T10:00:05Z', message: { role: 'assistant', content: '是空指针，第 42 行改一下就行' } },
+    { type: 'user', timestamp: '2026-11-18T10:01:00Z', message: { role: 'user', content: '改完了，谢谢' } }
+  ].map((o) => JSON.stringify(o)).join('\n') + '\n'
+
+  test('无 sessionId 的 Claude Code 风格 jsonl: 聚成一条会话, uid=upload:<内容哈希>, 记 CLAUDE_CODE / CODING', async () => {
+    const r = await upload(E.token, [['small.jsonl', anonJsonl(`${RUN}-anon`)]])
+    track(r)
+    assert.equal(r.status, 201, r.message)
+    assert.deepEqual(r.data.errors, [])
+    const [it] = r.data.items
+    assert.ok(it.ok)
+    assert.match(it.uid, /^upload:[0-9a-f]{24}$/)
+    assert.ok(it.turns >= 1 && it.turns <= 2, `turns=${it.turns}`)
+    assert.equal(it.source, 'CLAUDE_CODE')
+    const c = await prisma.devConversation.findUnique({ where: { id: BigInt(it.conversationId) } })
+    assert.equal(c.startedAt.toISOString(), '2026-11-18T10:00:00.000Z')
+    assert.equal(c.endedAt.toISOString(), '2026-11-18T10:01:00.000Z')
+  })
+
+  test('无 sessionId 的同一文件传两次: 只更新不新增', async () => {
+    const file = ['twice.jsonl', anonJsonl(`${RUN}-twice`)]
+    const r1 = await upload(E.token, [file])
+    track(r1)
+    assert.equal(r1.status, 201, r1.message)
+    assert.equal(r1.data.items[0].created, true)
+    const r2 = await upload(E.token, [file])
+    assert.equal(r2.status, 200, r2.message)
+    assert.equal(r2.data.items[0].created, false)
+    assert.equal(r2.data.items[0].conversationId, r1.data.items[0].conversationId)
+    assert.equal(await prisma.devConversation.count({ where: { uid: r1.data.items[0].uid } }), 1)
+  })
+
+  test('gz: 内存解压后按内容识别; 解不开报「不支持该压缩格式」', async () => {
+    const sid = randomUUID()
+    const gz = zlib.gzipSync(Buffer.from(claudeJsonl(sid, `${RUN}-gz`, 2)))
+    const r = await upload(E.token, [['session.jsonl.gz', gz], ['broken.gz', Buffer.from('not gzip at all')]])
+    track(r)
+    assert.equal(r.status, 201, r.message)
+    assert.deepEqual(r.data.items.map((i) => [i.file, i.ok, i.uid, i.source, i.turns]), [['session.jsonl.gz', true, `claude:${sid}`, 'CLAUDE_CODE', 2]])
+    assert.equal(r.data.errors[0].file, 'broken.gz')
+    assert.match(r.data.errors[0].message, /^不支持该压缩格式/)
   })
 
   test('超过 50MB: 只拒这一个文件, 提示用 CLI import; 其它文件照常', async () => {

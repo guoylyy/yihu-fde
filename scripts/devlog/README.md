@@ -8,7 +8,7 @@
 - 只读会话记录，不读代码文件。执行过的命令记为 `COMMAND` 事件，改过的文件只记路径，记为 `ARTIFACT` 事件。
 - 不依赖任何 npm 包，Node ≥ 18 即可。解压 Codex 的 `.jsonl.zst`：Node 22.15+ 用内置 zstd，更老的 Node 需要系统里有 `zstd` 命令。
 
-> **小会话可以直接在平台上传**：经验 → 会话 →「上传对话」，拖进 `.jsonl` / `.json` / `.log` / `.txt` / `.md` / `.zst`（一次最多 20 个、单个 50MB）。**超过 50MB 的会话（长期 resume 的 Claude Code 会话很容易上百 MB）平台会拒收，请用本工具 `yh-devlog import <文件>`**：大文件只取最后 200 条消息上报，不受上传大小限制。
+> **小会话可以直接在平台上传**：经验 → 会话 →「上传对话」，拖进 `.jsonl` / `.json` / `.log` / `.txt` / `.md` / `.zst` / `.gz`（一次最多 20 个、单个 50MB）。大文件可先压缩成 .zst/.gz 再传（50MB 上限）；从会话里截一段、没有 `sessionId` 的 Claude Code 风格 `.jsonl` 也能传，按内容哈希归成一条。**超过 50MB 的会话（长期 resume 的 Claude Code 会话很容易上百 MB）平台会拒收，请用本工具 `yh-devlog import <文件>`**：大文件只取最后 200 条消息上报，不受上传大小限制。
 
 ## 安装
 
@@ -145,8 +145,8 @@ yh-devlog sync --force      # 忽略状态文件，全部重报（uid 幂等，�
 | `连不上 …：bad port` | Node 的 fetch 会拒绝 9、25 这类端口，换个端口 |
 | `这个 uid 已被别人的会话占用` | 同一会话之前被别的账号报过。非管理员只能更新自己报过的会话 |
 | `解压 … 需要 zstd 命令` | `brew install zstd` |
-| `识别不出格式：…` | 支持 Claude Code jsonl、Codex rollout jsonl（含 `.zst`）、按 `user` / `codex` 分段的纯文本日志、带「用户: / 助手:」或「Human: / Assistant:」标记的文本、`[{role, content}]` / `{messages: [...]}` 的 json |
-| `不支持该压缩格式` | `.zst` 解不开：文件不是 zstd，或 Node 太老（< 22.15）且没装 `zstd` |
+| `识别不出格式：…` | 支持 Claude Code jsonl、Codex rollout jsonl（含 `.zst` / `.gz`）、按 `user` / `codex` 分段的纯文本日志、带「用户: / 助手:」或「Human: / Assistant:」标记的文本、`[{role, content}]` / `{messages: [...]}` 的 json |
+| `不支持该压缩格式` | `.zst` / `.gz` 解不开：文件不是 zstd / gzip，或 Node 太老（< 22.15）且没装 `zstd` |
 | 配置文件权限提示 | `chmod 600 ~/.fde-devlog.json` |
 
 排查时加 `DEBUG=1` 可以打印调用栈。设置 `FDE_DEVLOG_HOME=/tmp/x` 可以把配置、状态和队列文件整体换到别的目录，便于测试。

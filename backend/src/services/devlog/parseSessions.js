@@ -17,7 +17,28 @@ const MAX_SHAS = 10
 
 // ---------- 读文件 ----------
 
-export const UNKNOWN_FORMAT = '识别不出格式：需要 Claude Code jsonl / Codex 日志 / 带角色标记的文本'
+export const UNKNOWN_FORMAT = '识别不出格式：期望 Claude Code 的 .jsonl（每行含 sessionId + type + message）、Codex 的 rollout 日志，或带「用户:/助手:」标记的 .md/.txt'
+
+/** 认不出格式时的可诊断文案: 期望的格式 + 当前文件首行有哪些字段(不是 JSON 就给首行前 40 字) */
+export function unknownFormatMessage(text) {
+  const first = String(text || '').split('\n').find((l) => l.trim()) || ''
+  let o
+  try { o = JSON.parse(first) } catch { o = undefined }
+  if (o && typeof o === 'object' && !Array.isArray(o)) {
+    const keys = Object.keys(o)
+    const hint = !keys.includes('sessionId') && keys.includes('type') && keys.includes('message') ? '（缺 sessionId 时按通用对话解析）' : ''
+    return `${UNKNOWN_FORMAT}。当前文件首行字段：${keys.slice(0, 12).join(',') || '（空对象）'}${hint}`
+  }
+  return `${UNKNOWN_FORMAT}。当前文件首行不是 JSON 对象：${oneLine(first, 40) || '（空）'}`
+}
+
+const GZIP_MAGIC = (b) => b.length > 2 && b[0] === 0x1f && b[1] === 0x8b
+const ZSTD_MAGIC = (b) => b.length > 4 && b[0] === 0x28 && b[1] === 0xb5 && b[2] === 0x2f && b[3] === 0xfd
+
+/** gzip 内存解压; 解压后上限 1GB(防压缩炸弹) */
+export function decompressGzip(buf) {
+  try { return zlib.gunzipSync(buf, { maxOutputLength: 1024 * 1024 * 1024 }) } catch { throw new Error('不支持该压缩格式（gzip 解压失败）') }
+}
 
 /** zstd 内存解压: Node 22.15+ 自带 zlib.zstdDecompressSync; 没有或解不开都报「不支持该压缩格式」 */
 export function decompressZstd(buf) {
@@ -25,15 +46,16 @@ export function decompressZstd(buf) {
   try { return zlib.zstdDecompressSync(buf) } catch { throw new Error('不支持该压缩格式（zstd 解压失败）') }
 }
 
-/** 上传的文件内容 → 文本; .zst 先解压 */
+/** 上传的文件内容 → 文本; .zst / .gz 先解压(按扩展名, 或按魔数认出没带扩展名的压缩内容) */
 export function decodeSessionBuffer(buf, filename = '') {
-  const raw = /\.zst$/i.test(filename) ? decompressZstd(buf) : buf
+  const raw = /\.zst$/i.test(filename) || ZSTD_MAGIC(buf) ? decompressZstd(buf)
+    : /\.gz$/i.test(filename) || GZIP_MAGIC(buf) ? decompressGzip(buf) : buf
   return raw.toString('utf8').replace(/^\uFEFF/, '')
 }
 
 /** 读会话文件文本; .zst 先用 node 内置 zstd, 老版本 Node 退回系统 zstd 命令(Codex 新版会压缩归档) */
 export function readSessionText(file) {
-  if (file.endsWith('.zst') && typeof zlib.zstdDecompressSync === 'function') return decodeSessionBuffer(fs.readFileSync(file), file)
+  if (file.endsWith('.gz') || (file.endsWith('.zst') && typeof zlib.zstdDecompressSync === 'function')) return decodeSessionBuffer(fs.readFileSync(file), file)
   if (file.endsWith('.zst')) {
     const r = spawnSync('zstd', ['-dc', file], { maxBuffer: 512 * 1024 * 1024 })
     if (r.error) throw new Error(`解压 ${path.basename(file)} 需要 zstd 命令（brew install zstd）`)
@@ -217,14 +239,21 @@ function claudeToolResults(msg) {
 
 const EDIT_TOOLS = { Write: '新建', Edit: '修改', MultiEdit: '修改', NotebookEdit: '修改' }
 
-/** 解析 Claude Code jsonl → 按 sessionId 分组的会话(按文件里首次出现的顺序) */
+/**
+ * 解析 Claude Code jsonl → 按 sessionId 分组的会话(按文件里首次出现的顺序)。
+ * 整个文件一行 sessionId 都没有(从会话里截一段贴成 .jsonl)时, 所有 user/assistant 行聚成一条会话,
+ * uid = upload:<归一化正文的 sha256 前 24 位>; 有 sessionId 的真实文件不走这条路。
+ */
 export function parseClaude(text) {
   const groups = new Map()
   const get = (id) => {
     if (!groups.has(id)) groups.set(id, { id, messages: [], events: [], shas: [], seenFiles: new Set(), commitCalls: new Set(), ts: [], models: [], branch: null, cwd: null })
     return groups.get(id)
   }
-  for (const o of jsonLines(text)) {
+  const rows = jsonLines(text)
+  const anonymous = !rows.some((o) => typeof o.sessionId === 'string')
+  for (let o of rows) {
+    if (anonymous && o.message && typeof o.message === 'object') o = { ...o, sessionId: '' }
     if (typeof o.sessionId !== 'string' || (o.type !== 'user' && o.type !== 'assistant')) continue
     if (o.isSidechain || o.isMeta || o.isCompactSummary || o.isVisibleInTranscriptOnly) continue
     const g = get(o.sessionId)
@@ -260,9 +289,10 @@ export function parseClaude(text) {
     }
   }
   return [...groups.values()].filter((g) => g.messages.length).map((g) => {
-    const ts = g.ts.slice().sort()
+    const ts = g.ts.filter((t) => !Number.isNaN(Date.parse(t))).sort()
+    const anon = g.id === ''
     return {
-      uid: `claude:${g.id}`, sessionId: g.id, source: 'CLAUDE_CODE',
+      uid: anon ? contentUid(normalizedBody(g.messages)) : `claude:${g.id}`, sessionId: anon ? null : g.id, source: 'CLAUDE_CODE',
       model: g.models[g.models.length - 1], startedAt: ts[0], endedAt: ts[ts.length - 1],
       branch: g.branch, cwd: g.cwd, messages: g.messages, events: g.events, shas: g.shas
     }
@@ -434,6 +464,9 @@ export function parseFile(file, opts = {}) {
   const text = readSessionText(file)
   return parseSessionText(text, { ...opts, file, size })
 }
+
+/** 归一化正文: 角色 + 文字, 空白压成一个空格(换行风格、行尾空格不同的同一段对话算同一条) */
+const normalizedBody = (messages) => messages.map((m) => `${m.role}:${String(m.text).replace(/\s+/g, ' ').trim()}`).join('\n')
 
 /** 内容哈希 uid: 解析不出会话 id 时用, 同一份内容重复上传落到同一条 */
 export const contentUid = (text) => 'upload:' + crypto.createHash('sha256').update(text).digest('hex').slice(0, 24)
