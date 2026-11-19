@@ -3,6 +3,7 @@
 //
 // 可见性约定:
 //   - 团队组: team.view(组长 + 老板); 周 OKR 仍只给 ADMIN
+//   - 工时(0.5.2 放回, 团队组最后一项): timesheet.view; 任务上的「实际工时」仍是主入口, 工时页是按人按周汇总 + 报工/审批看板
 //   - 「承诺 vs 交付」(team.view.all) 不单占菜单(业务二级菜单 ≤12 项), 从负载页顶部的切换进, 侧栏高亮负载
 //   - 经验组的经验库/会话: can('projects') 兜底
 //   - 资产库并在「经验库」里(页内切换), 路径仍是 /admin/assets, 侧栏高亮经验库
@@ -32,7 +33,8 @@ export function buildNav({ can, moduleEnabled = () => true, role } = {}) {
         { path: '/admin/team/members', title: 'nav.team_members', icon: 'Avatar', show: can('team.view') },
         { path: '/admin/team/load', title: 'nav.team_load', icon: 'TrendCharts', show: can('team.view') },
         { path: '/admin/okr', title: 'okr.menu', icon: 'Aim', show: isAdmin && moduleEnabled('okr') },
-        { path: '/admin/team/skills', title: 'nav.team_skills', icon: 'DataAnalysis', show: can('team.view') }
+        { path: '/admin/team/skills', title: 'nav.team_skills', icon: 'DataAnalysis', show: can('team.view') },
+        { path: '/admin/timesheets', title: 'common.hours', icon: 'Timer', show: can('timesheet.view') }
       ]
     },
     {
@@ -73,7 +75,7 @@ export function buildNav({ can, moduleEnabled = () => true, role } = {}) {
 
 /**
  * 当前路由该高亮哪个菜单项: 详情页/子页落到所属列表; 资产库挂在经验库下。
- * 不在菜单里的页面(如 /admin/timesheets)原样返回, 不高亮任何项
+ * 不在菜单里的页面原样返回, 不高亮任何项
  */
 export function activeMenuPath(path) {
   const p = String(path || '')
@@ -81,7 +83,7 @@ export function activeMenuPath(path) {
     return '/admin/experience'
   }
   if (p === '/admin/team/promise') return '/admin/team/load'
-  const prefixes = ['/admin/team/members', '/admin/projects', '/admin/knowledge', '/admin/conversations', '/admin/experience', '/admin/okr']
+  const prefixes = ['/admin/team/members', '/admin/projects', '/admin/knowledge', '/admin/conversations', '/admin/experience', '/admin/okr', '/admin/timesheets']
   for (const pre of prefixes) {
     if (p.startsWith(pre + '/')) return pre
   }

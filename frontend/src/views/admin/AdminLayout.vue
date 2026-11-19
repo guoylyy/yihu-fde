@@ -37,7 +37,7 @@
             </el-menu-item>
           </el-sub-menu>
         </template>
-        <!-- AI 助手入口在右上角(.header-right), 不占侧栏; 工时(/admin/timesheets)0.5.0 起不进菜单, 路由保留 -->
+        <!-- AI 助手入口在右上角(.header-right), 不占侧栏; 工时 0.5.2 起回到团队组末尾(navMenu.js) -->
       </el-menu>
     </el-aside>
     <!-- sidebar 为 fixed 脱离文档流, content-wrap 用 margin-left 让位 -->
@@ -182,9 +182,9 @@
 import { $t } from '@/i18n'
 import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowDown, Bell, User, Document, Avatar, UserFilled, List, DataAnalysis, Reading, Key, Setting, Connection, Checked, Guide, Fold, Expand, Opportunity, OfficeBuilding, Aim, MagicStick, TrendCharts, Collection, ChatLineSquare } from '@element-plus/icons-vue'
+import { ArrowDown, Bell, User, Document, Avatar, UserFilled, List, DataAnalysis, Reading, Key, Setting, Connection, Checked, Guide, Fold, Expand, Opportunity, OfficeBuilding, Aim, MagicStick, TrendCharts, Collection, ChatLineSquare, Timer } from '@element-plus/icons-vue'
 import { buildNav, activeMenuPath, DEFAULT_OPENEDS } from './navMenu.js'
-const NAV_ICONS = { User, Document, Avatar, UserFilled, List, DataAnalysis, Reading, Key, Setting, Checked, Guide, Opportunity, OfficeBuilding, Aim, TrendCharts, Collection, ChatLineSquare }
+const NAV_ICONS = { User, Document, Avatar, UserFilled, List, DataAnalysis, Reading, Key, Setting, Checked, Guide, Opportunity, OfficeBuilding, Aim, TrendCharts, Collection, ChatLineSquare, Timer }
 import { fde } from '@/api/index.js'
 import LangSwitch from '@/components/common/LangSwitch.vue'
 import { can as permCan, refreshMyPermissions, clearMyPermissions } from '@/api/permissions.js'

@@ -9,25 +9,34 @@ const allow = () => true
 const paths = (g) => g.items.map(i => i.path)
 const byKey = (groups) => Object.fromEntries(groups.map(g => [g.key, g]))
 
-test('ADMIN 看到五组, 团队 4 项、交付 5 项、经验 3 项(创意中心排第一)', () => {
+test('ADMIN 看到五组, 团队 5 项(工时第五)、交付 5 项、经验 3 项(创意中心排第一)', () => {
   const groups = buildNav({ can: allow, role: 'ADMIN' })
   assert.deepEqual(groups.map(g => g.key), ['today', 'team', 'delivery', 'experience', 'config'])
   const g = byKey(groups)
   assert.deepEqual(paths(g.today), ['/admin/workbench'])
   assert.equal(g.today.index, null, '今日是一级菜单项, 不是分组')
-  assert.deepEqual(paths(g.team), ['/admin/team/members', '/admin/team/load', '/admin/okr', '/admin/team/skills'])
+  assert.deepEqual(paths(g.team), ['/admin/team/members', '/admin/team/load', '/admin/okr', '/admin/team/skills', '/admin/timesheets'])
   assert.deepEqual(paths(g.delivery), ['/admin/projects', '/admin/tasks', '/admin/customers', '/admin/knowledge', '/admin/onboarding'])
   assert.deepEqual(paths(g.experience), ['/admin/ideas', '/admin/experience', '/admin/conversations'])
   const second = ['team', 'delivery', 'experience'].reduce((n, k) => n + g[k].items.length, 0)
-  assert.ok(second <= 12, `业务二级菜单 ≤12 项, 实际 ${second}`)
+  assert.ok(second <= 13, `业务二级菜单 ≤13 项(0.5.2 工时放回 +1), 实际 ${second}`)
 })
 
-test('工时从菜单移除(任何角色都不出现 /admin/timesheets)', () => {
+test('0.5.2 工时放回团队组, 顺序第五(成员/负载/周 OKR/能力矩阵/工时), 按 timesheet.view 显示', () => {
   for (const role of ['ADMIN', 'MANAGER', 'FDE_ENGINEER']) {
-    const all = buildNav({ can: allow, role }).flatMap(paths)
-    assert.ok(!all.includes('/admin/timesheets'), role)
-    assert.ok(!all.includes('/admin/assets'), '资产库并进经验库页内切换, 不单独占菜单')
+    const team = byKey(buildNav({ can: allow, role })).team
+    assert.equal(paths(team).at(-1), '/admin/timesheets', role)
+    assert.ok(!buildNav({ can: allow, role }).flatMap(paths).includes('/admin/assets'), '资产库并进经验库页内切换, 不单独占菜单')
   }
+  const admin = byKey(buildNav({ can: allow, role: 'ADMIN' })).team
+  assert.equal(paths(admin).indexOf('/admin/timesheets'), 4)
+  const item = admin.items[4]
+  assert.equal(item.title, 'common.hours')
+  assert.equal(item.icon, 'Timer')
+  const noTs = buildNav({ can: p => p !== 'timesheet.view', role: 'ADMIN' }).flatMap(paths)
+  assert.ok(!noTs.includes('/admin/timesheets'), '没有 timesheet.view 不显示')
+  const layout = readFileSync(new URL('../../src/views/admin/AdminLayout.vue', import.meta.url), 'utf8')
+  assert.match(layout, /const NAV_ICONS = \{[^}]*\bTimer\b/, 'Timer 图标已注册')
 })
 
 test('没有 team.view 的工程师看不到团队组, 落地页仍是我的今日', () => {
@@ -63,6 +72,7 @@ test('默认展开所有分组; 详情/子页高亮所属菜单, 资产库高亮
   assert.equal(activeMenuPath('/admin/projects/3'), '/admin/projects')
   assert.equal(activeMenuPath('/admin/okr/team'), '/admin/okr')
   assert.equal(activeMenuPath('/admin/timesheets'), '/admin/timesheets')
+  assert.equal(activeMenuPath('/admin/timesheets/12'), '/admin/timesheets')
 })
 
 test('AdminLayout: 桌面与手机菜单都从 navGroups 渲染, 保留默认展开与 unique-opened=false, 不再硬编码工时菜单', () => {
