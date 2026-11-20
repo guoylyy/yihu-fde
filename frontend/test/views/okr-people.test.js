@@ -7,7 +7,7 @@ import * as Vue from 'vue'
 import { compileView, renderView, t } from '../helpers/sfc-render.js'
 import {
   viewedUserId, queryForPerson, initialOf, pickerPeople, canSeeManagerScore, hasField, mayProxyRow,
-  draftFileProblem, mergeDraft, trendGeometry, yearOptions, currentUser, DRAFT_FILE_MAX
+  draftFileProblem, mergeDraft, trendGeometry, yearOptions, currentUser, DRAFT_FILE_MAX, krDoneRate, skippedWeeks
 } from '../../src/views/okr/okrPeople.js'
 import { pct } from '../../src/views/okr/okrUtils.js'
 
@@ -140,6 +140,7 @@ test('新增文案中英 key 一致', () => {
 
 const MGR = t('okr.manager_score')
 const MGR_SHORT = t('okr.manager_short')
+const MGR_LABEL = t('okr.person.manager_label')
 const cardStub = { props: ['obj'], setup: p => () => Vue.h('section', { class: 'card' }, [p.obj.title, p.obj.managerScore != null ? ` ${MGR_SHORT} ${p.obj.managerScore}` : '']) }
 const EXTRA = { OkrPersonPicker: true, OkrWeekBar: true, 'el-tabs': true, 'el-tab-pane': true, OkrObjectiveCard: cardStub, OkrPlanEditor: true, OkrReportDraftDialog: true, 'el-checkbox': true, 'el-input-number': true }
 
@@ -150,7 +151,7 @@ describe('个人详情 OkrPerson', () => {
     weekQuery: {}, okrQuery: { userId: '5' }, weekKeyNow: '2026-W47', weekParts: { year: 2026, weekNo: 47 },
     year: 2026, years: [2026], CW: 640, CH: 180, PAD: 28, xLabels: [{ x: 28, label: 'W46' }],
     geo: trendGeometry([{ label: 'W46', value: 70 }, { label: 'W47', value: 80 }], { width: 640, height: 166, pad: 28 }),
-    pct, initialOf, roleLabel: r => r, pickPerson() {}, goProxy() {}, setTab() {}, setYear() {}, shift() {}, openWeek() {},
+    pct, krDoneRate, skipped: [], isZh: true, initialOf, roleLabel: r => r, pickPerson() {}, goProxy() {}, setTab() {}, setYear() {}, shift() {}, openWeek() {},
     showMgr: () => false,
     ov: {
       user: { id: '5', name: '林晓', role: 'FDE_ENGINEER', teams: [{ id: '1', name: '交付一组' }] },
@@ -175,12 +176,12 @@ describe('个人详情 OkrPerson', () => {
   test('工程师看别人: 头部五项、按周 O 卡、按年汇总与折线都在; 没有主管分, 也没有代操作', async () => {
     const html = await renderView(render, base(), EXTRA)
     for (const s of ['林晓', '交付一组', t('okr.person.o_count'), t('okr.person.kr_count'), t('okr.person.avg_self'), t('okr.person.late_count'), t('okr.person.update_count'),
-      'O-交付', t('okr.person.weeks_participated'), t('okr.person.completion_rate'), '60', '<polyline', t('okr.person.done_of', { p0: 1, p1: 2 })]) {
+      'O-交付', t('okr.person.weeks_participated'), t('okr.person.completion_rate_kr'), '60', '<polyline', t('okr.person.done_of', { p0: 1, p1: 2 })]) {
       assert.ok(html.includes(s), `缺 ${s}`)
     }
     assert.ok(!html.includes(MGR), '不能出现主管分')
     assert.ok(!html.includes(t('okr.person.avg_manager')))
-    assert.ok(!html.includes(`${MGR_SHORT} `), '每周列表不能有「主」分')
+    assert.ok(!html.includes(`${MGR_LABEL} `), '每周列表不能有「主管」分')
     assert.ok(!html.includes('data-test="op-proxy"'))
     // 头部 5 格, 不多一格占位
     const stats = html.split('data-test="op-stats"')[1].split('op-tabs')[0]
@@ -196,8 +197,72 @@ describe('个人详情 OkrPerson', () => {
     const html = await renderView(render, st, EXTRA)
     assert.ok(html.includes(MGR))
     assert.ok(html.includes(t('okr.person.avg_manager')))
-    assert.ok(html.includes(`${MGR_SHORT} 80`))
+    assert.ok(html.includes(`${MGR_LABEL} 80`))
     assert.ok(html.includes('data-test="op-proxy"'))
+  })
+})
+
+describe('按年每周条形: 完成口径 = KR 条数比', () => {
+  const render = compileView('views/okr/OkrPerson.vue')
+  const W38 = { key: '2026-W38', weekNo: 38, submitted: true, late: false, selfScore: 65.2, managerScore: 66.2, committed: 5, done: 2, completion: 0.75 }
+  const W39 = { key: '2026-W39', weekNo: 39, submitted: true, late: false, selfScore: 57, managerScore: 58, committed: 5, done: 3, completion: 0.95 }
+  const W41 = { key: '2026-W41', weekNo: 41, submitted: true, late: false, selfScore: 75.2, committed: 5, done: 3, completion: 0.95 }
+  const state = (over = {}) => ({
+    loading: false, isMobile: false, userId: '38', meId: '1', people: [], canProxy: false, tab: 'year',
+    weekQuery: {}, okrQuery: {}, weekKeyNow: '2026-W47', weekParts: { year: 2026, weekNo: 47 },
+    year: 2026, years: [2026], CW: 640, CH: 180, PAD: 28, xLabels: [], geo: trendGeometry([], {}),
+    pct, krDoneRate, isZh: true, skipped: [40], initialOf, roleLabel: r => r,
+    pickPerson() {}, goProxy() {}, setTab() {}, setYear() {}, shift() {}, openWeek() {},
+    showMgr: (obj, key = 'managerScore') => key in obj,
+    ov: { user: { id: '38', name: '林晓', role: 'FDE_ENGINEER' }, current: { week: '2026-W47', objectiveCount: 2, krCount: 5, lateCount: 0, updateCount: 0 }, years: [] },
+    ws: null,
+    ys: { summary: { weeksParticipated: 3, avgSelfScore: 66, completionRate: 8 / 15 }, weeks: [W38, W39, W41] },
+    ...over
+  })
+  const row = (html, no) => html.split(`data-week="${no}"`)[1].split('</li>')[0]
+  const plain = s => s.replace(/<!--.*?-->/g, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+
+  test('krDoneRate: done / committed; 没承诺就是 null', () => {
+    assert.equal(krDoneRate(W38), 0.4)
+    assert.equal(krDoneRate(W39), 0.6)
+    assert.equal(krDoneRate({ committed: 0, done: 0 }), null)
+    assert.equal(krDoneRate({}), null)
+  })
+
+  test('skippedWeeks: 列出中间跳过的周号', () => {
+    assert.deepEqual(skippedWeeks([W38, W39, W41]), [40])
+    assert.deepEqual(skippedWeeks([{ weekNo: 41 }, { weekNo: 38 }, { weekNo: 45 }]), [39, 40, 42, 43, 44])
+    assert.deepEqual(skippedWeeks([W38, W39]), [])
+    assert.deepEqual(skippedWeeks([]), [])
+  })
+
+  test('第 38 周: 完成 2/5 与条形 40% 一致; 加权完成度 75% 单独一行写明', async () => {
+    const html = await renderView(render, state(), EXTRA)
+    const r = row(html, 38)
+    assert.match(r, /width:\s*40%/)
+    assert.match(r, /class="op-wpct">40%</)
+    assert.ok(plain(r).includes(`${t('okr.person.done_of', { p0: 2, p1: 5 })} · ${t('okr.person.self_label')} 65.2 · ${MGR_LABEL} 66.2`), plain(r))
+    assert.match(r, new RegExp(`class="op-wweighted">${t('okr.person.weighted', { p0: 75 })}<`))
+    assert.ok(!plain(r.split('op-wweighted')[0]).includes('75%'), '75% 不能挤在「完成 2/5」那一行')
+    const r39 = row(html, 39)
+    assert.match(r39, /width:\s*60%/)
+    assert.match(r39, /class="op-wpct">60%</)
+    assert.ok(plain(r39).includes(t('okr.person.done_of', { p0: 3, p1: 5 })))
+  })
+
+  test('年度汇总的完成率与加权完成度各自标清口径; 不再用「自 / 主」缩写', async () => {
+    const html = await renderView(render, state(), EXTRA)
+    assert.ok(html.includes(t('okr.person.completion_rate_kr')))
+    const weeks = html.split('class="op-weeks"')[1]
+    assert.ok(!weeks.includes(`${MGR_SHORT} `))
+    assert.ok(!weeks.includes(`${t('okr.self_short')} 65.2`))
+  })
+
+  test('跳号的周: 有空缺才提示「未提交的周不显示」', async () => {
+    const html = await renderView(render, state(), EXTRA)
+    assert.ok(html.includes(t('okr.person.skipped', { p0: '40' })))
+    const none = await renderView(render, state({ skipped: [] }), EXTRA)
+    assert.ok(!none.includes('data-test="op-skipped"'))
   })
 })
 
@@ -237,6 +302,16 @@ describe('周 OKR 页 MyOkr: 看别人 / 代管', () => {
     assert.ok(html.includes('data-test="import-open"'))
     assert.ok(html.includes('data-test="report-open"'))
     assert.ok(html.includes(t('okr.import.entry_hint', { p0: '林晓' }).replace(/'/g, '&#39;')))
+  })
+
+  test('看别人 / 代管: 子导航只留「团队」「历史」两端, 不再重复人名(人名在顶部筛选器里)', async () => {
+    for (const st of [base(), base({ proxyMode: true, proxyTarget: '5', canAct: true, canEditPlan: true, editing: true })]) {
+      const html = await renderView(render, st, EXTRA)
+      const nav = html.split('class="okr-owner"')[1].split(/class="okr-(?!owner)/)[0]
+      assert.ok(!nav.includes('林晓'), nav)
+      assert.ok(nav.includes(t('okr.people.owner_okr').replace(/'/g, '&#39;')), nav + ' / ' + t('okr.people.owner_okr'))
+      assert.ok(nav.includes(t('okr.tab_team')) && nav.includes(t('okr.tab_history')))
+    }
   })
 
   test('源码约束: 写接口都带代管目标; 代提交先二次确认; 主管评分入口挂在 okr.score.manager 上', () => {

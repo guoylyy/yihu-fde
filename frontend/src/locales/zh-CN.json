@@ -2309,7 +2309,8 @@
     "people": {
       "pick": "选择查看谁的 OKR",
       "me": "我",
-      "detail": "个人详情"
+      "detail": "个人详情",
+      "owner_okr": "该成员的 OKR"
     },
     "proxy": {
       "banner": "正在编辑 {p0} 的 OKR · 由 {p1} 代填",
@@ -2360,7 +2361,12 @@
       "updates_n": "进展 {p0} 条",
       "done_of": "完成 {p0}/{p1}",
       "not_submitted": "未提交",
-      "week_short": "第 {p0} 周"
+      "week_short": "第 {p0} 周",
+      "completion_rate_kr": "完成率（KR 条数）",
+      "weighted": "加权完成度 {p0}%",
+      "self_label": "自评",
+      "manager_label": "主管",
+      "skipped": "未提交的周不显示（第 {p0} 周）"
     }
   },
   "assistant": {

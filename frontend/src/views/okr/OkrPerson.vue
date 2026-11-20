@@ -63,7 +63,7 @@
             <div class="op-stats op-stats-year" data-test="op-year-summary">
               <div><b>{{ ys.summary.weeksParticipated }}</b><span>{{ $t('okr.person.weeks_participated') }}</span></div>
               <div><b>{{ ys.summary.avgSelfScore ?? '-' }}</b><span>{{ $t('okr.person.avg_self') }}</span></div>
-              <div><b>{{ pct(ys.summary.completionRate) ?? '-' }}<small v-if="ys.summary.completionRate != null">%</small></b><span>{{ $t('okr.person.completion_rate') }}</span></div>
+              <div><b>{{ pct(ys.summary.completionRate) ?? '-' }}<small v-if="ys.summary.completionRate != null">%</small></b><span>{{ $t('okr.person.completion_rate_kr') }}</span></div>
               <div v-if="showMgr(ys.summary, 'avgManagerScore')"><b>{{ ys.summary.avgManagerScore ?? '-' }}</b><span>{{ $t('okr.person.avg_manager') }}</span></div>
             </div>
 
@@ -91,21 +91,24 @@
 
               <!-- 每周: 条形 + 数字(也是图的表格视图) -->
               <section class="op-weeks">
-                <h4>{{ $t('okr.person.weekly') }}</h4>
+                <h4>{{ $t('okr.person.weekly') }} <small>{{ $t('okr.person.completion_rate_kr') }}</small></h4>
+                <!-- 条形与右侧百分比 = 完成 KR 条数 / 承诺条数, 和「完成 2/5」同一口径; 按权重的 completion 另起一行写明「加权完成度」 -->
                 <ul>
-                  <li v-for="w in ys.weeks" :key="w.key" class="op-wrow">
+                  <li v-for="w in ys.weeks" :key="w.key" class="op-wrow" :data-week="w.weekNo">
                     <button type="button" class="op-wno" @click="openWeek(w.key)">{{ $t('okr.person.week_short', { p0: w.weekNo }) }}</button>
-                    <span class="op-wbar"><i :style="{ width: (pct(w.completion) || 0) + '%' }" /></span>
-                    <span class="op-wpct">{{ pct(w.completion) ?? '-' }}%</span>
+                    <span class="op-wbar"><i :style="{ width: (pct(krDoneRate(w)) || 0) + '%' }" /></span>
+                    <span class="op-wpct">{{ pct(krDoneRate(w)) ?? '-' }}%</span>
                     <span class="op-wmeta">
                       <template v-if="w.submitted">{{ $t('okr.person.done_of', { p0: w.done, p1: w.committed }) }}</template>
                       <template v-else>{{ $t('okr.person.not_submitted') }}</template>
-                      · {{ $t('okr.self_short') }} {{ w.selfScore ?? '-' }}
-                      <template v-if="showMgr(w)"> · {{ $t('okr.manager_short') }} {{ w.managerScore ?? '-' }}</template>
+                      · {{ $t('okr.person.self_label') }} {{ w.selfScore ?? '-' }}
+                      <template v-if="showMgr(w)"> · {{ $t('okr.person.manager_label') }} {{ w.managerScore ?? '-' }}</template>
                       <em v-if="w.late" class="op-late">{{ $t('okr.late') }}</em>
                     </span>
+                    <span v-if="w.completion != null" class="op-wweighted">{{ $t('okr.person.weighted', { p0: pct(w.completion) }) }}</span>
                   </li>
                 </ul>
+                <p v-if="skipped.length" class="op-wskip" data-test="op-skipped">{{ $t('okr.person.skipped', { p0: skipped.join(isZh ? '、' : ', ') }) }}</p>
               </section>
             </template>
           </template>
@@ -127,7 +130,8 @@ import OkrPersonPicker from '@/components/okr/OkrPersonPicker.vue'
 import OkrWeekBar from '@/components/okr/OkrWeekBar.vue'
 import OkrObjectiveCard from '@/components/okr/OkrObjectiveCard.vue'
 import { pct, shiftKey, parseKey, isoWeekOf, weekKey } from './okrUtils.js'
-import { initialOf, sameId, canSeeManagerScore, hasField, trendGeometry, yearOptions } from './okrPeople.js'
+import { initialOf, sameId, canSeeManagerScore, hasField, trendGeometry, yearOptions, krDoneRate, skippedWeeks } from './okrPeople.js'
+import { isZh } from '@/i18n/index.js'
 import { useOkrPeople } from './useOkrPeople.js'
 
 const CW = 640
@@ -160,6 +164,8 @@ const canScore = can('okr.score.manager')
 function showMgr(obj, key = 'managerScore') {
   return canSeeManagerScore({ ownerId: userId.value, meId, canScore }) && hasField(obj, key)
 }
+
+const skipped = computed(() => skippedWeeks(ys.value?.weeks || []))
 
 // 横轴按周号连续铺开: 后端只列有 O 的周, 中间没交的周补空值, 折线在那里断开
 const trendWeeks = computed(() => {
@@ -279,12 +285,15 @@ function goProxy() {
 .op-hit { fill: transparent; cursor: default; }
 .op-dot:hover .op-mark { r: 6; }
 .op-weeks ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
-.op-wrow { display: grid; grid-template-columns: 64px 1fr 44px; grid-template-areas: 'no bar pct' 'no meta meta'; align-items: center; column-gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--el-border-color-extra-light); }
+.op-wrow { display: grid; grid-template-columns: 64px 1fr 44px; grid-template-areas: 'no bar pct' 'no meta meta' 'no wt wt'; align-items: center; column-gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--el-border-color-extra-light); }
 .op-wno { grid-area: no; border: 0; background: none; padding: 0; min-height: 44px; text-align: left; font: inherit; font-size: 13px; color: var(--el-color-primary); cursor: pointer; }
 .op-wbar { grid-area: bar; height: 6px; border-radius: 3px; background: var(--el-border-color-lighter); overflow: hidden; }
 .op-wbar i { display: block; height: 100%; background: var(--el-color-primary); border-radius: 3px; }
 .op-wpct { grid-area: pct; font-size: 13px; font-weight: 600; text-align: right; }
 .op-wmeta { grid-area: meta; font-size: 12px; color: var(--el-text-color-secondary); }
+.op-wweighted { grid-area: wt; font-size: 11px; color: var(--el-text-color-placeholder); }
+.op-weeks h4 small { font-weight: 400; font-size: 11px; color: var(--el-text-color-secondary); margin-left: 6px; }
+.op-wskip { margin: 6px 0 0; font-size: 11px; color: var(--el-text-color-secondary); }
 @media (max-width: 640px) {
   .op-head { flex-wrap: wrap; }
   .op-actions { width: 100%; justify-content: space-between; }

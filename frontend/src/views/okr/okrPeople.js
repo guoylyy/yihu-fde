@@ -127,3 +127,17 @@ export function trendGeometry(points = [], { width = 600, height = 160, pad = 24
 export function yearOptions(overviewYears = [], thisYear) {
   return [...new Set([thisYear, ...overviewYears.map(y => y.year)].filter(Boolean))].sort((a, b) => b - a)
 }
+
+/** 每周「完成率」= 完成的 KR 条数 / 承诺的 KR 条数, 与文案「完成 2/5」同一口径(不是按权重加权的 completion) */
+export function krDoneRate(w = {}) {
+  const c = Number(w.committed)
+  return c > 0 ? (Number(w.done) || 0) / c : null
+}
+
+/** 年度周列表里跳过的周号(后端只列有 OKR 的周), 用来提示「未提交的周不显示」 */
+export function skippedWeeks(weeks = []) {
+  const nos = weeks.map(w => w.weekNo).filter(n => Number.isInteger(n)).sort((a, b) => a - b)
+  const out = []
+  for (let i = 1; i < nos.length; i++) for (let n = nos[i - 1] + 1; n < nos[i]; n++) out.push(n)
+  return out
+}

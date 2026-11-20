@@ -2309,7 +2309,8 @@
     "people": {
       "pick": "Choose whose OKR to view",
       "me": "Me",
-      "detail": "Details"
+      "detail": "Details",
+      "owner_okr": "This member's OKR"
     },
     "proxy": {
       "banner": "Editing {p0}'s OKR · filled in by {p1}",
@@ -2360,7 +2361,12 @@
       "updates_n": "{p0} updates",
       "done_of": "Done {p0}/{p1}",
       "not_submitted": "Not submitted",
-      "week_short": "W{p0}"
+      "week_short": "W{p0}",
+      "completion_rate_kr": "Completion (KR count)",
+      "weighted": "Weighted completion {p0}%",
+      "self_label": "Self",
+      "manager_label": "Manager",
+      "skipped": "Weeks without a submission are hidden (W{p0})"
     }
   },
   "assistant": {

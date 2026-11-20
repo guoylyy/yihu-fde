@@ -22,7 +22,8 @@
 
     <div v-if="viewingOther && data?.owner" class="okr-owner">
       <router-link :to="{ path: '/admin/okr/team', query: { week: weekKeyNow } }">‹ {{ $t('okr.tab_team') }}</router-link>
-      <strong>{{ data.owner.name }}</strong>
+      <!-- 人名已在顶部筛选器里, 这里不再重复 -->
+      <span class="okr-owner-mid">{{ $t('okr.people.owner_okr') }}</span>
       <router-link :to="{ path: '/admin/okr/history', query: { ownerId: data.owner.id } }">{{ $t('okr.tab_history') }}</router-link>
     </div>
 
@@ -369,6 +370,7 @@ async function submitMiss() {
 .okr-quick-btns { display: flex; gap: 6px; flex: none; flex-wrap: wrap; justify-content: flex-end; }
 .okr-owner { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; font-size: 13px; }
 .okr-owner a { color: var(--el-color-primary); text-decoration: none; }
+.okr-owner-mid { color: var(--el-text-color-secondary); font-size: 12px; }
 .okr-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin-bottom: 10px; font-size: 13px; color: var(--el-text-color-secondary); }
 .okr-summary b { color: var(--el-text-color-primary); font-size: 15px; }
 .okr-edit-link { margin-left: auto; border: 0; background: none; color: var(--el-color-primary); font-size: 13px; cursor: pointer; padding: 4px 0; }
