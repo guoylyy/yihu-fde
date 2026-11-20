@@ -263,14 +263,14 @@ describe('自评入口: 页头主按钮 + 面板', () => {
   })
 })
 
-describe('主管评分入口(仅 ADMIN)', () => {
-  test('非 ADMIN: 页头没有「主管评分」, 面板组件都不挂', async () => {
+describe('主管评分入口(ADMIN / MANAGER)', () => {
+  test('无评分权限: 页头没有「主管评分」, 面板组件都不挂', async () => {
     const html = await renderView(myRender, myState({ canScoreManager: false }), MY_EXTRA)
     assert.ok(!html.includes('data-test="okr-mgr-open"'))
     assert.ok(!html.includes(esc(t('okr.v3.mgr_btn'))))
     const s = src('views/okr/MyOkr.vue')
     assert.match(s, /<OkrManagerScorePanel\s+v-if="canScoreManager && data\?\.cycle"/)
-    assert.match(s, /canScoreManager = can\('okr\.score\.manager'\)/)
+    assert.match(s, /canScoreManager = mayScoreManager\(me, can\('okr\.score\.manager'\)\)/)
   })
 
   test('ADMIN: 与「提交自评」同一行, 次要按钮(不是 primary); 归档后置灰', async () => {
@@ -303,7 +303,7 @@ describe('主管评分面板 OkrManagerScorePanel', () => {
     { user: { id: '188', name: 'Boss' }, rows: [{ id: '9', seq: 1, title: 'O-自己', selfScore: 70, original: null, score: null, comment: '', locked: 'own' }] }
   ]
   const state = (over = {}) => {
-    const st = { modelValue: true, week: '2026-W47', closed: false, mobile: false, loading: false, busy: '', error: '', groups, load() {}, saveOnly() {}, saveAndClose() {}, ...over }
+    const st = { modelValue: true, week: '2026-W47', closed: false, canClose: true, mobile: false, loading: false, busy: '', error: '', groups, load() {}, saveOnly() {}, saveAndClose() {}, ...over }
     st.allRows = st.groups.flatMap(g => g.rows)
     st.scoredCount = st.allRows.filter(r => r.original != null).length
     return st

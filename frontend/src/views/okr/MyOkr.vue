@@ -1,7 +1,7 @@
 <template>
   <!-- 我的 OKR(手机优先): 周一写计划 → 周中追加进展 → 周五自评 → 下周一归档只读
        顶部「人」筛选切到别人(?userId=): 默认只读; 有代管权限(can.proxy)就进代编辑, 写操作带 targetUserId。
-       主管评分只给 okr.score.manager(ADMIN), 其他人界面上不渲染 -->
+       主管评分只给 okr.score.manager 的 ADMIN / MANAGER(MANAGER 限本团队、不能归档), 其他人界面上不渲染 -->
   <div class="okr-page" v-loading="loading">
     <div class="okr-top">
       <OkrPersonPicker :model-value="pickedId" :people="people" :me-id="meId" :compact="isMobile" @change="pickPerson" />
@@ -29,7 +29,7 @@
     </div>
 
     <template v-if="data">
-      <!-- OKR 3.0 页头操作: 「提交自评」主按钮(本人 / 代管, 计划已提交); 「主管评分」次要按钮(仅 ADMIN)。
+      <!-- OKR 3.0 页头操作: 「提交自评」主按钮(本人 / 代管, 计划已提交); 「主管评分」次要按钮(ADMIN / MANAGER)。
            不按时间限制, 能不能交由后端说了算; 归档后都置灰 -->
       <div v-if="data.cycle && !editing && (showSelfBtn || canScoreManager)" class="okr-actions" data-test="okr-actions">
         <el-button
@@ -37,7 +37,7 @@
           data-test="okr-self-open" @click="openSelf"
         >{{ selfBtnText }}</el-button>
         <span v-if="showSelfBtn && !isClosed && handling.missing.length" class="okr-act-warn" data-test="okr-self-pending">{{ $t('okr.v3.kr_pending', { p0: handling.missing.length }) }}</span>
-        <!-- 主管评分: 只渲染给 okr.score.manager(ADMIN); 次要按钮, 与自评区分 -->
+        <!-- 主管评分: 只渲染给 okr.score.manager 的 ADMIN / MANAGER; 次要按钮, 与自评区分 -->
         <el-button
           v-if="canScoreManager" class="okr-act-btn okr-act-mgr" :disabled="isClosed" :title="isClosed ? $t('okr.v3.closed_tip') : undefined"
           data-test="okr-mgr-open" @click="mgr.visible = true"
@@ -143,7 +143,7 @@
     </el-drawer>
 
     <OkrManagerScorePanel
-      v-if="canScoreManager && data?.cycle" v-model="mgr.visible" :week="weekKeyNow" :me-id="String(meId)" :closed="isClosed" :mobile="isMobile"
+      v-if="canScoreManager && data?.cycle" v-model="mgr.visible" :week="weekKeyNow" :me-id="String(meId)" :closed="isClosed" :can-close="canCloseWeek" :mobile="isMobile"
       @changed="mgr.changed = true" @update:model-value="onMgrClosed"
     />
 
@@ -185,7 +185,7 @@ import {
   weekWindow, weekNav, isPastKey, shortWeekLabel, emptyState, isBackfilledPlan,
   applyKrComplete, needsProgressPrompt, progressMax, parseProgress, krHandling, scoresComplete
 } from './okrUtils.js'
-import { viewedUserId, queryForPerson, sameId, mergeDraft } from './okrPeople.js'
+import { viewedUserId, queryForPerson, sameId, mergeDraft, mayScoreManager, mayCloseWeek } from './okrPeople.js'
 import { useOkrPeople } from './useOkrPeople.js'
 
 const route = useRoute()
@@ -202,7 +202,7 @@ const reportSource = ref('text')
 const isMobile = useIsMobile()
 const { me, meId, people, loadPeople, ensurePerson } = useOkrPeople()
 const self = reactive({ visible: false, rows: [] })
-// 主管评分面板(仅 ADMIN): 关掉时有改动就重拉, 卡片上的主管分 / 归档状态同步
+// 主管评分面板(ADMIN / MANAGER): 关掉时有改动就重拉, 卡片上的主管分 / 归档状态同步
 const mgr = reactive({ visible: false, changed: false })
 function onMgrClosed(v) {
   if (!v && mgr.changed) { mgr.changed = false; load() }
@@ -211,7 +211,9 @@ const miss = reactive({ visible: false, obj: null, reason: '', carry: false })
 
 // OKR 2.0: 团队页全员可进(后端按 ADMIN 全部 / 其他人本团队过滤)
 const canTeam = computed(() => true)
-const canScoreManager = can('okr.score.manager')
+// 0.5.8: 主管评分放开给部门主管(MANAGER, 范围后端卡本团队); 归档(保存并完成本周)仍只给 ADMIN
+const canScoreManager = mayScoreManager(me, can('okr.score.manager'))
+const canCloseWeek = mayCloseWeek(me)
 const ownerId = computed(() => viewedUserId(route.query))
 const viewingOther = computed(() => !!ownerId.value && !sameId(ownerId.value, meId))
 const pickedId = computed(() => ownerId.value || meId)

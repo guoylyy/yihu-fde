@@ -84,14 +84,14 @@
       </section>
 
       <!-- OKR 3.0: 不再有「归档 / 重开本周」入口(应急重开只留在后端)。
-           正常流程: ADMIN 打完主管分 →「保存并完成本周」归档 -->
+           正常流程: ADMIN / MANAGER 打主管分(MANAGER 限本团队); ADMIN 「保存并完成本周」归档 -->
       <div v-if="canScore && data.cycle?.status" class="okr-admin">
         <el-button :disabled="data.cycle.status === 'CLOSED'" data-test="okr-mgr-open" @click="mgrOpen = true">
           {{ data.cycle.status === 'CLOSED' ? $t('okr.v3.closed_btn') : $t('okr.v3.mgr_btn') }}
         </el-button>
       </div>
       <OkrManagerScorePanel
-        v-if="canScore && data.cycle?.status" v-model="mgrOpen" :week="weekKeyNow" :me-id="meId" :closed="data.cycle.status === 'CLOSED'" :mobile="isMobile"
+        v-if="canScore && data.cycle?.status" v-model="mgrOpen" :week="weekKeyNow" :me-id="meId" :closed="data.cycle.status === 'CLOSED'" :can-close="canCloseWeek" :mobile="isMobile"
         @changed="mgrChanged = true" @update:model-value="v => { if (!v && mgrChanged) { mgrChanged = false; load() } }"
       />
     </template>
@@ -110,15 +110,16 @@ import OkrWeekBar from '@/components/okr/OkrWeekBar.vue'
 import OkrPersonPicker from '@/components/okr/OkrPersonPicker.vue'
 import OkrManagerScorePanel from '@/components/okr/OkrManagerScorePanel.vue'
 import { pct, shiftKey, parseKey, isoWeekOf, weekKey } from './okrUtils.js'
-import { initialOf, mayProxyRow, pickerPeople, currentUser } from './okrPeople.js'
+import { initialOf, mayProxyRow, pickerPeople, currentUser, mayScoreManager, mayCloseWeek } from './okrPeople.js'
 
 const route = useRoute()
 const router = useRouter()
 const isMobile = useIsMobile()
 const data = ref(null)
 const loading = ref(false)
-const canScore = can('okr.score.manager')
 const me = currentUser()
+const canScore = mayScoreManager(me, can('okr.score.manager'))
+const canCloseWeek = mayCloseWeek(me)
 const meId = String(me.id || '')
 const people = computed(() => pickerPeople(data.value?.rows || [], me))
 const anyProxy = computed(() => (data.value?.rows || []).some(r => mayProxyRow(me, r.user)))

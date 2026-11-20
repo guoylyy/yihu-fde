@@ -141,3 +141,26 @@ export function skippedWeeks(weeks = []) {
   for (let i = 1; i < nos.length; i++) for (let n = nos[i - 1] + 1; n < nos[i]; n++) out.push(n)
   return out
 }
+
+/**
+ * 主管评分入口(0.5.8 放开给部门主管): 有 okr.score.manager 且角色是 ADMIN / MANAGER。
+ * 组长等其它角色即使在后台被勾了权限也不出入口(老板定「组长能看不能评」); 范围由后端卡
+ */
+export const MGR_SCORE_ROLES = ['ADMIN', 'MANAGER']
+export function mayScoreManager(user, hasPerm) {
+  return !!hasPerm && MGR_SCORE_ROLES.includes(user?.role)
+}
+
+/** 「保存并完成本周」(归档)只给 ADMIN: 归档锁的是全公司这一周 */
+export function mayCloseWeek(user) {
+  return user?.role === 'ADMIN'
+}
+
+/**
+ * 评分面板列不列这个人: 自己(O 显示为锁定)照列; 别人看后端 /cycle 的 can.scoreOwner ——
+ * MANAGER 范围外的人为 false, 不列; 老后端没有这个字段时按可评处理(后端仍会拒越界)
+ */
+export function inScorePanel(cyclePayload, userId, meId) {
+  if (sameId(userId, meId)) return true
+  return cyclePayload?.can?.scoreOwner !== false
+}

@@ -328,7 +328,7 @@ describe('周 OKR 页 MyOkr: 看别人 / 代管', () => {
     }
     assert.match(src, /submit && proxyMode\.value[\s\S]{0,200}ElMessageBox\.confirm\(\$t\('okr\.proxy\.confirm_submit'/)
     assert.match(src, /:can-manager-score="canScoreManager && data\.can\.managerScore/)
-    assert.match(src, /canScoreManager = can\('okr\.score\.manager'\)/)
+    assert.match(src, /canScoreManager = mayScoreManager\(me, can\('okr\.score\.manager'\)\)/)
   })
 })
 

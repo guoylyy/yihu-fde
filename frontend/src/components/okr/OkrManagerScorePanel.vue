@@ -1,5 +1,6 @@
 <template>
-  <!-- OKR 3.0 主管评分面板(只给 okr.score.manager = ADMIN, 父组件负责不渲染给别人)。
+  <!-- OKR 3.0 主管评分面板(只给 okr.score.manager 的 ADMIN / MANAGER, 父组件负责不渲染给别人)。
+       MANAGER(0.5.8): 只列本团队成员(后端 can.scoreOwner), 没有「保存并完成本周」—— 归档只给 ADMIN(canClose)。
        按人 → 按 O 列出「自评分」和「主管分」输入框, 一次填多个 O:
        「保存评分」逐个调 /manager-score; 「保存并完成本周」先保存再调 /cycle/close-by-score 归档。
        员工没自评的 O 后端不让打主管分(8115), 这里直接置灰; 自己的 O 也不能自己打(8109) -->
@@ -9,7 +10,7 @@
     @update:model-value="v => $emit('update:modelValue', v)" @open="load"
   >
     <div class="okr-mp" v-loading="loading" data-test="okr-mgr-panel">
-      <p class="okr-mp-hint">{{ $t('okr.v3.mgr_hint') }}</p>
+      <p class="okr-mp-hint">{{ canClose ? $t('okr.v3.mgr_hint') : $t('okr.v3.mgr_hint_team') }}</p>
       <p v-if="groups.length" class="okr-mp-progress" data-test="okr-mgr-progress">{{ $t('okr.v3.mgr_progress', { p0: scoredCount, p1: allRows.length }) }}</p>
       <div v-if="error" class="okr-mp-error" role="alert" data-test="okr-mgr-error">{{ error }}</div>
 
@@ -40,7 +41,8 @@
     <template #footer>
       <div class="okr-mp-foot">
         <el-button :disabled="closed || !groups.length" :loading="busy === 'save'" data-test="okr-mgr-save" @click="saveOnly">{{ $t('okr.v3.mgr_save') }}</el-button>
-        <el-button type="primary" :disabled="closed || !groups.length" :loading="busy === 'close'" data-test="okr-mgr-close" @click="saveAndClose">{{ $t('okr.v3.mgr_save_close') }}</el-button>
+        <el-button v-if="canClose" type="primary" :disabled="closed || !groups.length" :loading="busy === 'close'" data-test="okr-mgr-close" @click="saveAndClose">{{ $t('okr.v3.mgr_save_close') }}</el-button>
+        <span v-else class="okr-mp-boss" data-test="okr-mgr-close-by-boss">{{ $t('okr.v3.mgr_close_by_boss') }}</span>
       </div>
     </template>
   </el-drawer>
@@ -52,7 +54,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { $t } from '@/i18n'
 import { fde } from '@/api/index.js'
 import { managerScoreChanges } from '@/views/okr/okrUtils.js'
-import { sameId } from '@/views/okr/okrPeople.js'
+import { sameId, inScorePanel } from '@/views/okr/okrPeople.js'
 
 const props = defineProps({
   modelValue: Boolean,
@@ -61,6 +63,8 @@ const props = defineProps({
   meId: { type: String, default: '' },
   /** 本周已归档: 只读 */
   closed: Boolean,
+  /** 能归档(保存并完成本周): 只有 ADMIN */
+  canClose: Boolean,
   mobile: Boolean
 })
 const emit = defineEmits(['update:modelValue', 'changed'])
@@ -84,6 +88,8 @@ async function load() {
     for (let i = 0; i < people.length; i += 6) {
       const batch = await Promise.all(people.slice(i, i + 6).map(u => fde.okr.cycle({ week: props.week, ownerId: u.id }).then(d => ({ u, d }))))
       for (const { u, d } of batch) {
+        // MANAGER 只列本团队里自己能评的人(后端也会拒越界, 这里不把别人的 O 列出来)
+        if (!inScorePanel(d, u.id, props.meId)) continue
         const rows = (d.objectives || []).filter(o => o.submittedAt && o.status !== 'DROPPED').map(o => ({
           id: String(o.id), seq: o.seq, title: o.title, selfScore: o.selfScore ?? null,
           original: o.managerScore ?? null, score: o.managerScore ?? null, comment: '',
@@ -153,6 +159,7 @@ async function saveAndClose() {
       ElMessage.error(error.value)
       return
     }
+    if (!props.canClose) return
     await fde.okr.closeByScore(props.week)
     ElMessage.success({ message: $t('okr.v3.mgr_closed'), duration: 5000 })
     emit('changed')
@@ -191,6 +198,7 @@ defineExpose({ load })
 .okr-mp-lock { margin: 4px 0 0; font-size: 12px; color: var(--el-text-color-secondary); }
 .okr-mp-foot { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
 .okr-mp-foot .el-button { margin-left: 0; }
+.okr-mp-boss { align-self: center; font-size: 12px; color: var(--el-text-color-secondary); }
 @media (max-width: 640px) {
   .okr-mp-fields { flex-wrap: wrap; }
   .okr-mp-comment { flex-basis: 100%; }
