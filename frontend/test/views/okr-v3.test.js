@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs'
 import { compileView, renderView, t } from '../helpers/sfc-render.js'
 import {
   pct, OBJ_TAG, krValueText, krHandled, krHandling, progressedKrIds, needsProgressPrompt, progressMax, parseProgress,
-  applyKrComplete, scoresComplete, managerScoreChanges
+  applyKrComplete, scoresComplete, managerScoreChanges, exemptCandidates, idsChanged
 } from '../../src/views/okr/okrUtils.js'
 import * as Vue from 'vue'
 
@@ -351,5 +351,53 @@ describe('主管评分面板 OkrManagerScorePanel', () => {
       { id: 'f', score: 90, original: null, comment: '', locked: 'own' }
     ]
     assert.deepEqual(managerScoreChanges(rows).map(r => r.id), ['b', 'c'])
+  })
+})
+
+describe('设置 · OKR 免提交名单(仅 ADMIN)', () => {
+  const render = compileView('components/okr/OkrExemptSettings.vue')
+  const users = [{ id: '38', name: '林晓', username: 'okr_a', role: 'FDE_ENGINEER' }, { id: '39', name: '周舟', username: 'okr_b', role: 'FDE_ENGINEER' }]
+  const labelOf = u => (u.name ? `${u.name} (@${u.username})` : `#${u.id}`)
+  const state = (over = {}) => ({
+    loading: false, saving: false, users, candidates: users, byId: new Map(users.map(u => [u.id, u])), picked: ['39'], saved: [], dirty: true,
+    labelOf, remove() {}, save() {}, ...over
+  })
+  const EX = { 'el-tag': true }
+
+  test('顶部说明 + 已选标签 + 保存', async () => {
+    const html = await renderView(render, state(), EX)
+    assert.ok(html.includes(esc(t('okr.v3.exempt_desc'))))
+    const tags = html.split('data-test="okr-exempt-tags"')[1].split('data-test="okr-exempt-save"')[0]
+    assert.ok(tags.includes('周舟 (@okr_b)') && !tags.includes('林晓'), tags)
+    assert.doesNotMatch(btnTag(html, 'okr-exempt-save'), /disabled/)
+    // 候选从用户列表里选(不是手打用户名的输入框)
+    assert.ok(html.includes('data-test="okr-exempt-select"'))
+    assert.ok(html.includes('@okr_a'))
+  })
+
+  test('名单为空: 提示所有工程师都要交; 没改动时保存置灰', async () => {
+    const html = await renderView(render, state({ picked: [], dirty: false }), EX)
+    assert.ok(html.includes(esc(t('okr.v3.exempt_empty'))))
+    assert.match(btnTag(html, 'okr-exempt-save'), /disabled/)
+  })
+
+  test('源码约束: 取平台用户列表, 保存走 PUT /settings/exempt, 失败用后端 message', () => {
+    const s = src('components/okr/OkrExemptSettings.vue')
+    assert.match(s, /fde\.users\.list\(/)
+    assert.match(s, /fde\.okr\.saveExempt\(picked\.value\)/)
+    assert.match(s, /catch \(e\) \{\s*ElMessage\.error\(e\.message\)/)
+    const api = src('api/index.js')
+    assert.match(api, /saveExempt: \(userIds\) => request\('\/api\/okr\/settings\/exempt', \{ method: 'PUT', body: JSON\.stringify\(\{ userIds \}\) \}\)/)
+    const page = src('views/admin/SystemSettings.vue')
+    assert.match(page, /<el-tab-pane v-if="isAdmin"[^>]*name="okr"/)
+    assert.match(page, /const isAdmin = currentUser\(\)\.role === 'ADMIN'/)
+  })
+
+  test('exemptCandidates: 已选的人排在前面并去重; idsChanged 顺序无关', () => {
+    const c = exemptCandidates(users, [{ id: 39, name: '周舟', username: 'okr_b' }, { id: '99', name: '已停用', username: 'gone' }])
+    assert.deepEqual(c.map(u => u.id), ['39', '99', '38'])
+    assert.equal(idsChanged(['1', '2'], ['2', '1']), false)
+    assert.equal(idsChanged(['1'], ['1', '2']), true)
+    assert.equal(idsChanged([], []), false)
   })
 })

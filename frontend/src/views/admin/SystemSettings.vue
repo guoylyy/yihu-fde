@@ -63,6 +63,13 @@
         </el-card>
       </el-tab-pane>
 
+      <!-- OKR: 免提交名单(仅 ADMIN; 后端 PUT 也只认 ADMIN) -->
+      <el-tab-pane v-if="isAdmin" :label="$t('okr.v3.exempt_tab')" name="okr" lazy>
+        <el-card shadow="never" class="block-card">
+          <OkrExemptSettings />
+        </el-card>
+      </el-tab-pane>
+
       <!-- 大模型 -->
       <el-tab-pane :label="$t('common.llm_settings')" name="llm" lazy>
         <LlmConfigs embedded />
@@ -78,8 +85,11 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { fde } from '@/api/index.js'
 import LlmConfigs from './LlmConfigs.vue'
+import OkrExemptSettings from '@/components/okr/OkrExemptSettings.vue'
+import { currentUser } from '@/views/okr/okrPeople.js'
 
-const TABS = ['platform', 'accounts', 'llm']
+const isAdmin = currentUser().role === 'ADMIN'
+const TABS = ['platform', 'accounts', 'llm', ...(isAdmin ? ['okr'] : [])]
 const route = useRoute()
 const router = useRouter()
 const tab = ref(TABS.includes(route.query.tab) ? route.query.tab : 'platform')

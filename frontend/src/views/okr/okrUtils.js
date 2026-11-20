@@ -380,3 +380,22 @@ export function scoresComplete(rows) {
 export function managerScoreChanges(rows) {
   return rows.filter(r => !r.locked && r.score != null && (r.score !== r.original || String(r.comment || '').trim()))
 }
+
+/**
+ * 免提交名单的候选人: 平台用户列表 + 已在名单里的人(可能不在第一页 / 已停用), 按 id 去重。
+ * 返回 [{ id, name, username, role }]
+ */
+export function exemptCandidates(list = [], selected = []) {
+  const out = new Map()
+  for (const u of [...(selected || []), ...(list || [])]) {
+    const id = String(u.id)
+    if (!out.has(id)) out.set(id, { id, name: u.name || '', username: u.username || '', role: u.role || '' })
+  }
+  return [...out.values()]
+}
+
+/** 名单是否改过(顺序无关) */
+export function idsChanged(a = [], b = []) {
+  const x = new Set(a.map(String)), y = new Set(b.map(String))
+  return x.size !== y.size || [...x].some(id => !y.has(id))
+}
