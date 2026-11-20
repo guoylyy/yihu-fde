@@ -445,6 +445,36 @@ export async function patchKr({ krId, userId, ownerId, currentValue, status, not
   }))
 }
 
+/**
+ * KR 完成开关: done=true → DONE(BINARY 值 1, 数值型值 = 目标值); done=false → MISSED(明确「未完成」,
+ * 数值型的当前值不动, 进度由人另填; BINARY 的值随状态为 0)。同样留一条 OkrUpdate。
+ * 返回该 KR 最新状态 + 所属 O 的完成度 / 状态 + 本人这周的整体完成度, 前端拿来立刻重算
+ */
+export async function completeKr({ krId, userId, ownerId, done, note, source = 'MANUAL', sourceQuote, agentProfileId, now = new Date() }) {
+  if (typeof done !== 'boolean') throw new OkrRuleError('done 要是 true 或 false', { code: 8111 })
+  if (!/^\d+$/.test(String(krId))) throw notFound('KR 不存在')
+  const kr = await prisma.okrKeyResult.findUnique({ where: { id: BigInt(krId) } })
+  if (!kr) throw notFound('KR 不存在')
+  const o = await loadObjective(kr.objectiveId)
+  const operatorId = proxyOf(ownerId, userId)
+  assertOwner(o, ownerId ?? userId, operatorId ? '这条 KR 不属于目标员工' : '只能改自己的 KR')
+  assertWritable(o)
+  const value = done ? (kr.metricType === 'BINARY' ? 1 : kr.targetValue) : undefined
+  const upd = await prisma.$transaction(tx => applyKrChange(tx, {
+    o, kr, value, status: done ? 'DONE' : 'MISSED', content: note, kind: 'MIDWEEK',
+    source, sourceQuote, agentProfileId, userId, operatorId, now
+  }))
+  const fresh = await prisma.okrObjective.findUnique({ where: { id: o.id }, include: { keyResults: true } })
+  const krs = [...fresh.keyResults].sort((a, b) => a.seq - b.seq)
+  const mine = await prisma.okrObjective.findMany({ where: { cycleId: o.cycleId, ownerId: o.ownerId }, include: { keyResults: true } })
+  return {
+    update: upd,
+    kr: krView(krs.find(k => k.id === kr.id)),
+    objective: { id: String(fresh.id), status: fresh.status, progress: r4(objectiveProgress({ keyResults: krs })) },
+    completion: r4(personProgress(mine))
+  }
+}
+
 // ---------------------------------------------------------------- 评分
 
 export async function scoreObjective({ objectiveId, userId, ownerId, role, score, comment, source = 'MANUAL' }) {

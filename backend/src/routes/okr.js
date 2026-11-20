@@ -21,7 +21,7 @@ import { internalAuth, requirePermission, hasPermission } from '../lib/auth.js'
 import { logInternalAction } from '../lib/audit.js'
 import { parseWeek, weekKey, isoWeekOf, shiftWeek, weekRange, submitDeadline, creatableRange, isCreatableWeek, isPastWeek } from '../services/okrRules.js'
 import {
-  OkrRuleError, getCycle, personWeek, savePlan, appendUpdate, patchKr, scoreObjective,
+  OkrRuleError, getCycle, personWeek, savePlan, appendUpdate, patchKr, completeKr, scoreObjective,
   markMiss, teamView, history, closeCycle, reopenCycle, okrTick, planWritable
 } from '../services/okr.js'
 import { generateOkrDraft } from '../services/okrDraft.js'
@@ -314,6 +314,25 @@ router.patch('/krs/:id', async (req, res) => {
       operatorId: u.operatorId != null ? String(u.operatorId) : null, onBehalfOf: onBehalfOf(t)
     })
   } catch (e) { fail(res, e, 'krs') }
+})
+
+// KR 完成开关: { done: true|false }。true → DONE(值拉满); false → MISSED(明确未完成, 数值型进度不动)
+router.post('/krs/:id/complete', async (req, res) => {
+  try {
+    const b = req.body || {}
+    const t = await targetOf(req)
+    const r = await completeKr({
+      krId: req.params.id, userId: req.user.id, ownerId: t.ownerId, done: b.done, note: b.note,
+      source: sourceOf(req), sourceQuote: viaAssistant(req) ? b.sourceQuote : null,
+      agentProfileId: req.user.agentProfileId
+    })
+    const u = r.update
+    ok(res, {
+      kr: r.kr, objective: r.objective, completion: r.completion,
+      updateId: String(u.id), statusBefore: u.statusBefore, statusAfter: u.statusAfter, valueBefore: u.valueBefore, valueAfter: u.valueAfter,
+      operatorId: u.operatorId != null ? String(u.operatorId) : null, onBehalfOf: onBehalfOf(t)
+    })
+  } catch (e) { fail(res, e, 'krs/complete') }
 })
 
 // ---------------------------------------------------------------- 评分
