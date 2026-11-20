@@ -49,6 +49,21 @@ export function verifyBlocked(user, task) {
   if (task.status !== 'DONE') return `只有生产完成(DONE)的任务才能验收，当前是 ${task.status}`
   return null
 }
+
+/** 0.5.4 抢单/状态竞争失败的 409 响应体(code 9010): 带当前状态与负责人姓名; 任务已不存在返回 null */
+async function taskConflictBody(id) {
+  const now = await prisma.task.findFirst({ where: { id, deletedAt: null }, select: { status: true, assigneeId: true } })
+  if (!now) return null
+  const eng = now.assigneeId
+    ? await prisma.engineer.findUnique({ where: { id: now.assigneeId }, select: { user: { select: { name: true } } } })
+    : null
+  const assigneeName = eng?.user?.name || null
+  return {
+    code: 9010,
+    message: `任务已被他人处理，当前状态 ${now.status}${assigneeName ? `，负责人 ${assigneeName}` : ''}`,
+    data: { status: now.status, assigneeId: now.assigneeId ? String(now.assigneeId) : null, assigneeName }
+  }
+}
 const TASK_PRIORITY = ['LOW', 'MEDIUM', 'HIGH', 'URGENT']
 // v2.1.13(#563) 任务来源: 客户需求/评审/巡检/自主发起; 存量为空=未标注
 const TASK_SOURCES = ['CUSTOMER', 'REVIEW', 'PATROL', 'SELF', 'AI']   // v2.8.0(#1145) AI=路径图 AI 生成面板落库
@@ -676,14 +691,31 @@ router.post('/:id/status', requirePermission('task.changeStatus'), async (req, r
     // 校验：只有 assignee、或 ADMIN/MANAGER 才能改
     // 1.2.7 修复: Task.assigneeId 存的是 Engineer.id(工程师档案), 此前误与 User.id 对比,
     // 导致被指派的 FDE 点"开始/完成"永远 403。改为按 engineerId 对比(JWT 有则用, 没有则查档案)
-    let can = ['ADMIN', 'MANAGER'].includes(req.user.role)
-    if (!can && existing.assigneeId) {
-      let myEngineerId = req.user.engineerId
+    const isAdminLike = ['ADMIN', 'MANAGER'].includes(req.user.role)
+    let can = isAdminLike
+    // 0.5.4 抢单: 未指派任务置 IN_PROGRESS 时要落负责人, 管理员也查一下自己的工程师档案
+    const grabbing = !existing.assigneeId && status === 'IN_PROGRESS'
+    let myEngineerId = null
+    if ((!can && existing.assigneeId) || grabbing) {
+      myEngineerId = req.user.engineerId
       if (!myEngineerId) {
         const me = await prisma.engineer.findUnique({ where: { userId: BigInt(req.user.userId) } })
         myEngineerId = me?.id
       }
-      can = myEngineerId != null && String(existing.assigneeId) === String(myEngineerId)
+    }
+    if (!can && existing.assigneeId) {
+      const mine = myEngineerId != null && String(existing.assigneeId) === String(myEngineerId)
+      // 0.5.4: 别人已经开工的任务, 再置 IN_PROGRESS 视为抢单失败(409/9010), 而不是 403, 方便 agent 直接换下一个
+      if (!mine && status === 'IN_PROGRESS' && existing.status === 'IN_PROGRESS') {
+        return res.status(409).json(await taskConflictBody(id))
+      }
+      can = mine
+    }
+    // 0.5.4: 未指派任务, 项目内可见的工程师可以抢(置 IN_PROGRESS 并落成负责人)
+    if (!can && grabbing && myEngineerId != null) {
+      const projectScope = await buildScopeWhere(req.user, 'project')
+      const visible = await prisma.project.findFirst({ where: { id: existing.projectId, deletedAt: null, ...projectScope }, select: { id: true } })
+      can = !!visible
     }
     if (!can) return res.status(403).json({ code: 9003, message: '无权修改此任务（仅任务负责人或经理/管理员可操作）' })
     if (status === 'VERIFIED' && existing.status !== 'VERIFIED') {
@@ -704,7 +736,17 @@ router.post('/:id/status', requirePermission('task.changeStatus'), async (req, r
       data.queuedAt = new Date()
     }
     if (status === 'IN_PROGRESS' && existing.status !== 'IN_PROGRESS') data.startedAt = new Date()
-    const task = await prisma.task.update({ where: { id }, data })
+    if (grabbing && myEngineerId != null) data.assigneeId = BigInt(myEngineerId)
+    // 0.5.4 先读后 CAS: 只有状态(抢单时还有"仍未指派")没被别人改过才落库, 两个 agent 同时抢只有一个成功
+    const casWhere = { id, deletedAt: null, status: existing.status }
+    if (grabbing) casWhere.assigneeId = null
+    const r = await prisma.task.updateMany({ where: casWhere, data })
+    if (r.count === 0) {
+      const body = await taskConflictBody(id)
+      if (!body) return res.status(404).json({ code: 9004, message: '任务不存在' })
+      return res.status(409).json(body)
+    }
+    const task = await prisma.task.findUnique({ where: { id } })
     await recordActivity({
       actorId: req.user.id,
       entity: 'task',
