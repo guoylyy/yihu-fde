@@ -257,6 +257,10 @@ export const fde = {
     }),
     // v1.9.8(#350) 会议纪要→需求梳理: LLM 从纪要正文提炼需求(耗时长, 单独超时) + 需求清单 + 确认/驳回/编辑
     workflow: (projectId) => request(`/api/fde/project-records/${projectId}/workflow`),
+    // 从单条会议记录抽取需求（LLM，慢，单独超时）；后端 POST /project-records/:pid/records/:rid/requirements/extract
+    extractRequirements: (projectId, recordId) =>
+      request(`/api/fde/project-records/${projectId}/records/${recordId}/requirements/extract`,
+        { method: 'POST', body: '{}', timeout: 180000 }),
     requirements: (projectId, params = {}) => {
       const q = new URLSearchParams(params).toString()
       return request(`/api/fde/project-records/${projectId}/requirements` + (q ? '?' + q : ''))
