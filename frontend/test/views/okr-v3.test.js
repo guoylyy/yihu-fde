@@ -6,8 +6,9 @@ import { readFileSync } from 'node:fs'
 import { compileView, renderView, t } from '../helpers/sfc-render.js'
 import {
   pct, OBJ_TAG, krValueText, krHandled, krHandling, progressedKrIds, needsProgressPrompt, progressMax, parseProgress,
-  applyKrComplete
+  applyKrComplete, scoresComplete, managerScoreChanges
 } from '../../src/views/okr/okrUtils.js'
+import * as Vue from 'vue'
 
 const esc = s => String(s).replace(/'/g, '&#39;').replace(/"/g, '&quot;')
 const src = rel => readFileSync(new URL(`../../src/${rel}`, import.meta.url), 'utf8')
@@ -156,5 +157,108 @@ describe('卡片 OkrObjectiveCard: 每条 KR 的「完成 / 未完成」', () =>
     // 就地更新: completeKr 里不整页 load()
     const fn = s.split('async function completeKr')[1].split('\n}\n')[0]
     assert.ok(!fn.includes('load()'), fn)
+  })
+})
+
+// MyOkr 页: 页头「提交自评」/「主管评分」+ 自评面板
+const myRender = compileView('views/okr/MyOkr.vue')
+// 抽屉 / 对话框: 默认插槽 + footer 都画出来(看提交按钮态)
+const withFooter = { setup: (_, { slots }) => () => Vue.h('div', [slots.default?.(), slots.footer?.()]) }
+const MY_EXTRA = { OkrPersonPicker: true, OkrWeekBar: true, OkrObjectiveCard: true, OkrPlanEditor: true, OkrReportDraftDialog: true, OkrManagerScorePanel: true, 'el-checkbox': true, 'el-input-number': true, 'el-drawer': withFooter }
+function myState(over = {}) {
+  const objectives = over.objectives || [obj(), obj({ id: '2', seq: 2, title: 'O-文档', keyResults: [kr({ id: '21', seq: 1, title: '写完手册', status: 'MISSED' })] })]
+  const closed = over.closed || false
+  const st = {
+    loading: false, isMobile: false, busy: '', editing: false, draftInit: [], editorRef: null, reportOpen: false, reportSource: 'text',
+    miss: { visible: false, reason: '' }, pickedId: '3', people: [], meId: '3', meName: 'Me', ownerId: '', ownerName: '',
+    viewingOther: false, proxyMode: false, proxyTarget: '', canAct: true, canEditPlan: false, canScoreManager: false,
+    submittedOnce: true, canTeam: true, tagText: '', tagType: 'info', weekKeyNow: '2026-W47', weekParts: { year: 2026, weekNo: 47 },
+    nav: { prev: true, next: true }, weekDates: {}, backfillTag: '', isPastWeek: false, deadlinePassed: false, weekLabel: '', editorOpen: false, empty: null,
+    pct, scoresComplete, shift() {}, pickPerson() {}, openDraft() {}, startEdit() {}, startBackfill() {}, savePlan() {}, addUpdate() {}, managerScore() {},
+    openMiss() {}, fillFromReport() {}, openSelf() {}, submitSelf() {}, completeKr() {}, openMgr() {}, onMgrClosed() {},
+    isClosed: closed, krBusy: '', mgr: { visible: false },
+    data: {
+      owner: { id: '3', name: 'Me' }, completion: 0.6, selfScore: over.selfScore ?? null,
+      cycle: { status: closed ? 'CLOSED' : 'REVIEW', key: '2026-W47' }, can: { edit: false, progress: !closed, selfScore: !closed, proxy: false, managerScore: false },
+      objectives
+    },
+    ...over
+  }
+  st.scorable = objectives.filter(o => o.submittedAt && o.status !== 'DROPPED')
+  st.handling = krHandling(objectives)
+  st.selfAllDone = st.scorable.every(o => o.selfScore != null)
+  st.showSelfBtn = st.canAct && st.submittedOnce && st.scorable.length > 0 && (st.data.can.selfScore || closed)
+  const score = st.data.selfScore != null ? Math.round(st.data.selfScore) : null
+  st.selfBtnText = closed ? (st.selfAllDone && score != null ? t('okr.v3.self_done_closed', { p0: score }) : t('okr.v3.closed_btn'))
+    : (st.selfAllDone && score != null ? t('okr.v3.self_done_btn', { p0: score }) : t('okr.v3.self_submit'))
+  st.self = over.self || { visible: true, rows: st.scorable.map(o => ({ id: o.id, seq: o.seq, title: o.title, progress: o.progress, original: o.selfScore ?? null, score: o.selfScore ?? null, comment: '' })) }
+  return st
+}
+const btnTag = (html, dt) => (html.match(new RegExp(`<[^>]*data-test="${dt}"[^>]*>`)) || [''])[0]
+
+describe('自评入口: 页头主按钮 + 面板', () => {
+  test('计划已提交、未归档: 页头有「提交自评」; 还有 KR 没标时旁边提示条数', async () => {
+    const html = await renderView(myRender, myState(), MY_EXTRA)
+    assert.ok(html.includes('data-test="okr-self-open"'))
+    assert.ok(html.includes(esc(t('okr.v3.self_submit'))))
+    assert.ok(html.includes('data-test="okr-self-pending"'))
+    assert.ok(html.includes(esc(t('okr.v3.kr_pending', { p0: 1 }))))
+    // 页头在 O 列表之前
+    assert.ok(html.indexOf('data-test="okr-actions"') < html.indexOf('okr-list'))
+  })
+
+  test('面板: 「KR 处理情况 2/3」, 列出缺哪条(O1-KR1 + 标题), 提交按钮置灰', async () => {
+    const html = await renderView(myRender, myState(), MY_EXTRA)
+    assert.ok(html.includes(esc(t('okr.v3.kr_handling', { p0: 2, p1: 3 }))), html)
+    const missing = html.split('data-test="okr-self-missing"')[1].split('</ul>')[0]
+    assert.ok(missing.includes('O1-KR1') && missing.includes('上线 3 个接口'), missing)
+    assert.ok(!missing.includes('O2-KR1'))
+    assert.match(btnTag(html, 'okr-self-submit'), /disabled/)
+    // 每个 O 一行分数 + 备注
+    assert.ok(html.includes('data-test="okr-self-row-1"') && html.includes('data-test="okr-self-row-2"'))
+  })
+
+  test('KR 全部处理完、分数填齐: 提交可点, 不出缺项提示', async () => {
+    const objectives = [obj({ keyResults: [kr({ status: 'DONE' })] })]
+    const st = myState({ objectives })
+    st.self.rows[0].score = 80
+    const html = await renderView(myRender, st, MY_EXTRA)
+    assert.ok(html.includes(esc(t('okr.v3.kr_handling', { p0: 1, p1: 1 }))))
+    assert.ok(!html.includes('data-test="okr-self-missing"'))
+    assert.ok(!html.includes('data-test="okr-self-pending"'))
+    assert.doesNotMatch(btnTag(html, 'okr-self-submit'), /disabled/)
+  })
+
+  test('交过自评: 按钮变「已自评 89 分 · 可修改」; 归档后置灰「已自评 89 分」', async () => {
+    const objectives = [obj({ selfScore: 89, keyResults: [kr({ status: 'DONE' })] })]
+    let html = await renderView(myRender, myState({ objectives, selfScore: 89 }), MY_EXTRA)
+    assert.ok(html.includes(esc(t('okr.v3.self_done_btn', { p0: 89 }))))
+    assert.doesNotMatch(btnTag(html, 'okr-self-open'), /disabled/)
+    html = await renderView(myRender, myState({ objectives, selfScore: 89, closed: true, self: { visible: false, rows: [] } }), MY_EXTRA)
+    assert.ok(html.includes(esc(t('okr.v3.self_done_closed', { p0: 89 }))))
+    assert.match(btnTag(html, 'okr-self-open'), /disabled/)
+  })
+
+  test('没提交计划 / 看别人(无代管): 没有自评按钮', async () => {
+    let html = await renderView(myRender, myState({ submittedOnce: false }), MY_EXTRA)
+    assert.ok(!html.includes('data-test="okr-self-open"'))
+    html = await renderView(myRender, myState({ canAct: false, viewingOther: true, ownerId: '5' }), MY_EXTRA)
+    assert.ok(!html.includes('data-test="okr-self-open"'))
+  })
+
+  test('不按时间限制: 自评入口不看 REVIEW / 星期几, 只看 can.selfScore 与是否归档', () => {
+    const s = src('views/okr/MyOkr.vue')
+    const def = s.split('const showSelfBtn = computed(')[1].split('\n')[0]
+    assert.ok(!/REVIEW|getDay|deadline/.test(def), def)
+    assert.match(s, /fde\.okr\.selfScore\(\{ objectiveId: r\.id, score: r\.score, comment: r\.comment\.trim\(\) \}, t\)/)
+    assert.match(s, /e\.code === 8112/)
+  })
+
+  test('scoresComplete: 每个 O 都要 0–100 整数', () => {
+    assert.equal(scoresComplete([]), false)
+    assert.equal(scoresComplete([{ score: 80 }, { score: 0 }]), true)
+    assert.equal(scoresComplete([{ score: 80 }, { score: null }]), false)
+    assert.equal(scoresComplete([{ score: 101 }]), false)
+    assert.equal(scoresComplete([{ score: 80.5 }]), false)
   })
 })

@@ -29,6 +29,16 @@
     </div>
 
     <template v-if="data">
+      <!-- OKR 3.0 页头操作: 「提交自评」主按钮(本人 / 代管, 计划已提交); 「主管评分」次要按钮(仅 ADMIN)。
+           不按时间限制, 能不能交由后端说了算; 归档后都置灰 -->
+      <div v-if="data.cycle && !editing && (showSelfBtn || canScoreManager)" class="okr-actions" data-test="okr-actions">
+        <el-button
+          v-if="showSelfBtn" type="primary" class="okr-act-btn" :plain="selfAllDone && !isClosed" :disabled="isClosed"
+          data-test="okr-self-open" @click="openSelf"
+        >{{ selfBtnText }}</el-button>
+        <span v-if="showSelfBtn && !isClosed && handling.missing.length" class="okr-act-warn" data-test="okr-self-pending">{{ $t('okr.v3.kr_pending', { p0: handling.missing.length }) }}</span>
+      </div>
+
       <!-- 本周一句话概况 -->
       <div v-if="data.objectives.length && !editing" class="okr-summary">
         <span>{{ $t('okr.completion') }} <b>{{ pct(data.completion) ?? '-' }}%</b></span>
@@ -81,39 +91,51 @@
           />
         </div>
 
-        <!-- 周五: 本周自评。首屏只放一个按钮, 点开逐条打分(一次一个 O), 不把 2×N 个输入框摊在卡片下面 -->
-        <div v-if="showSelfScore" class="okr-self">
-          <div class="okr-self-text">
-            <h3>{{ $t('okr.self_review') }}</h3>
-            <span>{{ $t('okr.self_progress', { p0: selfDone, p1: scorable.length }) }}</span>
-          </div>
-          <el-button type="primary" @click="openSelf">{{ selfDone ? $t('okr.self_review_edit') : $t('okr.self_review') }}</el-button>
-        </div>
       </template>
     </template>
 
-    <!-- 本周自评: 逐个 O 打分, 每步单独保存(后端每次评分都留历史) -->
-    <el-dialog v-model="self.visible" :title="$t('okr.self_review')" width="min(92vw, 460px)" append-to-body>
-      <template v-if="selfObj">
-        <p class="okr-self-step">{{ $t('okr.self_step', { p0: self.idx + 1, p1: scorable.length }) }}</p>
-        <p class="okr-dialog-sub">O{{ selfObj.seq }} {{ selfObj.title }}</p>
-        <p class="okr-self-meta">
-          {{ $t('okr.completion') }} {{ pct(selfObj.progress) }}%
-          <template v-if="selfObj.selfScore != null"> · {{ $t('okr.scored_n', { p0: selfObj.selfScore }) }}</template>
+    <!-- 本周自评面板: 所有 O 一次填完。顶部「KR 处理情况 x/y」; 还有 KR 没标完成/未完成就列出来, 提交置灰 -->
+    <el-drawer
+      v-model="self.visible" :title="$t('okr.v3.self_panel_title')" :direction="isMobile ? 'btt' : 'rtl'" :size="isMobile ? '90%' : '480px'"
+      append-to-body class="okr-self-drawer"
+    >
+      <div class="okr-sp" data-test="okr-self-panel">
+        <p class="okr-sp-handling" :class="{ ok: !handling.missing.length }" data-test="okr-kr-handling">
+          {{ $t('okr.v3.kr_handling', { p0: handling.handled, p1: handling.total }) }}
         </p>
-        <div class="okr-self-inputs">
-          <el-input-number v-model="self.score" :min="0" :max="100" :controls="false" :placeholder="$t('okr.score_0_100')" class="okr-num" />
-          <el-input v-model="self.comment" maxlength="200" :placeholder="$t('okr.one_line_reason')" @keyup.enter="selfNext" />
+        <div v-if="handling.missing.length" class="okr-sp-missing" role="alert" data-test="okr-self-missing">
+          <b>{{ $t('okr.v3.kr_pending', { p0: handling.missing.length }) }}</b>
+          <span>{{ $t('okr.v3.kr_pending_hint') }}</span>
+          <ul>
+            <li v-for="m in handling.missing" :key="m.krId"><code>{{ m.label }}</code> {{ m.title }}</li>
+          </ul>
+        </div>
+        <section v-for="r in self.rows" :key="r.id" class="okr-sp-row" :data-test="'okr-self-row-' + r.id">
+          <h4><span class="okr-sp-seq">O{{ r.seq }}</span> {{ r.title }}</h4>
+          <p class="okr-sp-meta">
+            {{ $t('okr.completion') }} {{ pct(r.progress) }}%
+            <template v-if="r.original != null"> · {{ $t('okr.scored_n', { p0: r.original }) }}</template>
+          </p>
+          <div class="okr-sp-inputs">
+            <el-input-number
+              v-model="r.score" :min="0" :max="100" :precision="0" :controls="false" :placeholder="$t('okr.v3.score_ph')"
+              :aria-label="$t('okr.v3.score_label')" class="okr-sp-num"
+            />
+            <el-input v-model="r.comment" maxlength="200" :placeholder="$t('okr.v3.comment_ph')" />
+          </div>
+        </section>
+      </div>
+      <template #footer>
+        <div class="okr-sp-foot">
+          <span v-if="!handling.missing.length && !scoresComplete(self.rows)" class="okr-sp-tip">{{ $t('okr.v3.self_need_all') }}</span>
+          <el-button @click="self.visible = false">{{ $t('common.cancel') }}</el-button>
+          <el-button
+            type="primary" :disabled="!!handling.missing.length || !scoresComplete(self.rows)" :loading="busy === 'self'"
+            data-test="okr-self-submit" @click="submitSelf"
+          >{{ $t('okr.v3.self_submit') }}</el-button>
         </div>
       </template>
-      <template #footer>
-        <el-button v-if="self.idx > 0" @click="selfGo(self.idx - 1)">{{ $t('okr.prev_o') }}</el-button>
-        <el-button v-else @click="self.visible = false">{{ $t('common.cancel') }}</el-button>
-        <el-button type="primary" :disabled="self.score == null" :loading="busy === 'self'" @click="selfNext">
-          {{ self.idx < scorable.length - 1 ? $t('okr.score_and_next') : $t('okr.score_and_finish') }}
-        </el-button>
-      </template>
-    </el-dialog>
+    </el-drawer>
 
     <OkrReportDraftDialog
       v-model="reportOpen" :source="reportSource" :target-user-id="proxyTarget" :target-name="proxyMode ? ownerName : ''"
@@ -150,7 +172,7 @@ import OkrReportDraftDialog from '@/components/okr/OkrReportDraftDialog.vue'
 import {
   PERSONAL_TAG, pct, toDraft, shiftKey, parseKey, isoWeekOf, weekKey, weekStart,
   weekWindow, weekNav, isPastKey, shortWeekLabel, emptyState, isBackfilledPlan,
-  applyKrComplete, needsProgressPrompt, progressMax, parseProgress
+  applyKrComplete, needsProgressPrompt, progressMax, parseProgress, krHandling, scoresComplete
 } from './okrUtils.js'
 import { viewedUserId, queryForPerson, sameId, mergeDraft } from './okrPeople.js'
 import { useOkrPeople } from './useOkrPeople.js'
@@ -168,7 +190,7 @@ const reportOpen = ref(false)
 const reportSource = ref('text')
 const isMobile = useIsMobile()
 const { me, meId, people, loadPeople, ensurePerson } = useOkrPeople()
-const self = reactive({ visible: false, idx: 0, score: null, comment: '', dirty: false })
+const self = reactive({ visible: false, rows: [] })
 const miss = reactive({ visible: false, obj: null, reason: '', carry: false })
 
 // OKR 2.0: 团队页全员可进(后端按 ADMIN 全部 / 其他人本团队过滤)
@@ -263,7 +285,16 @@ async function completeKr({ kr, done }) {
 }
 
 const scorable = computed(() => (data.value?.objectives || []).filter(o => o.submittedAt && o.status !== 'DROPPED'))
-const showSelfScore = computed(() => canAct.value && data.value?.cycle?.status === 'REVIEW' && data.value?.can?.selfScore && scorable.value.length)
+/** 自评按钮: 本人或代管、计划已提交; 不看时间(后端 can.selfScore 只在归档后为 false), 归档后置灰 */
+const showSelfBtn = computed(() => canAct.value && submittedOnce.value && scorable.value.length > 0 && (!!data.value?.can?.selfScore || isClosed.value))
+const selfAllDone = computed(() => scorable.value.length > 0 && scorable.value.every(o => o.selfScore != null))
+const selfBtnText = computed(() => {
+  const score = data.value?.selfScore != null ? Math.round(data.value.selfScore) : null
+  if (isClosed.value) return selfAllDone.value && score != null ? $t('okr.v3.self_done_closed', { p0: score }) : $t('okr.v3.closed_btn')
+  return selfAllDone.value && score != null ? $t('okr.v3.self_done_btn', { p0: score }) : $t('okr.v3.self_submit')
+})
+/** KR 处理情况(自评前置): 前端自算, 后端 8112 兜底 */
+const handling = computed(() => krHandling(data.value?.objectives))
 
 async function load() {
   loading.value = true
@@ -377,48 +408,33 @@ async function addUpdate({ objectiveId, payload, done }) {
   }
 }
 
-const selfDone = computed(() => scorable.value.filter(o => o.selfScore != null).length)
-const selfObj = computed(() => scorable.value[self.idx] || null)
-
-function selfGo(i) {
-  const o = scorable.value[i]
-  Object.assign(self, { idx: i, score: o?.selfScore ?? null, comment: '' })
-}
-
 function openSelf() {
-  // 从第一个还没评的 O 开始; 都评过了就从头改
-  const first = scorable.value.findIndex(o => o.selfScore == null)
-  selfGo(first < 0 ? 0 : first)
-  self.dirty = false
+  if (isClosed.value) return
+  self.rows = scorable.value.map(o => ({ id: o.id, seq: o.seq, title: o.title, progress: o.progress, original: o.selfScore ?? null, score: o.selfScore ?? null, comment: '' }))
   self.visible = true
 }
 
-async function selfNext() {
-  const o = selfObj.value
-  if (!o || self.score == null) return
+/** 一次交完所有 O 的自评: 分数没变、也没写备注的不重复提交。KR 没处理完后端回 8112(点名缺哪几条) */
+async function submitSelf() {
+  if (handling.value.missing.length || !scoresComplete(self.rows)) return
   busy.value = 'self'
   try {
-    // 分数没变、也没写新理由就不重复提交
-    if (self.score !== o.selfScore || self.comment.trim()) {
-      const r = await fde.okr.selfScore({ objectiveId: o.id, score: self.score, comment: self.comment.trim() }, proxyTarget.value || undefined)
-      o.selfScore = r.score
-      self.dirty = true
+    const t = proxyTarget.value || undefined
+    for (const r of self.rows) {
+      if (r.score === r.original && !r.comment.trim()) continue
+      const res = await fde.okr.selfScore({ objectiveId: r.id, score: r.score, comment: r.comment.trim() }, t)
+      r.original = res.score
     }
-    if (self.idx < scorable.value.length - 1) {
-      selfGo(self.idx + 1)
-    } else {
-      self.visible = false
-      ElMessage.success($t('okr.scored'))
-    }
+    self.visible = false
+    ElMessage.success($t('okr.v3.self_saved'))
+    await load()
   } catch (e) {
-    ElMessage.error(e.message)
+    ElMessage.error({ message: e.message, duration: 6000 })
+    if (e.code === 8112) await load()
   } finally {
     busy.value = ''
   }
 }
-
-// 关掉对话框后再拉一次, 让卡片上的「自 xx」和概况里的加权自评分同步
-watch(() => self.visible, v => { if (!v && self.dirty) { self.dirty = false; load() } })
 
 async function managerScore(p) {
   try {
@@ -472,14 +488,31 @@ async function submitMiss() {
 .okr-empty-btn { min-height: 44px; padding: 0 20px; }
 .okr-backfill-bar { margin-bottom: 10px; padding: 10px 12px; border-radius: 8px; font-size: 13px; font-weight: 600;
   color: var(--el-color-warning-dark-2); background: var(--el-color-warning-light-9); border: 1px solid var(--el-color-warning-light-5); }
-.okr-self { margin-top: 16px; padding: 12px 14px; border-radius: 10px; background: var(--el-color-warning-light-9); display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.okr-self-text { min-width: 0; }
-.okr-self h3 { margin: 0; font-size: 14px; }
-.okr-self-text span { font-size: 12px; color: var(--el-text-color-secondary); }
-.okr-self-step { margin: 0 0 4px; font-size: 12px; color: var(--el-text-color-secondary); }
-.okr-self-meta { margin: 0 0 10px; font-size: 12px; color: var(--el-text-color-secondary); }
-.okr-self-inputs { display: flex; gap: 6px; align-items: center; }
-.okr-self-inputs .el-input { flex: 1; min-width: 0; }
+.okr-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
+.okr-actions .el-button { margin-left: 0; }
+.okr-act-btn { min-height: 40px; padding: 0 18px; font-weight: 600; }
+.okr-act-warn { font-size: 12px; color: var(--el-color-warning-dark-2); }
+.okr-sp { display: flex; flex-direction: column; gap: 12px; }
+.okr-sp-handling { margin: 0; font-size: 14px; font-weight: 600; color: var(--el-color-warning-dark-2); }
+.okr-sp-handling.ok { color: var(--el-color-success); }
+.okr-sp-missing { padding: 10px 12px; border-radius: 8px; font-size: 13px; background: var(--el-color-warning-light-9); border: 1px solid var(--el-color-warning-light-5); display: flex; flex-direction: column; gap: 4px; }
+.okr-sp-missing ul { margin: 2px 0 0; padding-left: 18px; }
+.okr-sp-missing code { font-size: 12px; font-weight: 600; }
+.okr-sp-row { padding: 10px 12px; border: 1px solid var(--el-border-color-lighter); border-radius: 10px; }
+.okr-sp-row h4 { margin: 0; font-size: 14px; line-height: 1.4; overflow-wrap: anywhere; }
+.okr-sp-seq { color: var(--el-color-primary); font-size: 12px; }
+.okr-sp-meta { margin: 2px 0 8px; font-size: 12px; color: var(--el-text-color-secondary); }
+.okr-sp-inputs { display: flex; gap: 6px; align-items: center; }
+.okr-sp-inputs .el-input { flex: 1; min-width: 0; }
+.okr-sp-num { width: 84px; flex: none; }
+.okr-sp-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+.okr-sp-foot .el-button { margin-left: 0; }
+.okr-sp-tip { font-size: 12px; color: var(--el-text-color-secondary); margin-right: auto; }
+@media (max-width: 640px) {
+  .okr-act-btn { min-height: 44px; flex: 1 1 0; }
+  .okr-act-warn { flex-basis: 100%; }
+  .okr-sp-foot .el-button { min-height: 44px; flex: 1 1 0; }
+}
 .okr-num { width: 72px; flex: none; }
 .okr-dialog-sub { margin: 0 0 8px; font-weight: 600; }
 .okr-carry { margin-top: 8px; }
