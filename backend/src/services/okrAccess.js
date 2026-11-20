@@ -4,10 +4,12 @@
 //   ADMIN(dataScope=ALL)              → 任何人
 //   MANAGER、dataScope=TEAM(组长)     → 自己所在团队(成员身份或挂名 leaderId)里的人; 不能代管 ADMIN
 //   其余(工程师)                      → 只有自己
-// 「主管评分」不在代管范围里, 仍只认 okr.score.manager(默认只有 ADMIN)。
+// 「主管评分」不在代管范围里, 只认 okr.score.manager(默认 ADMIN + MANAGER, 0.5.8 起放开给部门主管)。
+//   评分范围: dataScope=ALL(ADMIN) → 任何人; 其余有该权限的(MANAGER) → 本人所在团队的成员,
+//   不含自己(自己的 O 由服务端 8109 拒)、不含 ADMIN。TEAM_LEAD 默认没有这个权限点。
 //
 // 可见: 任何登录用户都能看任何人的 O / KR / 进展 / 自评; 主管评分(managerScore / managerComment /
-// role=MANAGER 的评分记录)只给本人与有 okr.score.manager 的人, 其他人的响应里直接不带这些字段。
+// role=MANAGER 的评分记录)只给本人与「评分范围里覆盖此人」的人, 其他人的响应里直接不带这些字段。
 import prisma from '../lib/prisma.js'
 import { getDataScope, hasPermission } from '../lib/auth.js'
 import { OkrRuleError } from './okrRules.js'
@@ -77,9 +79,38 @@ export async function resolveOkrTarget(user, targetUserId, { viaAssistant = fals
   return { ownerId: String(target.id), operatorId: self, onBehalf: true }
 }
 
-/** 能否看到某人的主管评分: 本人, 或有主管评分权限的人(默认只有 ADMIN) */
-export function canSeeManagerScore(user, ownerId) {
-  return uid(user) === String(ownerId) || hasPermission(user, 'okr.score.manager')
+/**
+ * 主管评分范围(能给谁打主管分, 也就是能看谁的主管分):
+ *   null       → 不限(有权限且 dataScope=ALL, 即 ADMIN)
+ *   Set<string> → 只能评这些人(MANAGER: 本团队成员, 去掉自己与 ADMIN); 没权限 → 空集
+ */
+export async function managerScoreScope(user) {
+  if (!hasPermission(user, 'okr.score.manager')) return new Set()
+  if (getDataScope(user?.role) === 'ALL') return null
+  const ids = await teammateIds(user)
+  ids.delete(uid(user))
+  if (!ids.size) return ids
+  const admins = await prisma.user.findMany({
+    where: { id: { in: [...ids].map(BigInt) }, role: 'ADMIN' },
+    select: { id: true }
+  })
+  for (const a of admins) ids.delete(String(a.id))
+  return ids
+}
+
+/** scope(managerScoreScope 的结果)是否覆盖 ownerId */
+export function scopeCovers(scope, ownerId) {
+  return scope === null || (scope instanceof Set && scope.has(String(ownerId)))
+}
+
+/**
+ * 能否看到某人的主管评分: 本人, 或评分范围覆盖此人的人。
+ * 不传 scope 时只按角色判断(有权限且 dataScope=ALL), 团队范围要先 await managerScoreScope(user) 再传进来
+ */
+export function canSeeManagerScore(user, ownerId, scope) {
+  if (uid(user) === String(ownerId)) return true
+  if (scope !== undefined) return scopeCovers(scope, ownerId)
+  return hasPermission(user, 'okr.score.manager') && getDataScope(user?.role) === 'ALL'
 }
 
 const HIDDEN_KEYS = new Set(['managerScore', 'managerComment'])
@@ -105,7 +136,18 @@ export function stripManagerScore(value) {
   return value
 }
 
-/** 按查看人对某人的数据做评分可见性处理 */
-export function forViewer(user, ownerId, data) {
-  return canSeeManagerScore(user, ownerId) ? data : stripManagerScore(data)
+/** 按查看人对某人的数据做评分可见性处理(scope 见 canSeeManagerScore) */
+export function forViewer(user, ownerId, data, scope) {
+  return canSeeManagerScore(user, ownerId, scope) ? data : stripManagerScore(data)
+}
+
+/** /team 列表: 不在评分范围里的行(包括自己那一行)剔除主管分; 范围不限时原样返回 */
+export function teamForViewer(data, scope) {
+  if (scope === null) return data
+  if (!(scope instanceof Set) || !scope.size) return stripManagerScore(data)
+  const { rows, ...rest } = data
+  return {
+    ...stripManagerScore(rest),
+    rows: (rows || []).map(r => (scope.has(String(r.user?.id)) ? r : stripManagerScore(r)))
+  }
 }

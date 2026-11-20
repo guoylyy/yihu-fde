@@ -210,13 +210,14 @@ export const PERMISSIONS = {
   // 收紧到管理侧 —— 谁都能发就成骚扰通道了
   'notification.send':       ['ADMIN', 'MANAGER'],
 
-  // 周 OKR(公司管理级): 看自己的、提交、追加进展、自评只需登录; 下面三项只给老板(ADMIN)。
-  // 公司没有组长层, MANAGER(项目经理)不是谁的上级 —— 看全公司 OKR、打主管分、归档重开都不给
-  // OKR 2.0 起后端不再用它拦接口(全员可看他人 O/KR/自评, 主管评分只给本人与 okr.score.manager);
+  // 周 OKR(公司管理级): 看自己的、提交、追加进展、自评只需登录。
+  // okr.view.all: OKR 2.0 起后端不再用它拦接口(全员可看他人 O/KR/自评);
   // 仍保留为前端菜单位(团队总览入口), 等前端改版后再定去留
   'okr.view.all':            ['ADMIN'],
-  // 0.5.0 组长层: 老板定「组长能看不能评」—— 主管分仍只给 ADMIN, 不要加 TEAM_LEAD
-  'okr.score.manager':       ['ADMIN'],
+  // 主管评分: 0.5.8 老板定「主管评分也开放给部门主管」—— MANAGER 限本团队成员(范围见 services/okrAccess.js
+  // managerScoreScope), ADMIN 不限。0.5.0 组长层「组长能看不能评」不变: 不要加 TEAM_LEAD。
+  // 归档(close-by-score)虽也挂这个权限点, 路由里另卡 role=ADMIN
+  'okr.score.manager':       ['ADMIN', 'MANAGER'],
   'okr.cycle.manage':        ['ADMIN'],
 
   // 0.5.0 R4 团队四屏: 组长看本组(范围见 lib/teamScope.js), 老板看全部;

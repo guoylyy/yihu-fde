@@ -23,7 +23,7 @@ test('stripManagerScore: 删掉键(不是置空), 去掉主管评分记录, 其�
   assert.equal(src.managerScore, 90, '不改原对象')
 })
 
-test('canSeeManagerScore: 本人与 ADMIN 可见, 经理/组长/他人不可见', () => {
+test('canSeeManagerScore: 不传范围时本人与 ADMIN 可见, 经理/组长/他人不可见', () => {
   assert.equal(canSeeManagerScore({ id: '5', role: 'FDE_ENGINEER' }, '5'), true)
   assert.equal(canSeeManagerScore({ id: '1', role: 'ADMIN' }, '5'), true)
   assert.equal(canSeeManagerScore({ id: '2', role: 'MANAGER' }, '5'), false)

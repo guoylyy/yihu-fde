@@ -210,10 +210,9 @@ describe('OKR 2.0 第一轮: 主管代管 / 导入 / 全员可见 / 统计', () 
       assert.equal(r2.code, 8120)
     })
 
-    test('MANAGER 调 manager-score → 403(评分仍只给 ADMIN)', async () => {
+    // 0.5.8 起 MANAGER 可给本团队成员打主管分(见 okr-manager-score.test.js); 组长仍不放开
+    test('TEAM_LEAD 调 manager-score → 403(组长能看不能评)', async () => {
       const o = (await a.get(`/api/okr/my?week=${WK}`)).data.objectives[0]
-      const r = await m.post('/api/okr/manager-score', { objectiveId: o.id, score: 90, targetUserId: A.id })
-      assert.equal(r.status, 403)
       const lr = await l.post('/api/okr/manager-score', { objectiveId: o.id, score: 90 })
       assert.equal(lr.status, 403, '组长也不能打主管分')
       const row = await prisma.okrObjective.findUnique({ where: { id: BigInt(o.id) } })
@@ -298,7 +297,7 @@ describe('OKR 2.0 第一轮: 主管代管 / 导入 / 全员可见 / 统计', () 
     })
   })
 
-  describe('全员可见: 主管分只给本人与 ADMIN', () => {
+  describe('全员可见: 主管分只给本人、ADMIN 与本团队的经理', () => {
     let oid
     before(async () => {
       oid = (await a.get(`/api/okr/my?week=${WK}`)).data.objectives[0].id
@@ -334,7 +333,9 @@ describe('OKR 2.0 第一轮: 主管代管 / 导入 / 全员可见 / 统计', () 
       assert.ok(!other.data.objectives.some(o => o.scores.some(s => s.role === 'MANAGER')))
       assert.equal(other.data.objectives.find(o => o.id === oid).selfScore, 77, '自评分照常可见')
       const mgr = await m.get(`/api/okr/cycle?week=${WK}&ownerId=${A.id}`)
-      assert.ok(noManagerScore(mgr.raw), '经理能代管也看不到主管分')
+      assert.equal(mgr.data.objectives.find(o => o.id === oid).managerScore, 88, '0.5.8: 同团队经理能评也能看主管分')
+      const lead = await l.get(`/api/okr/cycle?week=${WK}&ownerId=${A.id}`)
+      assert.ok(noManagerScore(lead.raw), '组长看不到主管分')
       const self = await a.get(`/api/okr/cycle?week=${WK}`)
       assert.equal(self.data.objectives.find(o => o.id === oid).managerScore, 88)
       const admin = await boss.get(`/api/okr/cycle?week=${WK}&ownerId=${A.id}`)

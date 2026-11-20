@@ -8,10 +8,11 @@
 //
 // OKR 2.0 代管: 写接口都接受可选 targetUserId(缺省 = 自己), 经 resolveOkrTarget 校验代管权限
 // (ADMIN 任何人; MANAGER / 组长限本团队; 其余 403)。代填的记录写 operatorId, 返回带 onBehalfOf。
-// 主管评分不在代管范围, 仍只给 okr.score.manager(ADMIN)。
+// 主管评分不在代管范围, 只给 okr.score.manager: ADMIN 任何人; MANAGER(0.5.8 起)限本团队成员。
+// 归档(close-by-score)仍是 ADMIN 专属 —— 归档锁的是全公司这一周, 部门主管不能替全公司锁周。
 //
 // OKR 2.0 全员可见: 任何登录用户都能看任何人的 O / KR / 进展 / 自评; 主管评分(managerScore /
-// managerComment / 主管评分记录)只返回给本人与 ADMIN, 其他人的响应里直接不带这些字段。
+// managerComment / 主管评分记录)只返回给本人与评分范围覆盖此人的人(ADMIN 全部, MANAGER 本团队), 其他人不带这些字段。
 import express from 'express'
 import multer from 'multer'
 import mammoth from 'mammoth'
@@ -25,7 +26,7 @@ import {
   markMiss, teamView, history, closeCycle, closeByScore, reopenCycle, okrTick, planWritable
 } from '../services/okr.js'
 import { generateOkrDraft } from '../services/okrDraft.js'
-import { resolveOkrTarget, canManageOkrOf, teamListScope, forViewer, stripManagerScore } from '../services/okrAccess.js'
+import { resolveOkrTarget, canManageOkrOf, teamListScope, forViewer, teamForViewer, managerScoreScope, scopeCovers } from '../services/okrAccess.js'
 import { personOverview, weekStats, yearStats } from '../services/okrStats.js'
 import { describeExempt, setExempt, isExempt } from '../services/okrExempt.js'
 
@@ -41,6 +42,7 @@ function fail(res, e, scope) {
 }
 
 const viaAssistant = req => req.user?.via === 'mcp'
+const isBoss = req => req.user?.role === 'ADMIN'
 const sourceOf = req => (viaAssistant(req) ? 'ASSISTANT' : 'MANUAL')
 
 /** 写操作的目标人: body.targetUserId > query.targetUserId > 自己 */
@@ -113,6 +115,7 @@ async function weekPayload(req, res, { detail }) {
     })
   }
   const data = await personWeek(cycle, ownerId, { detail })
+  const scoreScope = await managerScoreScope(req.user)
   // 代管: 能替此人改计划 / 进展 / 自评(不含主管评分)
   const proxy = !mine && !viaAssistant(req) && await canManageOkrOf(req.user, ownerId, { targetRole: data.owner?.role })
   const submittedBefore = data.objectives.some(o => o.submittedAt)
@@ -127,11 +130,14 @@ async function weekPayload(req, res, { detail }) {
     selfScore: (mine || proxy) && data.cycle.scorable,
     proxy,
     // 主管分: 还要这个 O 有自评(逐个 O 由接口校验); 这里只给入口
-    managerScore: !mine && data.cycle.scorable && hasPermission(req.user, 'okr.score.manager'),
-    closeByScore: hasPermission(req.user, 'okr.score.manager') && data.cycle.status !== 'CLOSED',
+    managerScore: !mine && data.cycle.scorable && scopeCovers(scoreScope, ownerId),
+    // 这个人在不在我的主管评分范围里(不看周期状态; 评分面板据此决定列不列这个人)
+    scoreOwner: !mine && scopeCovers(scoreScope, ownerId),
+    // 归档只给 ADMIN
+    closeByScore: isBoss(req) && hasPermission(req.user, 'okr.score.manager') && data.cycle.status !== 'CLOSED',
     manageCycle: hasPermission(req.user, 'okr.cycle.manage')
   }
-  ok(res, forViewer(req.user, ownerId, data))
+  ok(res, forViewer(req.user, ownerId, data, scoreScope))
 }
 
 // ---------------------------------------------------------------- 读
@@ -145,13 +151,13 @@ router.get('/my', async (req, res) => {
 })
 
 // 团队本周 OKR: 登录即可看。ADMIN 看全部; 其他人看自己所在团队的成员(没挂团队就只有自己)。
-// 不是 ADMIN 的, 整份响应剔除主管评分 —— 包括自己那一行(自己的主管评分在 /my 里看), 列表里不出现这个字段
+// 主管分只留给评分范围覆盖的行(ADMIN 全部, MANAGER 本团队成员); 其余行 —— 包括自己那一行(自己的主管评分在 /my 里看) —— 不出现这个字段
 router.get('/team', async (req, res) => {
   try {
     const week = weekOf(req, res)
     if (!week) return
     const data = await teamView(week, { onlyUserIds: await teamListScope(req.user) })
-    ok(res, hasPermission(req.user, 'okr.score.manager') ? data : stripManagerScore(data))
+    ok(res, teamForViewer(data, await managerScoreScope(req.user)))
   } catch (e) { fail(res, e, 'team') }
 })
 
@@ -159,14 +165,14 @@ router.get('/history', async (req, res) => {
   try {
     const ownerId = resolveOwner(req, res)
     if (!ownerId) return
-    ok(res, forViewer(req.user, ownerId, await history(ownerId, req.query.weeks)))
+    ok(res, forViewer(req.user, ownerId, await history(ownerId, req.query.weeks), await managerScoreScope(req.user)))
   } catch (e) { fail(res, e, 'history') }
 })
 
 // 个人 OKR 汇总(团队列表点进个人详情): 基本信息 + 当前周五项 + 最近 8 周趋势 + 按年聚合
 router.get('/person/:userId/overview', async (req, res) => {
   try {
-    ok(res, forViewer(req.user, req.params.userId, await personOverview(req.params.userId)))
+    ok(res, forViewer(req.user, req.params.userId, await personOverview(req.params.userId), await managerScoreScope(req.user)))
   } catch (e) { fail(res, e, 'person/overview') }
 })
 
@@ -180,12 +186,12 @@ router.get('/stats', async (req, res) => {
     if (scope === 'week') {
       const week = weekOf(req, res)
       if (!week) return
-      return ok(res, forViewer(req.user, ownerId, await weekStats(ownerId, week)))
+      return ok(res, forViewer(req.user, ownerId, await weekStats(ownerId, week), await managerScoreScope(req.user)))
     }
     if (scope === 'year') {
       const year = req.query.year == null || req.query.year === '' ? isoWeekOf().year : Number(req.query.year)
       if (!Number.isInteger(year) || year < 2000 || year > 2999) return res.status(400).json({ code: 8100, message: "year 要是 2000–2999 的整数" })
-      return ok(res, forViewer(req.user, ownerId, await yearStats(ownerId, year)))
+      return ok(res, forViewer(req.user, ownerId, await yearStats(ownerId, year), await managerScoreScope(req.user)))
     }
     res.status(400).json({ code: 8100, message: 'scope 只能是 week / year' })
   } catch (e) { fail(res, e, 'stats') }
@@ -359,8 +365,16 @@ router.post('/self-score', async (req, res) => {
 router.post('/manager-score', humanOnly('打主管评分'), requirePermission('okr.score.manager'), async (req, res) => {
   try {
     const b = req.body || {}
+    // 范围: ADMIN 不限; MANAGER 只能评本团队成员(自己的 O 放给服务端报 8109)。O 不存在交给服务端报 404
+    const scope = await managerScoreScope(req.user)
+    if (scope !== null && /^\d+$/.test(String(b.objectiveId ?? ''))) {
+      const o = await prisma.okrObjective.findUnique({ where: { id: BigInt(b.objectiveId) }, select: { ownerId: true } })
+      if (o && String(o.ownerId) !== String(req.user.id) && !scope.has(String(o.ownerId))) {
+        return res.status(403).json({ code: 8117, message: '只能给自己团队的成员打分' })
+      }
+    }
     const s = await scoreObjective({ objectiveId: b.objectiveId, userId: req.user.id, role: 'MANAGER', score: b.score, comment: b.comment })
-    logInternalAction(req, 'okr.score.manager', { resourceType: 'okr_objective', resourceId: s.objectiveId, details: { score: s.score } })
+    logInternalAction(req, 'okr.score.manager', { resourceType: 'okr_objective', resourceId: s.objectiveId, details: { score: s.score, scorerRole: req.user.role } })
     ok(res, { id: String(s.id), objectiveId: String(s.objectiveId), role: s.role, score: s.score })
   } catch (e) { fail(res, e, 'manager-score') }
 })
@@ -398,9 +412,11 @@ router.put('/settings/exempt', humanOnly('修改 OKR 免提交名单'), async (r
 // ---------------------------------------------------------------- 周期管理
 
 // OKR 3.0 正常流程: 主管(ADMIN)把这周已提交的 O 都评完分 → 一键完成本周(CLOSED), 之后全部只读。
-// 不再需要「开启本周」; 不传 week 默认本周
+// 不再需要「开启本周」; 不传 week 默认本周。
+// 0.5.8: okr.score.manager 放开给 MANAGER 后, 归档另加 role=ADMIN —— 锁的是全公司这一周
 router.post('/cycle/close-by-score', humanOnly('完成本周评分并归档'), requirePermission('okr.score.manager'), async (req, res) => {
   try {
+    if (!isBoss(req)) return res.status(403).json({ code: 8118, message: '关闭本周是老板的动作' })
     const week = req.body?.week || req.query.week ? weekOf(req, res) : isoWeekOf()
     if (!week) return
     const { cycle, changed, scored } = await closeByScore(week, { by: req.user.id })

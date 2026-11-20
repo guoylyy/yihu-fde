@@ -76,7 +76,7 @@ export const PERMISSIONS = {
   "projectRecord.manage": ["ADMIN","MANAGER"],
   "notification.send": ["ADMIN","MANAGER"],
   "okr.view.all": ["ADMIN"],
-  "okr.score.manager": ["ADMIN"],
+  "okr.score.manager": ["ADMIN","MANAGER"],
   "okr.cycle.manage": ["ADMIN"],
   "team.view": ["TEAM_LEAD","ADMIN"],
   "team.view.all": ["ADMIN"]

@@ -49,10 +49,10 @@ describe('会话里推断技能 skillsMentioned', () => {
 })
 
 describe('组长层权限点与角色', () => {
-  test('team.view 给组长和老板, team.view.all 只给老板; 主管分不给组长(能看不能评)', () => {
+  test('team.view 给组长和老板, team.view.all 只给老板; 主管分给老板与部门主管, 不给组长(能看不能评)', () => {
     assert.deepEqual([...PERMISSIONS['team.view']].sort(), ['ADMIN', 'TEAM_LEAD'])
     assert.deepEqual(PERMISSIONS['team.view.all'], ['ADMIN'])
-    assert.deepEqual(PERMISSIONS['okr.score.manager'], ['ADMIN'])
+    assert.deepEqual(PERMISSIONS['okr.score.manager'], ['ADMIN', 'MANAGER'])
     assert.ok(!PERMISSIONS['okr.score.manager'].includes('TEAM_LEAD'))
   })
 

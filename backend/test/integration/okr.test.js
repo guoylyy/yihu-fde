@@ -356,9 +356,9 @@ describe('周 OKR /api/okr', () => {
       assert.equal((await a.post('/api/okr/cycle/close', { week: WK })).status, 403)
       assert.equal((await a.post('/api/okr/cycle/reopen', { week: WK, reason: 'x' })).status, 403)
     })
-    // 有意收紧(2026-11-17): MANAGER 打主管分、归档、重开一律 403(OKR 2.0 仍不放开);
-    // OKR 2.0 放开的是「看」: /team、看别人、看历史 → 200 但不带主管分
-    test('MANAGER(项目经理) 主管分、归档、重开 → 403; 看团队 / 别人 → 200 不带主管分', async () => {
+    // 有意收紧(2026-11-17): MANAGER 归档、重开一律 403; OKR 2.0 放开的是「看」: /team、看别人、看历史 → 200 但不带主管分。
+    // 0.5.8 起 MANAGER 可给本团队成员打主管分; 这里的 M 不在任何团队, 给 B 打仍 403(范围外)
+    test('MANAGER(不在团队) 主管分、归档、重开 → 403; 看团队 / 别人 → 200 不带主管分', async () => {
       const ob = (await b.get(`/api/okr/my?week=${WK}`)).data.objectives[0]
       assert.equal((await m.post('/api/okr/manager-score', { objectiveId: ob.id, score: 80 })).status, 403)
       assert.equal((await m.post('/api/okr/cycle/close', { week: WK })).status, 403)
