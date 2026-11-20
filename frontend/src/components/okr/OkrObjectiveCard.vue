@@ -1,6 +1,7 @@
 <template>
-  <!-- 一个 O: 标题/权重/状态/分数 + KR 进度(只读展示)。
-       同屏可点元素要少: 每张卡只有一个「进展」开关, 记进展 / 时间线 / 未达成 / 主管评分都收在展开面板里 -->
+  <!-- 一个 O: 标题/权重/状态/分数 + KR 进度。
+       OKR 3.0: 每条 KR 右侧一组「完成 / 未完成」(明确操作, 不藏在记进展里); 归档后置灰。
+       记进展 / 时间线 / 未达成 / 主管评分仍收在展开面板里 -->
   <section class="okr-card" :class="'st-' + obj.status">
     <header class="okr-card-head">
       <span class="okr-seq">O{{ obj.seq }}</span>
@@ -17,10 +18,22 @@
     <p v-if="obj.description" class="okr-desc">{{ obj.description }}</p>
 
     <ul class="okr-krs">
-      <li v-for="kr in obj.keyResults" :key="kr.id" class="okr-kr" :class="{ picked: open && form.krId === kr.id }">
+      <li v-for="kr in obj.keyResults" :key="kr.id" class="okr-kr" :class="{ picked: open && form.krId === kr.id, 'has-acts': showActs }" :data-test="'okr-kr-' + kr.id">
         <span class="okr-kr-title">{{ kr.title }}</span>
-        <span class="okr-kr-val" :class="{ done: kr.status === 'DONE', missed: kr.status === 'MISSED' }">{{ krValueText(kr, $t) }}</span>
+        <span class="okr-kr-val" :class="{ done: kr.status === 'DONE', missed: kr.status === 'MISSED' }" data-test="okr-kr-val">{{ krValueText(kr, $t) }}</span>
         <span class="okr-bar"><i :style="{ width: pct(kr.progress) + '%' }" /></span>
+        <el-tooltip v-if="showActs" :disabled="!closed" :content="$t('okr.v3.closed_tip')" placement="top">
+          <span class="okr-kr-acts" role="group" :aria-label="$t('okr.v3.kr_actions')" :title="closed ? $t('okr.v3.closed_tip') : undefined">
+            <button
+              type="button" class="okr-kr-btn ok" :class="{ on: kr.status === 'DONE' }" :aria-pressed="kr.status === 'DONE'"
+              :disabled="actsDisabled" data-test="okr-kr-done" @click="complete(kr, true)"
+            >{{ $t('okr.v3.kr_done') }}</button>
+            <button
+              type="button" class="okr-kr-btn no" :class="{ on: kr.status === 'MISSED' }" :aria-pressed="kr.status === 'MISSED'"
+              :disabled="actsDisabled" data-test="okr-kr-missed" @click="complete(kr, false)"
+            >{{ $t('okr.v3.kr_missed') }}</button>
+          </span>
+        </el-tooltip>
       </li>
     </ul>
 
@@ -83,9 +96,15 @@ const props = defineProps({
   canEdit: Boolean,
   canMiss: Boolean,
   canManagerScore: Boolean,
+  /** OKR 3.0: KR 完成开关可点(本人或代管、已提交、未归档) */
+  canComplete: Boolean,
+  /** 本周已归档: 开关照样显示, 但置灰并给 tooltip */
+  closed: Boolean,
+  /** 正在提交完成开关的 KR id(该卡整组按钮暂时不可点) */
+  krBusy: { type: String, default: '' },
   busy: Boolean
 })
-const emit = defineEmits(['add-update', 'miss', 'manager-score'])
+const emit = defineEmits(['add-update', 'miss', 'manager-score', 'complete'])
 
 const open = ref(false)
 const form = reactive({ krId: '', content: '', value: null, done: false })
@@ -93,6 +112,15 @@ const mScore = ref(props.obj.managerScore ?? null)
 const mComment = ref('')
 
 const round = (n) => Math.round(n * 100) / 100
+const showActs = computed(() => (props.canComplete || props.closed) && !!props.obj.submittedAt && props.obj.status !== 'DROPPED')
+const actsDisabled = computed(() => props.closed || !props.canComplete || !!props.krBusy)
+
+/** 点「完成 / 未完成」: 已是这个状态就不重复提交 */
+function complete(kr, done) {
+  if (actsDisabled.value) return
+  if (kr.status === (done ? 'DONE' : 'MISSED')) return
+  emit('complete', { kr, done, objectiveId: props.obj.id })
+}
 const nUpdates = computed(() => props.obj.updates?.length || 0)
 const hasPanel = computed(() => props.canEdit || props.canMiss || props.canManagerScore || nUpdates.value > 0)
 const pickedKr = computed(() => props.obj.keyResults.find(k => k.id === form.krId) || null)
@@ -152,7 +180,22 @@ function send() {
 .okr-kr-val { font-size: 12px; color: var(--el-text-color-secondary); white-space: nowrap; align-self: center; }
 .okr-kr-val.done { color: var(--el-color-success); }
 .okr-kr-val.missed { color: var(--el-color-danger); }
-.okr-bar { grid-column: 1 / -1; height: 4px; border-radius: 2px; background: var(--el-border-color-lighter); overflow: hidden; }
+.okr-bar { grid-column: 1 / 3; height: 4px; border-radius: 2px; background: var(--el-border-color-lighter); overflow: hidden; }
+.okr-kr.has-acts { grid-template-rows: auto 4px auto; }
+/* 完成 / 未完成: 手机上占一整行, 两个按钮各占一半(≥44px 高, 不换行); 桌面放在 KR 行右侧 */
+.okr-kr-acts { grid-column: 1 / -1; display: flex; gap: 6px; margin-top: 4px; }
+.okr-kr-btn { flex: 1 1 0; min-width: 0; min-height: 44px; padding: 0 12px; border: 1px solid var(--el-border-color); border-radius: 8px; background: var(--el-bg-color);
+  font: inherit; font-size: 13px; color: var(--el-text-color-regular); white-space: nowrap; cursor: pointer; }
+.okr-kr-btn:hover:not(:disabled) { border-color: var(--el-color-primary-light-5); }
+.okr-kr-btn.ok.on { background: var(--el-color-success); border-color: var(--el-color-success); color: #fff; font-weight: 600; }
+.okr-kr-btn.no.on { background: var(--el-color-danger); border-color: var(--el-color-danger); color: #fff; font-weight: 600; }
+.okr-kr-btn:disabled { cursor: not-allowed; opacity: .55; }
+.okr-kr-acts:has(:disabled) { cursor: not-allowed; }
+@media (min-width: 641px) {
+  .okr-kr.has-acts { grid-template-columns: 1fr auto auto; grid-template-rows: auto 4px; }
+  .okr-kr.has-acts .okr-kr-acts { grid-column: 3; grid-row: 1 / 3; margin: 0 0 0 4px; align-self: center; }
+  .okr-kr-btn { flex: none; min-height: 32px; min-width: 64px; font-size: 12px; }
+}
 .okr-bar i { display: block; height: 100%; background: var(--el-color-primary); border-radius: 2px; }
 .okr-toggle { margin-top: 8px; width: 100%; min-height: 36px; border: 1px dashed var(--el-border-color); border-radius: 8px; background: none; font: inherit; font-size: 13px; color: var(--el-color-primary); cursor: pointer; }
 .okr-panel { margin-top: 8px; display: flex; flex-direction: column; gap: 8px; }

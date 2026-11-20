@@ -73,8 +73,11 @@
             :can-edit="data.can.edit && !!o.submittedAt && o.status !== 'DROPPED'"
             :can-miss="canAct && data.cycle.status === 'REVIEW' && !['DONE', 'MISSED', 'DROPPED'].includes(o.status)"
             :can-manager-score="canScoreManager && data.can.managerScore && !!o.submittedAt"
+            :can-complete="canAct && !!data.can.progress"
+            :closed="canAct && isClosed"
+            :kr-busy="krBusy"
             :busy="busy === 'update'"
-            @add-update="addUpdate" @miss="openMiss" @manager-score="managerScore"
+            @add-update="addUpdate" @miss="openMiss" @manager-score="managerScore" @complete="completeKr"
           />
         </div>
 
@@ -146,7 +149,8 @@ import OkrPlanEditor from '@/components/okr/OkrPlanEditor.vue'
 import OkrReportDraftDialog from '@/components/okr/OkrReportDraftDialog.vue'
 import {
   PERSONAL_TAG, pct, toDraft, shiftKey, parseKey, isoWeekOf, weekKey, weekStart,
-  weekWindow, weekNav, isPastKey, shortWeekLabel, emptyState, isBackfilledPlan
+  weekWindow, weekNav, isPastKey, shortWeekLabel, emptyState, isBackfilledPlan,
+  applyKrComplete, needsProgressPrompt, progressMax, parseProgress
 } from './okrUtils.js'
 import { viewedUserId, queryForPerson, sameId, mergeDraft } from './okrPeople.js'
 import { useOkrPeople } from './useOkrPeople.js'
@@ -220,6 +224,43 @@ const tagText = computed(() => {
   return $t('okr.personal.' + d.personalStatus)
 })
 const tagType = computed(() => PERSONAL_TAG[data.value?.personalStatus] || 'info')
+
+const isClosed = computed(() => data.value?.cycle?.status === 'CLOSED')
+const krBusy = ref('')
+
+/**
+ * KR 完成开关: 点了就调 /krs/:id/complete, 用返回值就地改这一行和所在 O 的完成度(不整页刷新)。
+ * 标「未完成」时数值型 KR 进度还是 0 → 先问实际做到多少, 先记进度(PATCH currentValue)再标未完成
+ */
+async function completeKr({ kr, done }) {
+  let value = null
+  if (!done && needsProgressPrompt(kr)) {
+    const max = progressMax(kr)
+    const msg = kr.metricType === 'PERCENT'
+      ? $t('okr.v3.progress_prompt_pct', { p0: kr.title })
+      : $t('okr.v3.progress_prompt_num', { p0: kr.title, p1: max, p2: kr.unit || '' })
+    try {
+      const r = await ElMessageBox.prompt(msg, $t('okr.v3.progress_title'), {
+        confirmButtonText: $t('okr.v3.progress_confirm'), cancelButtonText: $t('common.cancel'),
+        inputValue: '0',
+        inputValidator: v => parseProgress(v, kr) != null || $t('okr.v3.progress_invalid', { p0: max })
+      })
+      value = parseProgress(r.value, kr)
+    } catch { return }
+  }
+  krBusy.value = kr.id
+  try {
+    const t = proxyTarget.value || undefined
+    if (value != null && value !== Number(kr.currentValue || 0)) await fde.okr.patchKr(kr.id, { currentValue: value }, t)
+    const r = await fde.okr.completeKr(kr.id, { done }, t)
+    applyKrComplete(data.value, r)
+    ElMessage.success(done ? $t('okr.v3.marked_done') : $t('okr.v3.marked_missed'))
+  } catch (e) {
+    ElMessage.error(e.message)
+  } finally {
+    krBusy.value = ''
+  }
+}
 
 const scorable = computed(() => (data.value?.objectives || []).filter(o => o.submittedAt && o.status !== 'DROPPED'))
 const showSelfScore = computed(() => canAct.value && data.value?.cycle?.status === 'REVIEW' && data.value?.can?.selfScore && scorable.value.length)

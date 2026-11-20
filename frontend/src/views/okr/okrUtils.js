@@ -293,3 +293,90 @@ export function isBackfilledPlan(d) {
   const t = new Date(end).getTime()
   return (d.objectives || []).some(o => o.status !== 'DROPPED' && o.submittedAt && new Date(o.submittedAt).getTime() > t)
 }
+
+// ---------------------------------------------------------------- OKR 3.0: KR 完成开关 / 自评前置 / 主管评分
+
+/** 记过数值进度的 KR id 集合: 有一条进展真的改了数值(与后端 assertKrsHandled 同口径; 只看前端拿到的进展) */
+export function progressedKrIds(objectives) {
+  const out = new Set()
+  for (const o of objectives || []) {
+    for (const u of o.updates || []) {
+      if (u.krId != null && u.valueAfter != null && u.valueAfter !== u.valueBefore) out.add(String(u.krId))
+    }
+  }
+  return out
+}
+
+/** 一条 KR 算不算「处理完」: DONE / MISSED; 或数值型且状态非空、记过进度(同后端 okrRules.krHandled) */
+export function krHandled(kr, progressed = false) {
+  if (kr.status === 'DONE' || kr.status === 'MISSED') return true
+  return kr.metricType !== 'BINARY' && kr.status != null && !!progressed
+}
+
+/**
+ * 自评前置: 已提交、未 DROPPED 的 O 下还没处理完的 KR。
+ * 返回 { total, handled, missing: [{ label:'O1-KR3', objectiveId, krId, title }] }(按 O、KR 顺序)
+ */
+export function krHandling(objectives) {
+  const live = (objectives || []).filter(o => o.submittedAt && o.status !== 'DROPPED').sort((a, b) => a.seq - b.seq)
+  const progressed = progressedKrIds(live)
+  const missing = []
+  let total = 0
+  for (const o of live) {
+    for (const k of [...(o.keyResults || [])].sort((a, b) => a.seq - b.seq)) {
+      total++
+      if (!krHandled(k, progressed.has(String(k.id)))) {
+        missing.push({ label: `O${o.seq}-KR${k.seq}`, objectiveId: String(o.id), krId: String(k.id), title: k.title })
+      }
+    }
+  }
+  return { total, handled: total - missing.length, missing }
+}
+
+/** 标「未完成」前要不要先问进度: 数值型且当前值为空或 0(是/否型没有进度可填) */
+export function needsProgressPrompt(kr) {
+  return kr.metricType !== 'BINARY' && !(Number(kr.currentValue) > 0)
+}
+
+/** 进度输入框的上限: 百分比 100, 数值型 = 目标值 */
+export function progressMax(kr) {
+  return kr.metricType === 'PERCENT' ? 100 : Number(kr.targetValue) || 100
+}
+
+/** 校验进度输入: 返回数字或 null(不合法) */
+export function parseProgress(input, kr) {
+  const s = String(input ?? '').trim()
+  if (!s || !/^\d+(\.\d+)?$/.test(s)) return null
+  const n = Number(s)
+  return n >= 0 && n <= progressMax(kr) ? n : null
+}
+
+/**
+ * /krs/:id/complete 的返回就地合进本周数据(不整页刷新): 换掉那条 KR, 更新所在 O 的完成度 / 状态, 以及整体完成度。
+ * 返回被改的 O(找不到返回 null)
+ */
+export function applyKrComplete(data, res) {
+  if (!data || !res?.kr) return null
+  for (const o of data.objectives || []) {
+    const i = (o.keyResults || []).findIndex(k => String(k.id) === String(res.kr.id))
+    if (i < 0) continue
+    o.keyResults.splice(i, 1, { ...o.keyResults[i], ...res.kr })
+    if (res.objective) {
+      if (res.objective.progress != null) o.progress = res.objective.progress
+      if (res.objective.status) o.status = res.objective.status
+    }
+    if (res.completion !== undefined) data.completion = res.completion
+    return o
+  }
+  return null
+}
+
+/** 自评面板: 每个 O 的分数都填了(0–100 整数) */
+export function scoresComplete(rows) {
+  return rows.length > 0 && rows.every(r => Number.isInteger(r.score) && r.score >= 0 && r.score <= 100)
+}
+
+/** 主管评分面板: 需要真的发请求的行(分数有变, 或写了新评语); 没自评 / 是自己的跳过 */
+export function managerScoreChanges(rows) {
+  return rows.filter(r => !r.locked && r.score != null && (r.score !== r.original || String(r.comment || '').trim()))
+}

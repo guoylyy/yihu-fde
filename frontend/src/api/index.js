@@ -636,6 +636,12 @@ export const fde = {
     selfScore: (data, targetUserId) => request('/api/okr/self-score', { method: 'POST', body: JSON.stringify(withTarget(data, targetUserId)) }),
     managerScore: (data) => request('/api/okr/manager-score', { method: 'POST', body: JSON.stringify(data) }),
     miss: (objectiveId, data, targetUserId) => request(`/api/okr/objectives/${objectiveId}/miss`, { method: 'POST', body: JSON.stringify(withTarget(data, targetUserId)) }),
+    // OKR 3.0: KR 完成开关 { done:true|false, note? } → { kr, objective, completion }
+    completeKr: (krId, data, targetUserId) => request(`/api/okr/krs/${krId}/complete`, { method: 'POST', body: JSON.stringify(withTarget(data, targetUserId)) }),
+    // 主管评分完成 → 归档这一周(缺评分 400 + code 8116 + data.missing)
+    closeByScore: (week) => request('/api/okr/cycle/close-by-score', { method: 'POST', body: JSON.stringify(week ? { week } : {}) }),
+    exempt: () => request('/api/okr/settings/exempt'),
+    saveExempt: (userIds) => request('/api/okr/settings/exempt', { method: 'PUT', body: JSON.stringify({ userIds }) }),
     close: (week) => request('/api/okr/cycle/close', { method: 'POST', body: JSON.stringify(week ? { week } : {}) }),
     reopen: (week, reason) => request('/api/okr/cycle/reopen', { method: 'POST', body: JSON.stringify({ week, reason }) })
   },
