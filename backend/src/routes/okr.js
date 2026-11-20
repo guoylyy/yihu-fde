@@ -26,7 +26,7 @@ import {
 } from '../services/okr.js'
 import { generateOkrDraft } from '../services/okrDraft.js'
 import { resolveOkrTarget, canManageOkrOf, teamListScope, forViewer, stripManagerScore } from '../services/okrAccess.js'
-import { personOverview } from '../services/okrStats.js'
+import { personOverview, weekStats, yearStats } from '../services/okrStats.js'
 
 const router = express.Router()
 router.use(internalAuth)
@@ -137,6 +137,27 @@ router.get('/person/:userId/overview', async (req, res) => {
   try {
     ok(res, forViewer(req.user, req.params.userId, await personOverview(req.params.userId)))
   } catch (e) { fail(res, e, 'person/overview') }
+})
+
+// 个人按周 / 按年统计: ?userId=&scope=week|year&week=2026-W47&year=2026(userId 缺省 = 自己)
+// 只读 okr_* 表现算, 不排名; 主管评分只给本人与 ADMIN
+router.get('/stats', async (req, res) => {
+  try {
+    const ownerId = resolveOwner(req, res)
+    if (!ownerId) return
+    const scope = String(req.query.scope || 'week')
+    if (scope === 'week') {
+      const week = weekOf(req, res)
+      if (!week) return
+      return ok(res, forViewer(req.user, ownerId, await weekStats(ownerId, week)))
+    }
+    if (scope === 'year') {
+      const year = req.query.year == null || req.query.year === '' ? isoWeekOf().year : Number(req.query.year)
+      if (!Number.isInteger(year) || year < 2000 || year > 2999) return res.status(400).json({ code: 8100, message: "year 要是 2000–2999 的整数" })
+      return ok(res, forViewer(req.user, ownerId, await yearStats(ownerId, year)))
+    }
+    res.status(400).json({ code: 8100, message: 'scope 只能是 week / year' })
+  } catch (e) { fail(res, e, 'stats') }
 })
 
 // ---------------------------------------------------------------- 计划

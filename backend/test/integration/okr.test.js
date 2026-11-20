@@ -333,6 +333,11 @@ describe('周 OKR /api/okr', () => {
 
   describe('权限: 主管分 / 归档只对老板(ADMIN)开; 看别人 OKR 全员可以(不带主管分)', () => {
     // OKR 2.0(2026-11-20): 原来 403, 老板定「每个人都能看别人的 OKR, 评分不外露」
+    test('工程师 GET /team → 从 403 变为 200, 且不带 managerScore', async () => {
+      const r = await a.get(`/api/okr/team?week=${WK}`)
+      assert.equal(r.status, 200)
+      assert.ok(!JSON.stringify(r.raw).includes('managerScore'))
+    })
     test('工程师看别人的 OKR / 历史 → 200, 不带主管分', async () => {
       const c = await a.get(`/api/okr/cycle?week=${WK}&ownerId=${B.id}`)
       assert.equal(c.status, 200)
