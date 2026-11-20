@@ -212,6 +212,8 @@ export const PERMISSIONS = {
 
   // 周 OKR(公司管理级): 看自己的、提交、追加进展、自评只需登录; 下面三项只给老板(ADMIN)。
   // 公司没有组长层, MANAGER(项目经理)不是谁的上级 —— 看全公司 OKR、打主管分、归档重开都不给
+  // OKR 2.0 起后端不再用它拦接口(全员可看他人 O/KR/自评, 主管评分只给本人与 okr.score.manager);
+  // 仍保留为前端菜单位(团队总览入口), 等前端改版后再定去留
   'okr.view.all':            ['ADMIN'],
   // 0.5.0 组长层: 老板定「组长能看不能评」—— 主管分仍只给 ADMIN, 不要加 TEAM_LEAD
   'okr.score.manager':       ['ADMIN'],

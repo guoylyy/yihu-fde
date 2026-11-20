@@ -527,7 +527,7 @@ async function participants(cycleId) {
   return [...new Set([...engineers.map(e => String(e.id)), ...owners.map(o => String(o.ownerId))])]
 }
 
-function personSummary(cycle, objs) {
+export function personSummary(cycle, objs) {
   const live = objs.filter(o => o.status !== 'DROPPED')
   const submitted = live.length > 0 && live.every(o => o.submittedAt)
   const krs = live.flatMap(o => o.keyResults)
@@ -544,10 +544,11 @@ function personSummary(cycle, objs) {
   }
 }
 
-export async function teamView(week, { now = new Date() } = {}) {
+/** onlyUserIds: 可见范围(Set<string>), null = 全部(老板) */
+export async function teamView(week, { now = new Date(), onlyUserIds = null } = {}) {
   const cur = isoWeekOf(now)
   const cycle = await getCycle(week, { create: compareWeek(week, cur) >= 0 && compareWeek(week, cur) <= 1, now })
-  const ids = await participants(cycle?.id)
+  const ids = (await participants(cycle?.id)).filter(id => !onlyUserIds || onlyUserIds.has(id))
   const users = await loadUsers(ids)
   const objs = cycle
     ? await prisma.okrObjective.findMany({ where: { cycleId: cycle.id }, include: { keyResults: true } })

@@ -1183,7 +1183,7 @@ export const TOOLS = [
   },
   {
     name: 'okr_team_overview',
-    description: '全公司本周 OKR 概况(仅老板/系统管理员可用, 其他角色调会 403): 应提交/已提交人数、平均完成率, 每人的提交情况(准时/迟交/未交)、O 数、KR 完成数、完成率、自评分、主管分, 以及连续两周完成率低于 60% 的人。',
+    description: '本周 OKR 团队概况: 老板/系统管理员看全公司, 其他人看自己所在团队。应提交/已提交人数、平均完成率, 每人的提交情况(准时/迟交/未交)、O 数、KR 完成数、完成率、自评分, 以及连续两周完成率低于 60% 的人; 主管分只有老板/系统管理员能看到。',
     schema: { week: z.string().optional().describe('current(默认) / prev / YYYY-Www') },
     build: (a) => ({ method: 'GET', path: '/api/okr/team', query: a })
   }

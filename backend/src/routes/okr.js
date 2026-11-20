@@ -9,6 +9,9 @@
 // OKR 2.0 代管: 写接口都接受可选 targetUserId(缺省 = 自己), 经 resolveOkrTarget 校验代管权限
 // (ADMIN 任何人; MANAGER / 组长限本团队; 其余 403)。代填的记录写 operatorId, 返回带 onBehalfOf。
 // 主管评分不在代管范围, 仍只给 okr.score.manager(ADMIN)。
+//
+// OKR 2.0 全员可见: 任何登录用户都能看任何人的 O / KR / 进展 / 自评; 主管评分(managerScore /
+// managerComment / 主管评分记录)只返回给本人与 ADMIN, 其他人的响应里直接不带这些字段。
 import express from 'express'
 import multer from 'multer'
 import mammoth from 'mammoth'
@@ -22,7 +25,8 @@ import {
   markMiss, teamView, history, closeCycle, reopenCycle, okrTick
 } from '../services/okr.js'
 import { generateOkrDraft } from '../services/okrDraft.js'
-import { resolveOkrTarget, canManageOkrOf } from '../services/okrAccess.js'
+import { resolveOkrTarget, canManageOkrOf, teamListScope, forViewer, stripManagerScore } from '../services/okrAccess.js'
+import { personOverview } from '../services/okrStats.js'
 
 const router = express.Router()
 router.use(internalAuth)
@@ -64,16 +68,12 @@ function weekOf(req, res) {
   return w
 }
 
-/** 看别人的 OKR 需要 okr.view.all; 不传 ownerId 就是自己 */
+/** 看谁的 OKR: ownerId / userId, 不传就是自己。OKR 2.0 起登录即可看别人(主管评分另行剔除) */
 function resolveOwner(req, res) {
-  const raw = req.query.ownerId
+  const raw = req.query.ownerId ?? req.query.userId
   if (raw == null || raw === '' || String(raw) === String(req.user.id)) return String(req.user.id)
   if (!/^\d+$/.test(String(raw))) {
     res.status(400).json({ code: 8100, message: 'ownerId 不合法' })
-    return null
-  }
-  if (!hasPermission(req.user, 'okr.view.all')) {
-    res.status(403).json({ code: 1003, message: '只能查看自己的 OKR(查看他人需要 okr.view.all)' })
     return null
   }
   return String(raw)
@@ -100,7 +100,7 @@ async function weekPayload(req, res, { detail }) {
     managerScore: !mine && data.cycle.scorable && hasPermission(req.user, 'okr.score.manager'),
     manageCycle: hasPermission(req.user, 'okr.cycle.manage')
   }
-  ok(res, data)
+  ok(res, forViewer(req.user, ownerId, data))
 }
 
 // ---------------------------------------------------------------- 读
@@ -113,11 +113,14 @@ router.get('/my', async (req, res) => {
   try { await weekPayload(req, res, { detail: false }) } catch (e) { fail(res, e, 'my') }
 })
 
-router.get('/team', requirePermission('okr.view.all'), async (req, res) => {
+// 团队本周 OKR: 登录即可看。ADMIN 看全部; 其他人看自己所在团队的成员(没挂团队就只有自己)。
+// 不是 ADMIN 的, 整份响应剔除主管评分 —— 包括自己那一行(自己的主管评分在 /my 里看), 列表里不出现这个字段
+router.get('/team', async (req, res) => {
   try {
     const week = weekOf(req, res)
     if (!week) return
-    ok(res, await teamView(week))
+    const data = await teamView(week, { onlyUserIds: await teamListScope(req.user) })
+    ok(res, hasPermission(req.user, 'okr.score.manager') ? data : stripManagerScore(data))
   } catch (e) { fail(res, e, 'team') }
 })
 
@@ -125,8 +128,15 @@ router.get('/history', async (req, res) => {
   try {
     const ownerId = resolveOwner(req, res)
     if (!ownerId) return
-    ok(res, await history(ownerId, req.query.weeks))
+    ok(res, forViewer(req.user, ownerId, await history(ownerId, req.query.weeks)))
   } catch (e) { fail(res, e, 'history') }
+})
+
+// 个人 OKR 汇总(团队列表点进个人详情): 基本信息 + 当前周五项 + 最近 8 周趋势 + 按年聚合
+router.get('/person/:userId/overview', async (req, res) => {
+  try {
+    ok(res, forViewer(req.user, req.params.userId, await personOverview(req.params.userId)))
+  } catch (e) { fail(res, e, 'person/overview') }
 })
 
 // ---------------------------------------------------------------- 计划

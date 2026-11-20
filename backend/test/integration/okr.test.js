@@ -323,20 +323,27 @@ describe('周 OKR /api/okr', () => {
       assert.equal(r.code, 8120)
     })
 
-    test('工程师经助手看团队概况 → 403', async () => {
+    // OKR 2.0: 全员可见(本团队), 但主管分不出现
+    test('工程师经助手看团队概况 → 能看, 不带主管分', async () => {
       const r = await mcp(A.token, 'okr_team_overview', { week: WK })
-      assert.equal(r.isError, true)
-      assert.match(r.text, /403/)
+      assert.equal(r.isError, false, r.text)
+      assert.ok(!r.text.includes('managerScore'))
     })
   })
 
-  describe('权限: 团队视图 / 主管分 / 归档只对老板(ADMIN)开', () => {
-    test('工程师 GET /team → 403', async () => {
-      assert.equal((await a.get(`/api/okr/team?week=${WK}`)).status, 403)
-    })
-    test('工程师看别人的 OKR / 历史 → 403', async () => {
-      assert.equal((await a.get(`/api/okr/cycle?week=${WK}&ownerId=${B.id}`)).status, 403)
-      assert.equal((await a.get(`/api/okr/history?ownerId=${B.id}`)).status, 403)
+  describe('权限: 主管分 / 归档只对老板(ADMIN)开; 看别人 OKR 全员可以(不带主管分)', () => {
+    // OKR 2.0(2026-11-20): 原来 403, 老板定「每个人都能看别人的 OKR, 评分不外露」
+    test('工程师看别人的 OKR / 历史 → 200, 不带主管分', async () => {
+      const c = await a.get(`/api/okr/cycle?week=${WK}&ownerId=${B.id}`)
+      assert.equal(c.status, 200)
+      assert.equal(c.data.owner.id, B.id)
+      assert.ok(c.data.objectives.length >= 1)
+      assert.ok(!JSON.stringify(c.raw).includes('managerScore'))
+      assert.ok(!JSON.stringify(c.raw).includes('managerComment'))
+      assert.equal(c.data.can.edit, false, '工程师不能代管别人')
+      const h = await a.get(`/api/okr/history?userId=${B.id}`)
+      assert.equal(h.status, 200)
+      assert.ok(!JSON.stringify(h.raw).includes('managerScore'))
     })
     test('工程师打主管分 / 归档 / 重开 → 403', async () => {
       const o = (await b.get(`/api/okr/my?week=${WK}`)).data.objectives[0]
@@ -344,21 +351,24 @@ describe('周 OKR /api/okr', () => {
       assert.equal((await a.post('/api/okr/cycle/close', { week: WK })).status, 403)
       assert.equal((await a.post('/api/okr/cycle/reopen', { week: WK, reason: 'x' })).status, 403)
     })
-    // 有意收紧(2026-11-17): 原来 MANAGER 能看全公司、能打主管分、能归档; 公司没有组长层, 现在一律 403
-    test('MANAGER(项目经理) GET /team、主管分、归档、重开、看别人 → 全部 403', async () => {
+    // 有意收紧(2026-11-17): MANAGER 打主管分、归档、重开一律 403(OKR 2.0 仍不放开);
+    // OKR 2.0 放开的是「看」: /team、看别人、看历史 → 200 但不带主管分
+    test('MANAGER(项目经理) 主管分、归档、重开 → 403; 看团队 / 别人 → 200 不带主管分', async () => {
       const ob = (await b.get(`/api/okr/my?week=${WK}`)).data.objectives[0]
-      assert.equal((await m.get(`/api/okr/team?week=${WK}`)).status, 403)
       assert.equal((await m.post('/api/okr/manager-score', { objectiveId: ob.id, score: 80 })).status, 403)
       assert.equal((await m.post('/api/okr/cycle/close', { week: WK })).status, 403)
       assert.equal((await m.post('/api/okr/cycle/reopen', { week: WK, reason: 'x' })).status, 403)
-      assert.equal((await m.get(`/api/okr/cycle?week=${WK}&ownerId=${A.id}`)).status, 403)
-      assert.equal((await m.get(`/api/okr/history?ownerId=${A.id}`)).status, 403)
+      for (const path of [`/api/okr/team?week=${WK}`, `/api/okr/cycle?week=${WK}&ownerId=${A.id}`, `/api/okr/history?ownerId=${A.id}`]) {
+        const r = await m.get(path)
+        assert.equal(r.status, 200, path)
+        assert.ok(!JSON.stringify(r.raw).includes('managerScore'), path)
+      }
       const self = await m.get(`/api/okr/cycle?week=${WK}`)
       assert.equal(self.code, 0, 'MANAGER 看自己的不受影响')
       assert.equal(self.data.can.manageCycle, false)
       const mcpTeam = await mcp(M.token, 'okr_team_overview', { week: WK })
-      assert.equal(mcpTeam.isError, true)
-      assert.match(mcpTeam.text, /403/)
+      assert.equal(mcpTeam.isError, false, mcpTeam.text)
+      assert.ok(!mcpTeam.text.includes('managerScore'))
     })
     test('工程师看自己不受影响', async () => {
       const r = await a.get(`/api/okr/cycle?week=${WK}`)
