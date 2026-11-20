@@ -1,3 +1,8 @@
+## 0.5.3
+
+### 修复
+- 项目详情「会议记录 → 梳理需求」点不动：前端 API 封装里缺 `projectRecords.extractRequirements`，点击抛 `is not a function`。补上封装（POST `/api/fde/project-records/:pid/records/:rid/requirements/extract`，超时 180 秒，LLM 抽取慢），并补 2 条前端单测。
+
 # 更新日志
 
 ## 0.5.2
