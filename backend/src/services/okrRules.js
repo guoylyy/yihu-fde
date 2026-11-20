@@ -114,12 +114,14 @@ export function isLate(cycleStart, at = new Date()) {
 
 const STATUS_ORDER = { PLANNING: 0, SUBMITTED: 0, IN_PROGRESS: 1, REVIEW: 2, CLOSED: 3 }
 
-/** 只看时间, 这一周此刻应处的状态: 周一 PLANNING, 周二–周四 IN_PROGRESS, 周五起 REVIEW, 过完周日 CLOSED */
+/**
+ * 只看时间, 这一周此刻应处的状态: 周一 PLANNING, 周二–周四 IN_PROGRESS, 周五起 REVIEW。
+ * OKR 3.0: 过完周日仍是 REVIEW —— 时间不再把周期推成 CLOSED, 归档只由主管评分完成(close-by-score)
+ * 或 ADMIN 应急归档触发
+ */
 export function timeStatus(cycle, now = new Date()) {
   const t = now.getTime()
   const start = new Date(cycle.startDate).getTime()
-  const end = new Date(cycle.endDate).getTime()
-  if (t > end) return 'CLOSED'
   if (t >= start + 4 * DAY_MS) return 'REVIEW'
   if (t >= start + DAY_MS) return 'IN_PROGRESS'
   return 'PLANNING'
@@ -154,9 +156,45 @@ export function planWritable(cycleStatus, submittedBefore) {
   return isEditable(cycleStatus) || (cycleStatus === 'REVIEW' && !submittedBefore)
 }
 
-/** 能不能评分(自评/主管评): 进行中和周五复盘; 归档后要主管重开 */
+/**
+ * 能不能评分(自评/主管评)。OKR 3.0 起不卡时间: 只要没归档(CLOSED)就能评;
+ * 自评另有「KR 都处理完」的前置(unhandledKrs), 主管评另要求员工已自评。归档后要 ADMIN 重开
+ */
 export function isScorable(status) {
-  return status === 'IN_PROGRESS' || status === 'REVIEW'
+  return CYCLE_STATUSES.includes(status) && status !== 'CLOSED'
+}
+
+/**
+ * KR 进展(数值 / 状态 / 完成开关)能不能写: 没归档就能写。
+ * 周五复盘里也要能改 —— 自评前得先把每条 KR 标成完成或未完成
+ */
+export function isProgressWritable(status) {
+  return CYCLE_STATUSES.includes(status) && status !== 'CLOSED'
+}
+
+/**
+ * 一条 KR 算不算「处理完」(自评前置): 状态是 DONE / MISSED;
+ * 或数值型 KR 状态非空且本人记过进度(progressed = 这条 KR 有过带数值的进展记录)。
+ * 当前值默认就是 0, 所以「已填」看的是有没有人填过, 不看值本身
+ */
+export function krHandled(kr, progressed = false) {
+  if (kr.status === 'DONE' || kr.status === 'MISSED') return true
+  return kr.metricType !== 'BINARY' && kr.status != null && !!progressed
+}
+
+/**
+ * 一个人这周还没处理完的 KR, 返回标签(O{序号}-KR{序号}), 按 O、KR 顺序。
+ * 只看未 DROPPED 的 O; progressedKrIds: 记过数值进度的 KR id(字符串)集合
+ */
+export function unhandledKrs(objectives, progressedKrIds = new Set()) {
+  const out = []
+  const live = (objectives || []).filter(o => o.status !== 'DROPPED').sort((x, y) => x.seq - y.seq)
+  for (const o of live) {
+    for (const k of [...(o.keyResults || [])].sort((x, y) => x.seq - y.seq)) {
+      if (!krHandled(k, progressedKrIds.has(String(k.id)))) out.push(`O${o.seq}-KR${k.seq}`)
+    }
+  }
+  return out
 }
 
 // ---------------------------------------------------------------- 权重

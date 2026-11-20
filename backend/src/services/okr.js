@@ -7,7 +7,7 @@ import {
   isReopened, isEditable, isScorable, isLate, submitDeadline, normalizePlan, checkKrStatus,
   krProgress, objectiveProgress, personProgress, weightedScore, derivedObjectiveStatus,
   validScore, personalStatus, equalWeights, LOW_COMPLETION, UPDATE_KINDS,
-  creatableRange, isCreatableWeek, isPastWeek, planWritable
+  creatableRange, isCreatableWeek, isPastWeek, planWritable, isProgressWritable, unhandledKrs
 } from './okrRules.js'
 
 export { planWritable }
@@ -20,6 +20,7 @@ const conflict = (msg, code = 8107) => new OkrRuleError(msg, { status: 409, code
 const notFound = (msg = '不存在', code = 8108) => new OkrRuleError(msg, { status: 404, code })
 
 const READ_ONLY_MSG = '本周 OKR 已进入复盘或已归档, 计划和进展只读; 需要修改请主管重开本周'
+const CLOSED_MSG = '本周 OKR 已归档, 计划、进展和评分只读; 需要修改请 ADMIN 重开本周'
 
 /** 上海日期(用于 OkrUpdate.date, @db.Date) */
 function shanghaiDate(now = new Date()) {
@@ -95,6 +96,8 @@ export function cycleView(cycle, now = new Date()) {
     reopenedAt: cycle.reopenedAt,
     closedAt: cycle.closedAt,
     editable: isEditable(cycle.status),
+    // OKR 3.0: KR 进展与完成开关、自评、主管评分只要没归档都能做(不再卡周五 / 周日)
+    progressWritable: isProgressWritable(cycle.status),
     scorable: isScorable(cycle.status),
     deadlinePassed: now.getTime() >= submitDeadline(cycle.startDate).getTime()
   }
@@ -329,7 +332,7 @@ function assertOwner(o, userId, what = '只能改自己的 OKR') {
 }
 
 function assertWritable(o) {
-  if (!isEditable(o.cycle.status)) throw forbidden(READ_ONLY_MSG)
+  if (!isProgressWritable(o.cycle.status)) throw forbidden(READ_ONLY_MSG)
   if (!o.submittedAt) throw conflict('这周的 OKR 还没提交, 先让本人在页面上提交计划', 8110)
   if (o.status === 'DROPPED') throw conflict(`「${o.title}」已放弃(DROPPED), 不再记进展`)
 }
@@ -477,18 +480,39 @@ export async function completeKr({ krId, userId, ownerId, done, note, source = '
 
 // ---------------------------------------------------------------- 评分
 
+/**
+ * 自评前置: 这人这周每个未 DROPPED 的 O 下每条 KR 都处理完了(DONE / MISSED, 或数值型记过进度)。
+ * 缺哪条就点名: 还有 2 条 KR 没有标记完成或未完成：O1-KR3、O2-KR1
+ */
+async function assertKrsHandled(o) {
+  const objs = await prisma.okrObjective.findMany({
+    where: { cycleId: o.cycleId, ownerId: o.ownerId, status: { not: 'DROPPED' } },
+    include: { keyResults: true }
+  })
+  const krIds = objs.flatMap(x => x.keyResults.map(k => k.id))
+  const ups = krIds.length
+    ? await prisma.okrUpdate.findMany({ where: { krId: { in: krIds }, valueAfter: { not: null } }, select: { krId: true, valueBefore: true, valueAfter: true } })
+    : []
+  // 记过进度 = 有一条真的改了数值的进展(只挂在 KR 上的文字进展不算)
+  const progressed = new Set(ups.filter(u => u.valueAfter !== u.valueBefore).map(u => String(u.krId)))
+  const left = unhandledKrs(objs, progressed)
+  if (left.length) {
+    throw new OkrRuleError(`还有 ${left.length} 条 KR 没有标记完成或未完成：${left.join('、')}`, { code: 8112 })
+  }
+}
+
 export async function scoreObjective({ objectiveId, userId, ownerId, role, score, comment, source = 'MANUAL' }) {
   const o = await loadObjective(objectiveId)
   const value = validScore(score)
-  if (!isScorable(o.cycle.status)) {
-    throw forbidden(o.cycle.status === 'CLOSED' ? '本周已归档, 评分需要主管先重开本周' : '计划阶段还不能评分, 进入周中后再评')
-  }
+  // OKR 3.0: 不卡时间, 只有归档(CLOSED)是硬限制
+  if (!isScorable(o.cycle.status)) throw forbidden(CLOSED_MSG)
   if (!o.submittedAt) throw conflict('这周的 OKR 还没提交, 先让本人在页面上提交计划', 8110)
   let operatorId = null
   if (role === 'SELF') {
     // 主管代改自评: 自评仍记在本人名下(scorerId = 本人), 操作人另记 operatorId
     operatorId = proxyOf(ownerId, userId)
     assertOwner(o, ownerId ?? userId, operatorId ? '这个 O 不属于目标员工' : '自评只能评自己的 O')
+    await assertKrsHandled(o)
   } else if (String(o.ownerId) === String(userId)) {
     throw forbidden('不能给自己打主管分', 8109)
   }
@@ -739,24 +763,24 @@ export async function reopenCycle(week, { by, now = new Date() }) {
 }
 
 /**
- * 定时任务: 保证本周周期存在(下周一自动生成新周期), 并把已过完、没被重开的周期归档。
+ * 定时任务: 保证本周周期存在(下周一自动生成新周期), 并把已过完却还停在周中的周期推到复盘(不归档)。
  * 幂等, 可反复跑
  */
-// 只扫最近 12 周过完的周期; 更早的(比如定时任务停过很久)在被读到时由 getCycle 顺手归档, 不会漏
+// 只扫最近 12 周过完的周期; 更早的(比如定时任务停过很久)在被读到时由 getCycle 顺手推进, 不会漏
 const TICK_LOOKBACK_MS = 12 * 7 * 24 * 3600 * 1000
 
 export async function okrTick(now = new Date()) {
   const current = await getCycle(isoWeekOf(now), { create: true, now })
+  // OKR 3.0: 过完的周不再按时间归档 —— 只把还停在 PLANNING / IN_PROGRESS 的推到 REVIEW(好让列表状态对得上),
+  // 归档只由主管评分完成(close-by-score)或 ADMIN 应急归档触发
   const stale = await prisma.okrCycle.findMany({
-    where: { status: { not: 'CLOSED' }, endDate: { lt: now, gte: new Date(now.getTime() - TICK_LOOKBACK_MS) } }
+    where: { status: { in: ['PLANNING', 'SUBMITTED', 'IN_PROGRESS'] }, endDate: { lt: now, gte: new Date(now.getTime() - TICK_LOOKBACK_MS) } }
   })
-  let closed = 0
+  let advanced = 0
   for (const c of stale) {
-    if (isReopened(c)) continue
-    await prisma.okrCycle.update({ where: { id: c.id }, data: { status: 'CLOSED', closedAt: now, closedBy: null } })
-    closed++
+    if (await syncStatus(c, now) !== c) advanced++
   }
-  return { current: weekKey(current), currentStatus: current.status, closed }
+  return { current: weekKey(current), currentStatus: current.status, closed: 0, advanced }
 }
 
 // ---------------------------------------------------------------- 周一提醒

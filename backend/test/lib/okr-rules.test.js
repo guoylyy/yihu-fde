@@ -3,7 +3,7 @@ import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   isoWeekOf, weekRange, parseWeek, shiftWeek, weekKey, weeksInYear, timeStatus, nextStatus, isReopened,
-  isLate, isEditable, isScorable, equalWeights, weightsSumOk, normalizePlan, OkrRuleError,
+  isLate, isEditable, isScorable, isProgressWritable, krHandled, unhandledKrs, equalWeights, weightsSumOk, normalizePlan, OkrRuleError,
   krProgress, objectiveProgress, personProgress, weightedScore, derivedObjectiveStatus, validScore,
   personalStatus, checkKrStatus
 } from '../../src/services/okrRules.js'
@@ -44,13 +44,14 @@ describe('周期: 自然周 + ISO 周号(上海时区)', () => {
     assert.equal(weekKey({ year: 2026, weekNo: 5 }), '2026-W05')
   })
 
-  test('节奏: 周一 PLANNING → 周二 IN_PROGRESS → 周五 REVIEW → 过完周日 CLOSED', () => {
+  test('节奏: 周一 PLANNING → 周二 IN_PROGRESS → 周五 REVIEW; 过完周日仍是 REVIEW(OKR 3.0 时间不归档)', () => {
     const { start, end } = weekRange(2026, 47)
     const c = { startDate: start, endDate: end, status: 'PLANNING' }
     assert.equal(timeStatus(c, at('2026-11-16T02:00:00Z')), 'PLANNING') // 周一 10:00
     assert.equal(timeStatus(c, at('2026-11-17T02:00:00Z')), 'IN_PROGRESS') // 周二
     assert.equal(timeStatus(c, at('2026-11-20T02:00:00Z')), 'REVIEW') // 周五
-    assert.equal(timeStatus(c, at('2026-11-23T02:00:00Z')), 'CLOSED') // 下周一
+    assert.equal(timeStatus(c, at('2026-11-23T02:00:00Z')), 'REVIEW') // 下周一: 不再被时间推成 CLOSED
+    assert.equal(nextStatus({ ...c, status: 'REVIEW' }, at('2026-12-30T02:00:00Z')), null, '一个多月后也不自动归档')
   })
 
   test('状态只进不退; 重开过的周不随时间自动推进', () => {
@@ -70,14 +71,30 @@ describe('周期: 自然周 + ISO 周号(上海时区)', () => {
     assert.equal(isLate(start, at('2026-11-16T16:00:00Z')), true) // 周二 00:00
   })
 
-  test('哪些状态可改、可评分', () => {
+  test('哪些状态可改、可评分(OKR 3.0: 评分与 KR 进展只看是否归档)', () => {
     assert.equal(isEditable('PLANNING'), true)
     assert.equal(isEditable('IN_PROGRESS'), true)
-    assert.equal(isEditable('REVIEW'), false)
+    assert.equal(isEditable('REVIEW'), false, '计划在复盘里仍只读')
     assert.equal(isEditable('CLOSED'), false)
     assert.equal(isScorable('REVIEW'), true)
     assert.equal(isScorable('CLOSED'), false)
-    assert.equal(isScorable('PLANNING'), false)
+    assert.equal(isScorable('PLANNING'), true, '不再卡时间')
+    assert.equal(isProgressWritable('REVIEW'), true)
+    assert.equal(isProgressWritable('CLOSED'), false)
+  })
+
+  test('自评前置: KR 处理完 = DONE / MISSED, 或数值型记过进度; 未处理的按 O-KR 点名', () => {
+    assert.equal(krHandled({ metricType: 'BINARY', status: null }), false)
+    assert.equal(krHandled({ metricType: 'BINARY', status: 'MISSED' }), true)
+    assert.equal(krHandled({ metricType: 'NUMBER', status: 'ON_TRACK', currentValue: 0 }), false, '默认值 0 不算填过')
+    assert.equal(krHandled({ metricType: 'NUMBER', status: 'ON_TRACK', currentValue: 2 }, true), true)
+    assert.equal(krHandled({ metricType: 'PERCENT', status: 'MISSED', currentValue: 50 }), true)
+    const objs = [
+      { seq: 2, status: 'ON_TRACK', keyResults: [{ id: 21, seq: 1, metricType: 'BINARY', status: null }] },
+      { seq: 1, status: 'ON_TRACK', keyResults: [{ id: 11, seq: 1, metricType: 'BINARY', status: 'DONE' }, { id: 13, seq: 3, metricType: 'NUMBER', status: 'ON_TRACK' }, { id: 12, seq: 2, metricType: 'NUMBER', status: 'ON_TRACK' }] },
+      { seq: 3, status: 'DROPPED', keyResults: [{ id: 31, seq: 1, metricType: 'BINARY', status: null }] }
+    ]
+    assert.deepEqual(unhandledKrs(objs, new Set(['12'])), ['O1-KR3', 'O2-KR1'])
   })
 })
 

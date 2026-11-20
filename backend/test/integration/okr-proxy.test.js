@@ -143,6 +143,9 @@ describe('OKR 2.0 第一轮: 主管代管 / 导入 / 全员可见 / 统计', () 
       assert.equal(k.code, 0, k.message)
       assert.equal(k.data.operatorId, M.id)
       await setStatus(WEEK, 'IN_PROGRESS')
+      // OKR 3.0 自评前置: 这周每条 KR 都要处理完 —— 第二个 O 的 KR 由经理代标「未完成」
+      const o2 = (await a.get(`/api/okr/my?week=${WK}`)).data.objectives[1]
+      for (const kr of o2.keyResults) assert.equal((await m.post(`/api/okr/krs/${kr.id}/complete`, { targetUserId: A.id, done: false })).code, 0)
       const s = await m.post('/api/okr/self-score', { targetUserId: A.id, objectiveId: o.id, score: 77 })
       assert.equal(s.code, 0, s.message)
       const row = await prisma.okrScore.findUnique({ where: { id: BigInt(s.data.id) } })

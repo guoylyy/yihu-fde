@@ -405,16 +405,21 @@ describe('周 OKR /api/okr', () => {
   })
 
   describe('周五复盘 / 归档 / 重开', () => {
-    test('REVIEW 状态改 KR、追加进展、改计划 → 403', async () => {
+    // OKR 3.0: 复盘里计划仍只读, 但 KR 进展 / 完成开关可写(自评前要把 KR 都标完); 原来这里 KR、进展也是 403
+    test('REVIEW 状态改计划 → 403; 改 KR、追加进展 → 200', async () => {
       await setStatus(WEEK, 'REVIEW')
       const o = (await a.get(`/api/okr/my?week=${WK}`)).data.objectives[0]
-      assert.equal((await a.patch(`/api/okr/krs/${o.keyResults[0].id}`, { currentValue: 1 })).status, 403)
-      assert.equal((await a.post(`/api/okr/objectives/${o.id}/updates`, { content: 'x' })).status, 403)
+      assert.equal((await a.patch(`/api/okr/krs/${o.keyResults[0].id}`, { currentValue: 1 })).status, 200)
+      assert.equal((await a.post(`/api/okr/objectives/${o.id}/updates`, { content: 'x' })).status, 200)
       assert.equal((await a.post(`/api/okr/plan?week=${WK}`, { objectives: plan(1) })).status, 403)
     })
 
     test('REVIEW 里可自评(助手也可) + 主管评分, 历史不覆盖', async () => {
       const objs = (await a.get(`/api/okr/my?week=${WK}`)).data.objectives
+      // 自评前置: 先把每条 KR 标成完成
+      for (const o of objs.filter(v => v.status !== 'DROPPED')) {
+        for (const k of o.keyResults) assert.equal((await a.post(`/api/okr/krs/${k.id}/complete`, { done: true })).code, 0)
+      }
       const s1 = await a.post('/api/okr/self-score', { objectiveId: objs[0].id, score: 80, comment: '基本完成' })
       assert.equal(s1.code, 0, s1.message)
       const s2 = await mcp(A.token, 'okr_self_score', { objective_id: objs[1].id, score: 70, comment: '助手帮我评' })
@@ -481,13 +486,14 @@ describe('周 OKR /api/okr', () => {
       assert.equal(c2.data.status, 'CLOSED')
     })
 
-    test('还没到周五的本周不能提前归档', async () => {
-      // 本周如果已经是周五之后, 这条就没有意义, 跳过
-      const cur = isoWeekOf()
-      const r = await boss.get('/api/okr/my')
-      if (['REVIEW', 'CLOSED'].includes(r.data.cycle.status)) return
-      const c = await boss.post('/api/okr/cycle/close', { week: weekKey(cur) })
+    // 原来拿真实的本周测: 本周若被主管重开过(IN_PROGRESS + reopened), 归档会成功, 把共享库里真实的本周关掉。
+    // 改用远期周: 时间上还在计划期、没重开过 → 409, 不碰真实周期
+    test('还没到周五的周不能提前归档', async () => {
+      const future = shiftWeek(WEEK, 2)
+      await makeCycle(future)
+      const c = await boss.post('/api/okr/cycle/close', { week: weekKey(future) })
       assert.equal(c.status, 409)
+      assert.equal((await prisma.okrCycle.findUnique({ where: { year_weekNo: { year: future.year, weekNo: future.weekNo } } })).status, 'PLANNING')
     })
   })
 
@@ -569,11 +575,11 @@ describe('周 OKR /api/okr', () => {
   })
 })
 
-describe('定时任务: 下周一自动生成新周期, 过完的周归档', () => {
+describe('定时任务: 下周一自动生成新周期; 过完的周不再按时间归档(OKR 3.0)', () => {
   const created = []
   after(async () => { await dropCycles(created) })
 
-  test('okrTick 建出本周周期并归档上周; 幂等', async () => {
+  test('okrTick 建出本周周期, 上周停在 REVIEW 不归档; 幂等', async () => {
     const w = { year: 2099, weekNo: rnd(10, 40) }
     const prev = shiftWeek(w, -1)
     const { start, end } = weekRange(prev.year, prev.weekNo)
@@ -585,7 +591,8 @@ describe('定时任务: 下周一自动生成新周期, 过完的周归档', () 
     created.push(cur.id)
     assert.equal(r.current, weekKey(w))
     assert.equal(cur.status, 'PLANNING')
-    assert.equal((await prisma.okrCycle.findUnique({ where: { id: p.id } })).status, 'CLOSED')
+    assert.equal((await prisma.okrCycle.findUnique({ where: { id: p.id } })).status, 'REVIEW', '归档只由主管评分完成触发')
+    assert.equal(r.closed, 0)
     const again = await okrTick(monday)
     assert.equal(again.closed, 0)
     assert.equal(await prisma.okrCycle.count({ where: { year: w.year, weekNo: w.weekNo } }), 1)

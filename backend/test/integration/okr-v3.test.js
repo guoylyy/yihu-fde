@@ -1,7 +1,7 @@
 // 集成测试 - OKR 第三轮(后端): KR 完成开关 / 自评不限时 / 主管评分后归档 / OKR 免提交白名单
 //
-// 用远期测试周(2071–2079 年随机几周, 与 okr / okr-proxy 的年份错开, 并行跑互不清理对方的周期)。
-// 周期状态(复盘 / 周日之后)直接改库模拟时间。账号现建现删。
+// 用远期测试周(2061–2069 年随机几周, 与 okr / okr-proxy / okr-backfill 的年份错开, 并行跑互不清理对方的周期);
+// 「周日之后」用 2020–2023 年一个真正过完的周。周期状态直接改库模拟。账号现建现删。
 import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import prisma from '../../src/lib/prisma.js'
@@ -9,7 +9,8 @@ import { createTestUser, api } from './helpers.js'
 import { weekRange, weekKey, shiftWeek } from '../../src/services/okrRules.js'
 
 const rnd = (a, b) => a + Math.floor(Math.random() * (b - a + 1))
-const YEAR = rnd(2071, 2079)
+const YEAR = rnd(2061, 2069)
+const PAST = { year: rnd(2020, 2023), weekNo: rnd(2, 50) }
 const BASE_NO = rnd(2, 40)
 const W = n => ({ year: YEAR, weekNo: BASE_NO + n })
 const createdCycles = []
@@ -111,6 +112,75 @@ describe('OKR 3.0 /api/okr', () => {
       const r = await a.post(`/api/okr/krs/${objs[0].keyResults[1].id}/complete`, { done: false })
       assert.equal(r.status, 403)
       assert.match(r.message, /只读/)
+    })
+  })
+
+  describe('自评不限时, KR 处理完才能交', () => {
+    const WK2 = W(1)
+    let objs
+
+    before(async () => {
+      await makeCycle(WK2)
+      // O1: 数值型 + 是/否型; O2: 百分比型 + 是/否型
+      const objectives = [
+        plan(1)[0],
+        { title: 'unit-test-v3-O2', keyResults: [{ title: 'O2-KR1 覆盖率', metricType: 'PERCENT', targetValue: 100 }, { title: 'O2-KR2 评审', metricType: 'BINARY' }] }
+      ]
+      const r = await b.post(`/api/okr/plan/submit?week=${weekKey(WK2)}`, { objectives })
+      assert.equal(r.code, 0, r.message)
+      objs = r.data.objectives
+    })
+
+    test('还有 KR 没标完成/未完成 → 400 8112, 点名缺哪条', async () => {
+      await b.post(`/api/okr/krs/${objs[0].keyResults[1].id}/complete`, { done: true }) // O1-KR2 完成
+      // 只挂在 KR 上的文字进展不算「填了进度」
+      await b.post(`/api/okr/objectives/${objs[1].id}/updates`, { content: '看了一下', krId: objs[1].keyResults[0].id })
+      const r = await b.post('/api/okr/self-score', { objectiveId: objs[0].id, score: 80 })
+      assert.equal(r.status, 400)
+      assert.equal(r.code, 8112)
+      assert.equal(r.message, '还有 3 条 KR 没有标记完成或未完成：O1-KR1、O2-KR1、O2-KR2')
+      assert.equal(await prisma.okrScore.count({ where: { objectiveId: BigInt(objs[0].id) } }), 0, '被拦下不留评分')
+    })
+
+    test('全部标成 DONE / MISSED(含 MISSED + 进度 50) → 200', async () => {
+      await b.post(`/api/okr/krs/${objs[0].keyResults[0].id}/complete`, { done: true })
+      assert.equal((await b.patch(`/api/okr/krs/${objs[1].keyResults[0].id}`, { currentValue: 50 })).code, 0)
+      const miss = await b.post(`/api/okr/krs/${objs[1].keyResults[0].id}/complete`, { done: false })
+      assert.equal(miss.data.kr.status, 'MISSED')
+      assert.equal(miss.data.kr.currentValue, 50)
+      await b.post(`/api/okr/krs/${objs[1].keyResults[1].id}/complete`, { done: false })
+      for (const [o, score] of [[objs[0], 90], [objs[1], 60]]) {
+        const r = await b.post('/api/okr/self-score', { objectiveId: o.id, score })
+        assert.equal(r.code, 0, r.message)
+      }
+    })
+
+    test('数值型记过进度(状态 ON_TRACK)也算处理完; 计划阶段(PLANNING)也能自评', async () => {
+      const w = W(2)
+      await makeCycle(w, { status: 'PLANNING' })
+      const r0 = await a.post(`/api/okr/plan/submit?week=${weekKey(w)}`, { objectives: [{ title: 'unit-test-v3-进度', keyResults: [{ title: '件数', metricType: 'NUMBER', targetValue: 4 }] }] })
+      assert.equal(r0.code, 0, r0.message)
+      const o = r0.data.objectives[0]
+      assert.equal((await a.post('/api/okr/self-score', { objectiveId: o.id, score: 50 })).code, 8112)
+      await a.patch(`/api/okr/krs/${o.keyResults[0].id}`, { currentValue: 2 })
+      const r = await a.post('/api/okr/self-score', { objectiveId: o.id, score: 50 })
+      assert.equal(r.code, 0, r.message)
+    })
+
+    test('周日之后、周期仍在 REVIEW → 自评 200(不再卡时间, 也不会被时间推成 CLOSED)', async () => {
+      await makeCycle(PAST, { status: 'REVIEW' })
+      const sub = await a.post(`/api/okr/plan/submit?week=${weekKey(PAST)}`, { objectives: plan(1, '-past') })
+      assert.equal(sub.code, 0, sub.message)
+      assert.equal(sub.data.cycle.status, 'REVIEW')
+      const o = sub.data.objectives[0]
+      for (const k of o.keyResults) assert.equal((await a.post(`/api/okr/krs/${k.id}/complete`, { done: true })).code, 0, '复盘里也能标 KR')
+      const r = await a.post('/api/okr/self-score', { objectiveId: o.id, score: 88 })
+      assert.equal(r.code, 0, r.message)
+      const c = await prisma.okrCycle.findUnique({ where: { year_weekNo: { year: PAST.year, weekNo: PAST.weekNo } } })
+      assert.equal(c.status, 'REVIEW')
+      const view = await a.get(`/api/okr/cycle?week=${weekKey(PAST)}`)
+      assert.equal(view.data.can.selfScore, true)
+      assert.equal(view.data.can.progress, true)
     })
   })
 })

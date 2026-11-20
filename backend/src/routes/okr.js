@@ -108,7 +108,7 @@ async function weekPayload(req, res, { detail }) {
       window,
       owner: owner ? { id: String(owner.id), name: owner.name, username: owner.username, avatarUrl: owner.avatarUrl, role: owner.role } : { id: ownerId },
       objectives: [],
-      can: { create: creatable && (mine || proxy) && !viaAssistant(req), proxy, edit: false, selfScore: false, managerScore: false, manageCycle: hasPermission(req.user, 'okr.cycle.manage') }
+      can: { create: creatable && (mine || proxy) && !viaAssistant(req), proxy, edit: false, progress: false, selfScore: false, managerScore: false, manageCycle: hasPermission(req.user, 'okr.cycle.manage') }
     })
   }
   const data = await personWeek(cycle, ownerId, { detail })
@@ -119,6 +119,8 @@ async function weekPayload(req, res, { detail }) {
   data.can = {
     // 计划可写: 进行中的周; 或周五复盘里这人还一条没交(补交, 记迟交)
     edit: (mine || proxy) && planWritable(data.cycle.status, submittedBefore),
+    // OKR 3.0: KR 进展 / 完成开关, 已提交且没归档就能改(复盘里也能改, 自评前要把 KR 都标完)
+    progress: (mine || proxy) && data.cycle.progressWritable && submittedBefore,
     selfScore: (mine || proxy) && data.cycle.scorable,
     proxy,
     managerScore: !mine && data.cycle.scorable && hasPermission(req.user, 'okr.score.manager'),
