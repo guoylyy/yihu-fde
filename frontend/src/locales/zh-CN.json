@@ -2305,6 +2305,62 @@
         "model_error": "大模型调用失败。请逐条核对标题和 KR。",
         "model_empty": "大模型没有给出可用的目标。请逐条核对标题和 KR。"
       }
+    },
+    "people": {
+      "pick": "选择查看谁的 OKR",
+      "me": "我",
+      "detail": "个人详情"
+    },
+    "proxy": {
+      "banner": "正在编辑 {p0} 的 OKR · 由 {p1} 代填",
+      "submit_for": "代 {p0} 提交",
+      "confirm_submit": "确认代 {p0} 提交本周计划？提交后按 {p0} 的时间算迟交（已过周一 24:00 即记为 {p0} 迟交），并留下你的代填记录。",
+      "act": "代操作"
+    },
+    "import": {
+      "open": "导入文档生成",
+      "title": "导入本周文档生成 OKR 草稿",
+      "entry_hint": "替 {p0} 贴周报或导入本周文档生成草稿；填入后仍需你点提交",
+      "hint": "选一份本周计划或周报文档（.md / .txt / .docx，≤ 2MB）。生成后可修改，填入编辑器后仍需人工提交，不会自动提交。",
+      "for_person": "替 {p0} 生成",
+      "choose_file": "选择文件",
+      "change_file": "换个文件",
+      "file_rule": ".md / .txt / .docx，≤ 2MB",
+      "mode_label": "填入方式",
+      "mode_replace": "覆盖",
+      "mode_append": "追加",
+      "mode_replace_sub": "用生成的草稿替换编辑器里还没提交的内容",
+      "mode_append_sub": "接在已有 O 后面（最多 3 个 O），O 权重按 KR 条数重新分配",
+      "from_file": "来自文件：{p0}",
+      "need_file": "请先选一个文件",
+      "bad_type": "只支持 .md / .txt / .docx（老版 .doc 请先另存为 .docx）",
+      "too_big": "文件超过 2MB",
+      "empty": "文件是空的",
+      "dropped": "已追加；最多 3 个 O，有 {p0} 个没放进去"
+    },
+    "person": {
+      "o_count": "O 数",
+      "kr_count": "KR 数",
+      "avg_self": "平均自评",
+      "late_count": "今年迟交",
+      "update_count": "进展条数",
+      "this_week": "本周 {p0}",
+      "tab_week": "按周",
+      "tab_year": "按年",
+      "year_n": "{p0} 年",
+      "trend_title": "周度自评均值",
+      "trend_empty": "这一年还没有自评分",
+      "weekly": "每周完成情况",
+      "weeks_participated": "参与周数",
+      "completion_rate": "完成率",
+      "avg_manager": "平均主管分",
+      "no_week": "这一周没有 OKR",
+      "no_year": "这一年还没有提交过 OKR",
+      "open_okr": "查看本周 OKR",
+      "updates_n": "进展 {p0} 条",
+      "done_of": "完成 {p0}/{p1}",
+      "not_submitted": "未提交",
+      "week_short": "第 {p0} 周"
     }
   },
   "assistant": {

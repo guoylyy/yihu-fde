@@ -2305,6 +2305,62 @@
         "model_error": "The model call failed. Check every title and KR.",
         "model_empty": "The model returned no usable objectives. Check every title and KR."
       }
+    },
+    "people": {
+      "pick": "Choose whose OKR to view",
+      "me": "Me",
+      "detail": "Details"
+    },
+    "proxy": {
+      "banner": "Editing {p0}'s OKR · filled in by {p1}",
+      "submit_for": "Submit for {p0}",
+      "confirm_submit": "Submit this week's plan on behalf of {p0}? Lateness is judged by {p0}'s deadline (after Monday 24:00 it counts as late for {p0}), and your name is recorded as the operator.",
+      "act": "Edit for them"
+    },
+    "import": {
+      "open": "Import document",
+      "title": "Import this week's document as an OKR draft",
+      "entry_hint": "Paste a report or import a document to draft {p0}'s OKR; you still submit it yourself",
+      "hint": "Pick this week's plan or report (.md / .txt / .docx, ≤ 2MB). You can edit the draft; after filling the editor it still has to be submitted by hand — nothing is submitted automatically.",
+      "for_person": "Drafting for {p0}",
+      "choose_file": "Choose file",
+      "change_file": "Pick another file",
+      "file_rule": ".md / .txt / .docx, ≤ 2MB",
+      "mode_label": "Fill mode",
+      "mode_replace": "Replace",
+      "mode_append": "Append",
+      "mode_replace_sub": "Replace the unsubmitted content in the editor with the draft",
+      "mode_append_sub": "Add after the existing objectives (max 3); objective weights are re-split by KR count",
+      "from_file": "From file: {p0}",
+      "need_file": "Choose a file first",
+      "bad_type": "Only .md / .txt / .docx (save old .doc files as .docx first)",
+      "too_big": "The file is larger than 2MB",
+      "empty": "The file is empty",
+      "dropped": "Appended; max 3 objectives, {p0} did not fit"
+    },
+    "person": {
+      "o_count": "Objectives",
+      "kr_count": "KRs",
+      "avg_self": "Avg self score",
+      "late_count": "Late this year",
+      "update_count": "Updates",
+      "this_week": "This week {p0}",
+      "tab_week": "By week",
+      "tab_year": "By year",
+      "year_n": "{p0}",
+      "trend_title": "Weekly self score",
+      "trend_empty": "No self scores this year yet",
+      "weekly": "Week by week",
+      "weeks_participated": "Weeks participated",
+      "completion_rate": "Completion",
+      "avg_manager": "Avg manager score",
+      "no_week": "No OKR this week",
+      "no_year": "No OKR submitted this year yet",
+      "open_okr": "Open this week's OKR",
+      "updates_n": "{p0} updates",
+      "done_of": "Done {p0}/{p1}",
+      "not_submitted": "Not submitted",
+      "week_short": "W{p0}"
     }
   },
   "assistant": {

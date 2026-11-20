@@ -84,6 +84,11 @@ function clean(params) {
   return Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== ''))
 }
 
+/** OKR 代操作: 有 targetUserId 才带上, 其余字段原样(null 也照发, 不像 clean 那样过滤) */
+function withTarget(body, targetUserId) {
+  return targetUserId ? { ...body, targetUserId: String(targetUserId) } : body
+}
+
 // ============== FDE 内部 API ==============
 export const fde = {
   customers: {
@@ -611,15 +616,26 @@ export const fde = {
     my: (params = {}) => request('/api/okr/my?' + new URLSearchParams(clean(params)).toString()),
     team: (week) => request('/api/okr/team?' + new URLSearchParams(clean({ week })).toString()),
     history: (params = {}) => request('/api/okr/history?' + new URLSearchParams(clean(params)).toString()),
-    savePlan: (week, objectives) => request(`/api/okr/plan?week=${encodeURIComponent(week)}`, { method: 'POST', body: JSON.stringify({ objectives }) }),
-    submitPlan: (week, objectives) => request(`/api/okr/plan/submit?week=${encodeURIComponent(week)}`, { method: 'POST', body: JSON.stringify({ objectives }) }),
-    // 贴周报生成草稿: 后端模型最多等 60 秒再降级规则, 这里多留 15 秒余量
-    draftFromReport: (text, { signal } = {}) => request('/api/okr/plan/draft-from-report', { method: 'POST', body: JSON.stringify({ text }), timeout: 75000, signal }),
-    addUpdate: (objectiveId, data) => request(`/api/okr/objectives/${objectiveId}/updates`, { method: 'POST', body: JSON.stringify(data) }),
-    patchKr: (krId, data) => request(`/api/okr/krs/${krId}`, { method: 'PATCH', body: JSON.stringify(data) }),
-    selfScore: (data) => request('/api/okr/self-score', { method: 'POST', body: JSON.stringify(data) }),
+    // OKR 2.0: 个人汇总 + 按周/按年统计(全员可看他人; 主管评分只给本人与 ADMIN, 后端直接不返回)
+    personOverview: (userId) => request(`/api/okr/person/${encodeURIComponent(userId)}/overview`),
+    stats: (params = {}) => request('/api/okr/stats?' + new URLSearchParams(clean(params)).toString()),
+    // 写接口第三个参数 targetUserId: 主管代操作(缺省 = 自己); 后端校验代管权限并留 operatorId
+    savePlan: (week, objectives, targetUserId) => request(`/api/okr/plan?week=${encodeURIComponent(week)}`, { method: 'POST', body: JSON.stringify(withTarget({ objectives }, targetUserId)) }),
+    submitPlan: (week, objectives, targetUserId) => request(`/api/okr/plan/submit?week=${encodeURIComponent(week)}`, { method: 'POST', body: JSON.stringify(withTarget({ objectives }, targetUserId)) }),
+    // 贴周报 → O/KR 草稿(只出草稿不落库); 走模型可能慢, 单独放宽超时(后端模型 60 秒封顶 + 规则兜底)
+    draftFromReport: (text, { signal, targetUserId } = {}) => request('/api/okr/plan/draft-from-report', { method: 'POST', body: JSON.stringify(withTarget({ text }, targetUserId)), timeout: 75000, signal }),
+    // 导入本周文档(.md/.txt/.docx ≤ 2MB) → 草稿, 返回结构同 draftFromReport 另带 fileName
+    draftFromFile: (file, { signal, targetUserId } = {}) => {
+      const fd = new FormData()
+      fd.append('file', file)
+      if (targetUserId) fd.append('targetUserId', String(targetUserId))
+      return request('/api/okr/plan/draft-from-file', { method: 'POST', body: fd, timeout: 75000, signal })
+    },
+    addUpdate: (objectiveId, data, targetUserId) => request(`/api/okr/objectives/${objectiveId}/updates`, { method: 'POST', body: JSON.stringify(withTarget(data, targetUserId)) }),
+    patchKr: (krId, data, targetUserId) => request(`/api/okr/krs/${krId}`, { method: 'PATCH', body: JSON.stringify(withTarget(data, targetUserId)) }),
+    selfScore: (data, targetUserId) => request('/api/okr/self-score', { method: 'POST', body: JSON.stringify(withTarget(data, targetUserId)) }),
     managerScore: (data) => request('/api/okr/manager-score', { method: 'POST', body: JSON.stringify(data) }),
-    miss: (objectiveId, data) => request(`/api/okr/objectives/${objectiveId}/miss`, { method: 'POST', body: JSON.stringify(data) }),
+    miss: (objectiveId, data, targetUserId) => request(`/api/okr/objectives/${objectiveId}/miss`, { method: 'POST', body: JSON.stringify(withTarget(data, targetUserId)) }),
     close: (week) => request('/api/okr/cycle/close', { method: 'POST', body: JSON.stringify(week ? { week } : {}) }),
     reopen: (week, reason) => request('/api/okr/cycle/reopen', { method: 'POST', body: JSON.stringify({ week, reason }) })
   },
