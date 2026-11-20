@@ -22,7 +22,7 @@ import { logInternalAction } from '../lib/audit.js'
 import { parseWeek, weekKey, isoWeekOf, shiftWeek, weekRange, submitDeadline, creatableRange, isCreatableWeek, isPastWeek } from '../services/okrRules.js'
 import {
   OkrRuleError, getCycle, personWeek, savePlan, appendUpdate, patchKr, completeKr, scoreObjective,
-  markMiss, teamView, history, closeCycle, reopenCycle, okrTick, planWritable
+  markMiss, teamView, history, closeCycle, closeByScore, reopenCycle, okrTick, planWritable
 } from '../services/okr.js'
 import { generateOkrDraft } from '../services/okrDraft.js'
 import { resolveOkrTarget, canManageOkrOf, teamListScope, forViewer, stripManagerScore } from '../services/okrAccess.js'
@@ -34,7 +34,7 @@ router.use(internalAuth)
 const ok = (res, data) => res.json({ code: 0, data })
 
 function fail(res, e, scope) {
-  if (e instanceof OkrRuleError) return res.status(e.status).json({ code: e.code, message: e.message })
+  if (e instanceof OkrRuleError) return res.status(e.status).json({ code: e.code, message: e.message, ...(e.data !== undefined ? { data: e.data } : {}) })
   console.error(`[okr ${scope}]`, e)
   res.status(500).json({ code: 9001, message: e.message })
 }
@@ -123,7 +123,9 @@ async function weekPayload(req, res, { detail }) {
     progress: (mine || proxy) && data.cycle.progressWritable && submittedBefore,
     selfScore: (mine || proxy) && data.cycle.scorable,
     proxy,
+    // 主管分: 还要这个 O 有自评(逐个 O 由接口校验); 这里只给入口
     managerScore: !mine && data.cycle.scorable && hasPermission(req.user, 'okr.score.manager'),
+    closeByScore: hasPermission(req.user, 'okr.score.manager') && data.cycle.status !== 'CLOSED',
     manageCycle: hasPermission(req.user, 'okr.cycle.manage')
   }
   ok(res, forViewer(req.user, ownerId, data))
@@ -375,6 +377,21 @@ router.post('/objectives/:id/miss', humanOnly('填写未达成原因'), async (r
 
 // ---------------------------------------------------------------- 周期管理
 
+// OKR 3.0 正常流程: 主管(ADMIN)把这周已提交的 O 都评完分 → 一键完成本周(CLOSED), 之后全部只读。
+// 不再需要「开启本周」; 不传 week 默认本周
+router.post('/cycle/close-by-score', humanOnly('完成本周评分并归档'), requirePermission('okr.score.manager'), async (req, res) => {
+  try {
+    const week = req.body?.week || req.query.week ? weekOf(req, res) : isoWeekOf()
+    if (!week) return
+    const { cycle, changed, scored } = await closeByScore(week, { by: req.user.id })
+    if (changed) {
+      await logInternalAction(req, 'okr.cycle.close-by-score', { resourceType: 'okr_cycle', resourceId: cycle.id, details: { week: weekKey(week), scored } })
+    }
+    ok(res, { week: weekKey(week), status: cycle.status, changed, scored, closedAt: cycle.closedAt, closedBy: cycle.closedBy != null ? String(cycle.closedBy) : null })
+  } catch (e) { fail(res, e, 'cycle/close-by-score') }
+})
+
+// ADMIN 应急: 归档 / 重开(重开必须写原因留审计)。OKR 3.0 正常流程用不到, 归档走上面的 close-by-score
 // 归档: 不传 week 默认上周(周一归档上周); 定时任务走 okrTick, 不经这里
 router.post('/cycle/close', humanOnly('归档周期'), requirePermission('okr.cycle.manage'), async (req, res) => {
   try {

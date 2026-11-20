@@ -227,10 +227,12 @@ export function fillWeights(items) {
 // ---------------------------------------------------------------- 计划校验
 
 export class OkrRuleError extends Error {
-  constructor(message, { status = 400, code = 8100 } = {}) {
+  constructor(message, { status = 400, code = 8100, data } = {}) {
     super(message)
     this.status = status
     this.code = code
+    // 可选: 随错误一起返回给前端的结构化信息(如 close-by-score 的缺项列表)
+    if (data !== undefined) this.data = data
   }
 }
 

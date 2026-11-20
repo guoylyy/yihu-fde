@@ -183,4 +183,75 @@ describe('OKR 3.0 /api/okr', () => {
       assert.equal(view.data.can.progress, true)
     })
   })
+
+  describe('主管评分不限时, 评完一键归档', () => {
+    const WK3 = W(3)
+    let oa, ob
+
+    before(async () => {
+      oa = await submitted(a, WK3, 1, '-score')
+      ob = await submitted(b, WK3, 1, '-score')
+      await setStatus(WK3, 'PLANNING') // 计划期(周一)也能评, 不卡时间
+    })
+
+    async function selfScore(who, o, score) {
+      for (const k of o.keyResults) await who.post(`/api/okr/krs/${k.id}/complete`, { done: true })
+      const r = await who.post('/api/okr/self-score', { objectiveId: o.id, score })
+      assert.equal(r.code, 0, r.message)
+    }
+
+    test('员工没交自评 → 主管评分 409 拒绝; 交了自评 → 200', async () => {
+      const r1 = await boss.post('/api/okr/manager-score', { objectiveId: oa[0].id, score: 80 })
+      assert.equal(r1.status, 409)
+      assert.equal(r1.code, 8115)
+      assert.match(r1.message, /还没交自评/)
+      await selfScore(a, oa[0], 85)
+      const r2 = await boss.post('/api/okr/manager-score', { objectiveId: oa[0].id, score: 80, comment: 'unit-test-v3' })
+      assert.equal(r2.code, 0, r2.message)
+    })
+
+    test('close-by-score: 有 O 没打主管分 → 400 列出缺项, 周期不动', async () => {
+      const r = await boss.post('/api/okr/cycle/close-by-score', { week: weekKey(WK3) })
+      assert.equal(r.status, 400)
+      assert.equal(r.code, 8116)
+      assert.match(r.message, /还有 1 个 O 没有主管评分/)
+      assert.ok(r.message.includes('unit-test-v3-B O1「unit-test-v3-score-O1」'), r.message)
+      assert.deepEqual(r.raw.data.missing.map(m => m.objectiveId), [ob[0].id])
+      const c = await prisma.okrCycle.findUnique({ where: { year_weekNo: { year: WK3.year, weekNo: WK3.weekNo } } })
+      assert.equal(c.status, 'PLANNING')
+      // 工程师 / 助手不能调
+      assert.equal((await b.post('/api/okr/cycle/close-by-score', { week: weekKey(WK3) })).status, 403)
+    })
+
+    test('全部评完 → CLOSED(记 closedAt/closedBy + 审计); 之后 PATCH /krs、complete、/self-score、主管分一律只读', async () => {
+      await selfScore(b, ob[0], 70)
+      assert.equal((await boss.post('/api/okr/manager-score', { objectiveId: ob[0].id, score: 75 })).code, 0)
+      const r = await boss.post('/api/okr/cycle/close-by-score', { week: weekKey(WK3) })
+      assert.equal(r.code, 0, r.message)
+      assert.equal(r.data.status, 'CLOSED')
+      assert.equal(r.data.changed, true)
+      assert.equal(r.data.scored, 2)
+      assert.equal(r.data.closedBy, O.id)
+      const c = await prisma.okrCycle.findUnique({ where: { year_weekNo: { year: WK3.year, weekNo: WK3.weekNo } } })
+      assert.equal(c.status, 'CLOSED')
+      assert.ok(c.closedAt)
+      const audit = await prisma.auditLog.findFirst({ where: { action: 'okr.cycle.close-by-score', resourceId: c.id }, orderBy: { id: 'desc' } })
+      assert.ok(audit, '归档留审计')
+
+      const kr = oa[0].keyResults[0]
+      const p = await a.patch(`/api/okr/krs/${kr.id}`, { currentValue: 1 })
+      assert.equal(p.status, 403)
+      assert.match(p.message, /只读/)
+      assert.equal((await a.post(`/api/okr/krs/${kr.id}/complete`, { done: false })).status, 403)
+      const s = await a.post('/api/okr/self-score', { objectiveId: oa[0].id, score: 10 })
+      assert.equal(s.status, 403)
+      assert.match(s.message, /只读/)
+      assert.equal((await boss.post('/api/okr/manager-score', { objectiveId: oa[0].id, score: 10 })).status, 403)
+      const again = await boss.post('/api/okr/cycle/close-by-score', { week: weekKey(WK3) })
+      assert.equal(again.data.changed, false, '重复调用不报错')
+      const view = await boss.get(`/api/okr/cycle?week=${weekKey(WK3)}&ownerId=${A.id}`)
+      assert.equal(view.data.can.closeByScore, false)
+      assert.equal(view.data.can.selfScore, false)
+    })
+  })
 })

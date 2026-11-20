@@ -513,8 +513,10 @@ export async function scoreObjective({ objectiveId, userId, ownerId, role, score
     operatorId = proxyOf(ownerId, userId)
     assertOwner(o, ownerId ?? userId, operatorId ? '这个 O 不属于目标员工' : '自评只能评自己的 O')
     await assertKrsHandled(o)
-  } else if (String(o.ownerId) === String(userId)) {
-    throw forbidden('不能给自己打主管分', 8109)
+  } else {
+    if (String(o.ownerId) === String(userId)) throw forbidden('不能给自己打主管分', 8109)
+    // OKR 3.0: 不卡时间, 员工交了这个 O 的自评就能评
+    if (o.selfScore == null) throw conflict(`「${o.title}」员工还没交自评, 交了之后才能打主管分`, 8115)
   }
   const text = comment ? String(comment).trim().slice(0, 500) : null
   return prisma.$transaction(async (tx) => {
@@ -748,6 +750,40 @@ export async function closeCycle(week, { by = null, now = new Date() } = {}) {
     data: { status: 'CLOSED', closedAt: now, closedBy: by != null ? BigInt(by) : null }
   })
   return { cycle: updated, changed: true }
+}
+
+/**
+ * 主管评分完成 → 归档这一周(正常流程唯一的归档入口)。
+ * 前置: 这周所有已提交、未 DROPPED 的 O 都有主管评分; 缺的列出来(人名 + O 序号 + 标题)。
+ * 没提交的草稿打不了分, 不算缺项。归档后计划 / 进展 / 自评 / 主管分一律只读; 已归档的再调不报错(changed=false)
+ */
+export async function closeByScore(week, { by, now = new Date() }) {
+  const cycle = await getCycle(week, { now })
+  if (!cycle) throw notFound(`${weekKey(week)} 没有 OKR 周期`)
+  if (cycle.status === 'CLOSED') return { cycle, changed: false, scored: 0 }
+  return prisma.$transaction(async (tx) => {
+    const objs = await tx.okrObjective.findMany({
+      where: { cycleId: cycle.id, status: { not: 'DROPPED' }, submittedAt: { not: null } },
+      select: { id: true, ownerId: true, seq: true, title: true, managerScore: true },
+      orderBy: [{ ownerId: 'asc' }, { seq: 'asc' }]
+    })
+    if (!objs.length) throw new OkrRuleError(`${weekKey(week)} 还没有人提交 OKR, 没有可评分的内容, 不能归档`, { code: 8116 })
+    const left = objs.filter(o => o.managerScore == null)
+    if (left.length) {
+      const users = await loadUsers(left.map(o => o.ownerId))
+      const missing = left.map(o => {
+        const u = users.get(String(o.ownerId))
+        return { objectiveId: String(o.id), ownerId: String(o.ownerId), ownerName: u?.name || u?.username || String(o.ownerId), seq: o.seq, title: o.title }
+      })
+      const label = missing.map(m => `${m.ownerName} O${m.seq}「${m.title}」`).join('、')
+      throw new OkrRuleError(`还有 ${missing.length} 个 O 没有主管评分, 评完才能完成本周：${label}`, { code: 8116, data: { missing } })
+    }
+    const updated = await tx.okrCycle.update({
+      where: { id: cycle.id },
+      data: { status: 'CLOSED', closedAt: now, closedBy: BigInt(by) }
+    })
+    return { cycle: updated, changed: true, scored: objs.length }
+  })
 }
 
 export async function reopenCycle(week, { by, now = new Date() }) {
