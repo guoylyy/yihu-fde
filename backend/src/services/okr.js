@@ -106,7 +106,9 @@ function updateView(u, users) {
     content: u.content, valueBefore: u.valueBefore, valueAfter: u.valueAfter,
     statusBefore: u.statusBefore, statusAfter: u.statusAfter,
     source: u.source, sourceQuote: u.sourceQuote,
-    createdBy: users.get(String(u.createdBy)) || { id: String(u.createdBy) }, createdAt: u.createdAt
+    createdBy: users.get(String(u.createdBy)) || { id: String(u.createdBy) }, createdAt: u.createdAt,
+    // 主管代填: 前端显示「由 XX 代填」
+    onBehalfOf: u.operatorId != null ? (users.get(String(u.operatorId)) || { id: String(u.operatorId) }) : null
   }
 }
 
@@ -116,6 +118,8 @@ function objectiveView(o, users, { detail = true } = {}) {
     id: String(o.id), seq: o.seq, title: o.title, description: o.description, weight: o.weight,
     status: o.status, selfScore: o.selfScore, managerScore: o.managerScore, managerComment: o.managerComment,
     submittedAt: o.submittedAt, lateSubmit: o.lateSubmit,
+    submittedByOperator: !!o.submittedByOperator,
+    onBehalfOf: o.operatorId != null ? (users.get(String(o.operatorId)) || { id: String(o.operatorId) }) : null,
     progress: r4(objectiveProgress({ keyResults: krs })),
     keyResults: krs.map(krView)
   }
@@ -123,7 +127,8 @@ function objectiveView(o, users, { detail = true } = {}) {
     v.updates = (o.updates || []).map(u => updateView(u, users))
     v.scores = (o.scores || []).map(s => ({
       id: String(s.id), role: s.role, score: s.score, comment: s.comment, source: s.source, at: s.at,
-      scorer: users.get(String(s.scorerId)) || { id: String(s.scorerId) }
+      scorer: users.get(String(s.scorerId)) || { id: String(s.scorerId) },
+      onBehalfOf: s.operatorId != null ? (users.get(String(s.operatorId)) || { id: String(s.operatorId) }) : null
     }))
     v.misses = (o.misses || []).map(m => ({
       id: String(m.id), reason: m.reason, createdAt: m.createdAt,
@@ -149,11 +154,11 @@ export async function personWeek(cycle, ownerId, { detail = true, updatesPerObje
     }
   })
   const userIds = [ownerId]
-  if (detail) {
-    for (const o of objectives) {
-      for (const u of o.updates) userIds.push(u.createdBy)
-      for (const s of o.scores) userIds.push(s.scorerId)
-    }
+  for (const o of objectives) {
+    userIds.push(o.operatorId)
+    if (!detail) continue
+    for (const u of o.updates) userIds.push(u.createdBy, u.operatorId)
+    for (const s of o.scores) userIds.push(s.scorerId, s.operatorId)
   }
   const users = await loadUsers(userIds)
   const views = objectives.map(o => objectiveView(o, users, { detail }))
@@ -177,10 +182,12 @@ export async function personWeek(cycle, ownerId, { detail = true, updatesPerObje
  * - 提交: 未提交的 O 打上 submittedAt; 过了周一 24:00 记 lateSubmit, 不拦
  * - 同一周反复提交不会产生第二个周期(周期按 year+weekNo 唯一)
  */
-export async function savePlan({ ownerId, week, objectives, submit = false, now = new Date() }) {
+export async function savePlan({ ownerId, operatorId = null, week, objectives, submit = false, now = new Date() }) {
   const cycle = await getCycle(week, { create: true, now })
   if (!isEditable(cycle.status)) throw forbidden(READ_ONLY_MSG)
   const owner = BigInt(ownerId)
+  // 代管留痕: 他人代为保存/提交记操作人; 本人自己保存时清空
+  const operator = operatorId != null && String(operatorId) !== String(ownerId) ? BigInt(operatorId) : null
 
   return prisma.$transaction(async (tx) => {
     const existing = await tx.okrObjective.findMany({
@@ -193,7 +200,7 @@ export async function savePlan({ ownerId, week, objectives, submit = false, now 
     const byId = new Map(existing.map(o => [String(o.id), o]))
     const keepIds = new Set(plan.filter(o => o.id).map(o => o.id))
     for (const o of plan) {
-      if (o.id && !byId.has(o.id)) throw new OkrRuleError(`O ${o.id} 不是你这周的`, { code: 8101 })
+      if (o.id && !byId.has(o.id)) throw new OkrRuleError(`O ${o.id} 不是${operator ? '此人' : '你'}这周的`, { code: 8101 })
     }
 
     // 删除: 没出现在新计划里的 O
@@ -207,10 +214,11 @@ export async function savePlan({ ownerId, week, objectives, submit = false, now 
       await tx.okrObjective.delete({ where: { id: old.id } })
     }
 
+    // 迟交按被操作人这一周的截止判定(周期即被操作人的周期), 与谁点的提交无关
     const late = isLate(cycle.startDate, now)
     for (const o of plan) {
       const live = o.status !== 'DROPPED'
-      const submitFields = submit && live ? { submittedAt: now, lateSubmit: late } : {}
+      const submitFields = submit && live ? { submittedAt: now, lateSubmit: late, submittedByOperator: operator != null } : {}
       let objId
       if (o.id) {
         const old = byId.get(o.id)
@@ -219,6 +227,7 @@ export async function savePlan({ ownerId, week, objectives, submit = false, now 
           where: { id: objId },
           data: {
             seq: o.seq, title: o.title, description: o.description, weight: o.weight, status: o.status,
+            operatorId: operator,
             // 已提交的保留第一次的提交时间与迟交标记
             ...(old.submittedAt ? {} : submitFields)
           }
@@ -253,7 +262,7 @@ export async function savePlan({ ownerId, week, objectives, submit = false, now 
         const created = await tx.okrObjective.create({
           data: {
             cycleId: cycle.id, ownerId: owner, seq: o.seq, title: o.title, description: o.description,
-            weight: o.weight, status: o.status, ...submitFields
+            weight: o.weight, status: o.status, operatorId: operator, ...submitFields
           }
         })
         objId = created.id
@@ -305,7 +314,7 @@ function binaryValue(v) {
  * 推进一条 KR 并写一条 OkrUpdate(过程数据只增不改)。
  * value / status 都可选, 至少给一个或给 content
  */
-async function applyKrChange(tx, { o, kr, value, status, content, kind, source, sourceQuote, agentProfileId, userId, now }) {
+async function applyKrChange(tx, { o, kr, value, status, content, kind, source, sourceQuote, agentProfileId, userId, operatorId = null, now }) {
   const before = { value: kr.currentValue, status: kr.status }
   let newValue = kr.currentValue
   let newStatus = kr.status
@@ -330,7 +339,7 @@ async function applyKrChange(tx, { o, kr, value, status, content, kind, source, 
       statusBefore: before.status, statusAfter: newStatus,
       source, sourceQuote: sourceQuote ? String(sourceQuote).slice(0, 1000) : null,
       agentProfileId: agentProfileId ? BigInt(agentProfileId) : null,
-      createdBy: BigInt(userId)
+      createdBy: BigInt(userId), operatorId: operatorId != null ? BigInt(operatorId) : null
     }
   })
   const fresh = await tx.okrObjective.findUnique({ where: { id: o.id }, include: { keyResults: true } })
@@ -348,9 +357,16 @@ function autoContent(kr, before, after) {
 }
 
 /** 追加进展: 文字必填, 可挂到某条 KR 并同时推进它的数值 */
-export async function appendUpdate({ objectiveId, userId, content, krId, valueAfter, status, kind = 'MIDWEEK', source = 'MANUAL', sourceQuote, agentProfileId, now = new Date() }) {
+/**
+ * userId = 实际操作人; ownerId = 被操作人(缺省 = userId)。ownerId ≠ userId 即主管代填,
+ * 代管权限由路由层 resolveOkrTarget 校验, 这里只校验 O 确实属于被操作人
+ */
+const proxyOf = (ownerId, userId) => (ownerId != null && String(ownerId) !== String(userId) ? userId : null)
+
+export async function appendUpdate({ objectiveId, userId, ownerId, content, krId, valueAfter, status, kind = 'MIDWEEK', source = 'MANUAL', sourceQuote, agentProfileId, now = new Date() }) {
   const o = await loadObjective(objectiveId)
-  assertOwner(o, userId, '只能给自己的 OKR 追加进展')
+  const operatorId = proxyOf(ownerId, userId)
+  assertOwner(o, ownerId ?? userId, operatorId ? '这个 O 不属于目标员工' : '只能给自己的 OKR 追加进展')
   assertWritable(o)
   const text = String(content ?? '').trim()
   if (!text) throw new OkrRuleError('进展内容不能为空', { code: 8111 })
@@ -366,7 +382,7 @@ export async function appendUpdate({ objectiveId, userId, content, krId, valueAf
   }
   return prisma.$transaction(async (tx) => {
     if (kr && (hasValue || hasStatus)) {
-      return applyKrChange(tx, { o, kr, value: valueAfter, status, content: text, kind, source, sourceQuote, agentProfileId, userId, now })
+      return applyKrChange(tx, { o, kr, value: valueAfter, status, content: text, kind, source, sourceQuote, agentProfileId, userId, operatorId, now })
     }
     return tx.okrUpdate.create({
       data: {
@@ -375,46 +391,53 @@ export async function appendUpdate({ objectiveId, userId, content, krId, valueAf
         valueBefore: kr ? kr.currentValue : null, valueAfter: kr ? kr.currentValue : null,
         source, sourceQuote: sourceQuote ? String(sourceQuote).slice(0, 1000) : null,
         agentProfileId: agentProfileId ? BigInt(agentProfileId) : null,
-        createdBy: BigInt(userId)
+        createdBy: BigInt(userId), operatorId: operatorId != null ? BigInt(operatorId) : null
       }
     })
   })
 }
 
 /** 直接改 KR 当前值/状态(周中), 同样留一条 OkrUpdate */
-export async function patchKr({ krId, userId, currentValue, status, note, source = 'MANUAL', sourceQuote, agentProfileId, now = new Date() }) {
+export async function patchKr({ krId, userId, ownerId, currentValue, status, note, source = 'MANUAL', sourceQuote, agentProfileId, now = new Date() }) {
   if (!/^\d+$/.test(String(krId))) throw notFound('KR 不存在')
   const kr = await prisma.okrKeyResult.findUnique({ where: { id: BigInt(krId) } })
   if (!kr) throw notFound('KR 不存在')
   const o = await loadObjective(kr.objectiveId)
-  assertOwner(o, userId, '只能改自己的 KR')
+  const operatorId = proxyOf(ownerId, userId)
+  assertOwner(o, ownerId ?? userId, operatorId ? '这条 KR 不属于目标员工' : '只能改自己的 KR')
   assertWritable(o)
   const hasValue = currentValue !== undefined && currentValue !== null && currentValue !== ''
   const hasStatus = status !== undefined && status !== null && status !== ''
   if (!hasValue && !hasStatus) throw new OkrRuleError('currentValue 和 status 至少给一个', { code: 8111 })
   return prisma.$transaction(tx => applyKrChange(tx, {
-    o, kr, value: currentValue, status, content: note, kind: 'MIDWEEK', source, sourceQuote, agentProfileId, userId, now
+    o, kr, value: currentValue, status, content: note, kind: 'MIDWEEK', source, sourceQuote, agentProfileId, userId, operatorId, now
   }))
 }
 
 // ---------------------------------------------------------------- 评分
 
-export async function scoreObjective({ objectiveId, userId, role, score, comment, source = 'MANUAL' }) {
+export async function scoreObjective({ objectiveId, userId, ownerId, role, score, comment, source = 'MANUAL' }) {
   const o = await loadObjective(objectiveId)
   const value = validScore(score)
   if (!isScorable(o.cycle.status)) {
     throw forbidden(o.cycle.status === 'CLOSED' ? '本周已归档, 评分需要主管先重开本周' : '计划阶段还不能评分, 进入周中后再评')
   }
   if (!o.submittedAt) throw conflict('这周的 OKR 还没提交, 先让本人在页面上提交计划', 8110)
+  let operatorId = null
   if (role === 'SELF') {
-    assertOwner(o, userId, '自评只能评自己的 O')
+    // 主管代改自评: 自评仍记在本人名下(scorerId = 本人), 操作人另记 operatorId
+    operatorId = proxyOf(ownerId, userId)
+    assertOwner(o, ownerId ?? userId, operatorId ? '这个 O 不属于目标员工' : '自评只能评自己的 O')
   } else if (String(o.ownerId) === String(userId)) {
     throw forbidden('不能给自己打主管分', 8109)
   }
   const text = comment ? String(comment).trim().slice(0, 500) : null
   return prisma.$transaction(async (tx) => {
     const s = await tx.okrScore.create({
-      data: { cycleId: o.cycleId, objectiveId: o.id, scorerId: BigInt(userId), role, score: value, comment: text, source }
+      data: {
+        cycleId: o.cycleId, objectiveId: o.id, scorerId: operatorId ? o.ownerId : BigInt(userId), role, score: value, comment: text, source,
+        operatorId: operatorId != null ? BigInt(operatorId) : null
+      }
     })
     await tx.okrObjective.update({
       where: { id: o.id },
@@ -426,9 +449,10 @@ export async function scoreObjective({ objectiveId, userId, role, score, comment
 
 // ---------------------------------------------------------------- 未达成
 
-export async function markMiss({ objectiveId, userId, reason, carryToNextWeek = false, now = new Date() }) {
+export async function markMiss({ objectiveId, userId, ownerId, reason, carryToNextWeek = false, now = new Date() }) {
   const o = await loadObjective(objectiveId)
-  assertOwner(o, userId, '只能填自己的未达成原因')
+  const operatorId = proxyOf(ownerId, userId)
+  assertOwner(o, ownerId ?? userId, operatorId ? '这个 O 不属于目标员工' : '只能填自己的未达成原因')
   if (!isScorable(o.cycle.status)) throw forbidden(o.cycle.status === 'CLOSED' ? READ_ONLY_MSG : '计划阶段还不能标记未达成')
   if (!o.submittedAt) throw conflict('这周的 OKR 还没提交, 先让本人在页面上提交计划', 8110)
   if (['DONE', 'DROPPED'].includes(o.status)) throw conflict(`「${o.title}」状态是 ${o.status}, 不需要填未达成原因`)
@@ -481,7 +505,8 @@ export async function markMiss({ objectiveId, userId, reason, carryToNextWeek = 
       data: {
         cycleId: o.cycleId, objectiveId: o.id, date: shanghaiDate(now), kind: 'FINAL',
         content: `未达成: ${text.slice(0, 900)}${nextCycle ? ` (已顺延到 ${weekKey(nextCycle)})` : ''}`,
-        statusBefore: o.status, statusAfter: 'MISSED', source: 'MANUAL', createdBy: BigInt(userId)
+        statusBefore: o.status, statusAfter: 'MISSED', source: 'MANUAL', createdBy: BigInt(userId),
+        operatorId: operatorId != null ? BigInt(operatorId) : null
       }
     })
     return { miss, carried, nextCycle }

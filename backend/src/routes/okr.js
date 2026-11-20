@@ -5,6 +5,10 @@
 //
 // 助手(MCP)调用: 内部 token 带 via='mcp'。助手只能写进展 / KR 数值 / 自评,
 // 计划的保存与提交、主管评分、未达成、归档与重开一律拒绝 —— 这些必须本人在页面上点。
+//
+// OKR 2.0 代管: 写接口都接受可选 targetUserId(缺省 = 自己), 经 resolveOkrTarget 校验代管权限
+// (ADMIN 任何人; MANAGER / 组长限本团队; 其余 403)。代填的记录写 operatorId, 返回带 onBehalfOf。
+// 主管评分不在代管范围, 仍只给 okr.score.manager(ADMIN)。
 import express from 'express'
 import { internalAuth, requirePermission, hasPermission } from '../lib/auth.js'
 import { logInternalAction } from '../lib/audit.js'
@@ -14,6 +18,7 @@ import {
   markMiss, teamView, history, closeCycle, reopenCycle, okrTick
 } from '../services/okr.js'
 import { generateOkrDraft } from '../services/okrDraft.js'
+import { resolveOkrTarget, canManageOkrOf } from '../services/okrAccess.js'
 
 const router = express.Router()
 router.use(internalAuth)
@@ -28,6 +33,15 @@ function fail(res, e, scope) {
 
 const viaAssistant = req => req.user?.via === 'mcp'
 const sourceOf = req => (viaAssistant(req) ? 'ASSISTANT' : 'MANUAL')
+
+/** 写操作的目标人: body.targetUserId > query.targetUserId > 自己 */
+function targetOf(req) {
+  const raw = req.body?.targetUserId ?? req.query.targetUserId
+  return resolveOkrTarget(req.user, raw, { viaAssistant: viaAssistant(req) })
+}
+
+/** 返回里的代管标记: 本人操作为 null */
+const onBehalfOf = t => (t.onBehalf ? { ownerId: t.ownerId, operatorId: t.operatorId } : null)
 
 /** 这几件事必须人自己点, 助手代办一律 403 */
 function humanOnly(what) {
@@ -73,9 +87,12 @@ async function weekPayload(req, res, { detail }) {
   if (!cycle) return ok(res, { cycle: null, week: weekKey(week), objectives: [] })
   const data = await personWeek(cycle, ownerId, { detail })
   const mine = ownerId === String(req.user.id)
+  // 代管: 能替此人改计划 / 进展 / 自评(不含主管评分)
+  const proxy = !mine && !viaAssistant(req) && await canManageOkrOf(req.user, ownerId, { targetRole: data.owner?.role })
   data.can = {
-    edit: mine && data.cycle.editable,
-    selfScore: mine && data.cycle.scorable,
+    edit: (mine || proxy) && data.cycle.editable,
+    selfScore: (mine || proxy) && data.cycle.scorable,
+    proxy,
     managerScore: !mine && data.cycle.scorable && hasPermission(req.user, 'okr.score.manager'),
     manageCycle: hasPermission(req.user, 'okr.cycle.manage')
   }
@@ -113,12 +130,20 @@ router.get('/history', async (req, res) => {
 async function plan(req, res, submit) {
   const week = weekOf(req, res)
   if (!week) return
-  const { late } = await savePlan({ ownerId: req.user.id, week, objectives: req.body?.objectives, submit })
+  const t = await targetOf(req)
+  const { late } = await savePlan({ ownerId: t.ownerId, operatorId: t.operatorId, week, objectives: req.body?.objectives, submit })
   const cycle = await getCycle(week)
-  const data = await personWeek(cycle, req.user.id)
+  const data = await personWeek(cycle, t.ownerId)
+  data.onBehalfOf = onBehalfOf(t)
   if (submit) {
     data.lateSubmit = !!late
-    logInternalAction(req, 'okr.plan.submit', { resourceType: 'okr_cycle', resourceId: cycle.id, details: { week: weekKey(week), late: !!late } })
+    data.submittedByOperator = t.onBehalf
+    logInternalAction(req, 'okr.plan.submit', {
+      resourceType: 'okr_cycle', resourceId: cycle.id,
+      details: { week: weekKey(week), late: !!late, ...(t.onBehalf ? { ownerId: t.ownerId, onBehalf: true } : {}) }
+    })
+  } else if (t.onBehalf) {
+    logInternalAction(req, 'okr.plan.save', { resourceType: 'okr_cycle', resourceId: cycle.id, details: { week: weekKey(week), ownerId: t.ownerId, onBehalf: true } })
   }
   ok(res, data)
 }
@@ -143,25 +168,33 @@ router.post('/plan/draft-from-report', async (req, res) => {
 router.post('/objectives/:id/updates', async (req, res) => {
   try {
     const b = req.body || {}
+    const t = await targetOf(req)
     const u = await appendUpdate({
-      objectiveId: req.params.id, userId: req.user.id, content: b.content, krId: b.krId,
+      objectiveId: req.params.id, userId: req.user.id, ownerId: t.ownerId, content: b.content, krId: b.krId,
       valueAfter: b.valueAfter, status: b.status, kind: b.kind || 'MIDWEEK',
       source: sourceOf(req), sourceQuote: viaAssistant(req) ? b.sourceQuote : null,
       agentProfileId: req.user.agentProfileId
     })
-    ok(res, { id: String(u.id), krId: u.krId != null ? String(u.krId) : null, valueBefore: u.valueBefore, valueAfter: u.valueAfter, statusAfter: u.statusAfter, source: u.source })
+    ok(res, {
+      id: String(u.id), krId: u.krId != null ? String(u.krId) : null, valueBefore: u.valueBefore, valueAfter: u.valueAfter, statusAfter: u.statusAfter, source: u.source,
+      operatorId: u.operatorId != null ? String(u.operatorId) : null, onBehalfOf: onBehalfOf(t)
+    })
   } catch (e) { fail(res, e, 'updates') }
 })
 
 router.patch('/krs/:id', async (req, res) => {
   try {
     const b = req.body || {}
+    const t = await targetOf(req)
     const u = await patchKr({
-      krId: req.params.id, userId: req.user.id, currentValue: b.currentValue, status: b.status, note: b.note,
+      krId: req.params.id, userId: req.user.id, ownerId: t.ownerId, currentValue: b.currentValue, status: b.status, note: b.note,
       source: sourceOf(req), sourceQuote: viaAssistant(req) ? b.sourceQuote : null,
       agentProfileId: req.user.agentProfileId
     })
-    ok(res, { updateId: String(u.id), krId: String(u.krId), valueBefore: u.valueBefore, valueAfter: u.valueAfter, statusBefore: u.statusBefore, statusAfter: u.statusAfter, source: u.source })
+    ok(res, {
+      updateId: String(u.id), krId: String(u.krId), valueBefore: u.valueBefore, valueAfter: u.valueAfter, statusBefore: u.statusBefore, statusAfter: u.statusAfter, source: u.source,
+      operatorId: u.operatorId != null ? String(u.operatorId) : null, onBehalfOf: onBehalfOf(t)
+    })
   } catch (e) { fail(res, e, 'krs') }
 })
 
@@ -170,8 +203,12 @@ router.patch('/krs/:id', async (req, res) => {
 router.post('/self-score', async (req, res) => {
   try {
     const b = req.body || {}
-    const s = await scoreObjective({ objectiveId: b.objectiveId, userId: req.user.id, role: 'SELF', score: b.score, comment: b.comment, source: sourceOf(req) })
-    ok(res, { id: String(s.id), objectiveId: String(s.objectiveId), role: s.role, score: s.score, source: s.source })
+    const t = await targetOf(req)
+    const s = await scoreObjective({ objectiveId: b.objectiveId, userId: req.user.id, ownerId: t.ownerId, role: 'SELF', score: b.score, comment: b.comment, source: sourceOf(req) })
+    ok(res, {
+      id: String(s.id), objectiveId: String(s.objectiveId), role: s.role, score: s.score, source: s.source,
+      operatorId: s.operatorId != null ? String(s.operatorId) : null, onBehalfOf: onBehalfOf(t)
+    })
   } catch (e) { fail(res, e, 'self-score') }
 })
 
@@ -187,9 +224,10 @@ router.post('/manager-score', humanOnly('打主管评分'), requirePermission('o
 router.post('/objectives/:id/miss', humanOnly('填写未达成原因'), async (req, res) => {
   try {
     const b = req.body || {}
-    const r = await markMiss({ objectiveId: req.params.id, userId: req.user.id, reason: b.reason, carryToNextWeek: !!b.carryToNextWeek })
+    const t = await targetOf(req)
+    const r = await markMiss({ objectiveId: req.params.id, userId: req.user.id, ownerId: t.ownerId, reason: b.reason, carryToNextWeek: !!b.carryToNextWeek })
     ok(res, {
-      id: String(r.miss.id),
+      id: String(r.miss.id), onBehalfOf: onBehalfOf(t),
       carriedToWeek: r.nextCycle ? weekKey(r.nextCycle) : null,
       carriedToObjectiveId: r.carried ? String(r.carried.id) : null
     })

@@ -1435,6 +1435,9 @@ model OkrObjective {
   managerComment String?   @map("manager_comment") @db.VarChar(500)
   submittedAt    DateTime? @map("submitted_at") // 空 = 草稿
   lateSubmit     Boolean   @default(false) @map("late_submit")
+  // OKR 2.0: 主管代管留痕 —— 最近一次由他人代为保存/提交计划的操作人(本人自己保存时清空)
+  operatorId          BigInt?  @map("operator_id")
+  submittedByOperator Boolean  @default(false) @map("submitted_by_operator")
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
@@ -1488,7 +1491,8 @@ model OkrUpdate {
   // 助手写入时: 用户原话(可追溯到哪一句话)与 Agent 身份
   sourceQuote    String?  @map("source_quote") @db.VarChar(1000)
   agentProfileId BigInt?  @map("agent_profile_id")
-  createdBy      BigInt   @map("created_by") // userId
+  createdBy      BigInt   @map("created_by") // userId(实际操作人)
+  operatorId     BigInt?  @map("operator_id") // OKR 2.0: 主管代填时 = 操作人; 本人填为空
   createdAt      DateTime @default(now()) @map("created_at")
 
   cycle     OkrCycle      @relation(fields: [cycleId], references: [id])
@@ -1511,6 +1515,7 @@ model OkrScore {
   score       Int // 0-100
   comment     String?  @db.VarChar(500)
   source      String   @default("MANUAL") @db.VarChar(10) // MANUAL|ASSISTANT(只有自评可能是助手代写)
+  operatorId  BigInt?  @map("operator_id") // OKR 2.0: 主管代改自评时 = 操作人(scorerId 仍是本人)
   at          DateTime @default(now())
 
   cycle     OkrCycle     @relation(fields: [cycleId], references: [id])
