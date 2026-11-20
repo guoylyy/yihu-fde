@@ -24,10 +24,12 @@ const STUBS = ['el-input', 'el-button', 'el-tag', 'el-progress', 'el-avatar', 'e
   'LoadError', 'router-link', 'TaskDetailDialog']
 
 /** 渲染; el-table 把 data 逐行喂给列的默认插槽, 列头插槽也渲染(看 tooltip 文案) */
-export async function renderView(render, state) {
+export async function renderView(render, state, extra = {}) {
   const app = Vue.createSSRApp({ render, setup: () => state })
   app.use(i18n) // 测试环境语言为 en(Node 没有中文浏览器语言)
   for (const name of STUBS) app.component(name, passthrough)
+  // extra: { 组件名: 组件 | true(透传 div) }, 给页面里自带的子组件(如 OkrWeekBar)用
+  for (const [name, comp] of Object.entries(extra)) app.component(name, comp === true ? passthrough : comp)
   app.component('el-table', { props: ['data'], setup(props, { slots }) { Vue.provide('rows', props.data); return () => Vue.h('div', slots.default?.()) } })
   app.component('el-table-column', {
     props: ['label', 'prop'],
