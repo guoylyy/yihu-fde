@@ -262,3 +262,94 @@ describe('自评入口: 页头主按钮 + 面板', () => {
     assert.equal(scoresComplete([{ score: 80.5 }]), false)
   })
 })
+
+describe('主管评分入口(仅 ADMIN)', () => {
+  test('非 ADMIN: 页头没有「主管评分」, 面板组件都不挂', async () => {
+    const html = await renderView(myRender, myState({ canScoreManager: false }), MY_EXTRA)
+    assert.ok(!html.includes('data-test="okr-mgr-open"'))
+    assert.ok(!html.includes(esc(t('okr.v3.mgr_btn'))))
+    const s = src('views/okr/MyOkr.vue')
+    assert.match(s, /<OkrManagerScorePanel\s+v-if="canScoreManager && data\?\.cycle"/)
+    assert.match(s, /canScoreManager = can\('okr\.score\.manager'\)/)
+  })
+
+  test('ADMIN: 与「提交自评」同一行, 次要按钮(不是 primary); 归档后置灰', async () => {
+    let html = await renderView(myRender, myState({ canScoreManager: true }), MY_EXTRA)
+    const row = html.split('data-test="okr-actions"')[1].split('okr-summary')[0]
+    assert.ok(row.includes('data-test="okr-self-open"') && row.includes('data-test="okr-mgr-open"'))
+    assert.doesNotMatch(btnTag(html, 'okr-mgr-open'), /type="primary"/)
+    assert.match(btnTag(html, 'okr-self-open'), /type="primary"/)
+    html = await renderView(myRender, myState({ canScoreManager: true, closed: true, self: { visible: false, rows: [] } }), MY_EXTRA)
+    assert.match(btnTag(html, 'okr-mgr-open'), /disabled/)
+  })
+
+  test('团队页: 没有「归档本周 / 重开本周 / 周期管理」入口', () => {
+    const s = src('views/okr/TeamOkr.vue')
+    for (const bad of ['reopen', 'okr.close_week', 'okr.manage_cycle', 'fde.okr.close(']) assert.ok(!s.includes(bad), bad)
+    assert.match(s, /v-if="canScore && data\.cycle\?\.status" class="okr-admin"/)
+    for (const f of ['views/okr/MyOkr.vue', 'components/okr/OkrManagerScorePanel.vue']) {
+      assert.ok(!/reopen|okr\.close\(/.test(src(f)), f)
+    }
+  })
+})
+
+describe('主管评分面板 OkrManagerScorePanel', () => {
+  const render = compileView('components/okr/OkrManagerScorePanel.vue')
+  const groups = [
+    { user: { id: '38', name: '林晓' }, rows: [
+      { id: '1', seq: 1, title: 'O-上线', selfScore: 80, original: null, score: 85, comment: '', locked: null },
+      { id: '2', seq: 2, title: 'O-文档', selfScore: null, original: null, score: null, comment: '', locked: 'noself' }
+    ] },
+    { user: { id: '188', name: 'Boss' }, rows: [{ id: '9', seq: 1, title: 'O-自己', selfScore: 70, original: null, score: null, comment: '', locked: 'own' }] }
+  ]
+  const state = (over = {}) => {
+    const st = { modelValue: true, week: '2026-W47', closed: false, mobile: false, loading: false, busy: '', error: '', groups, load() {}, saveOnly() {}, saveAndClose() {}, ...over }
+    st.allRows = st.groups.flatMap(g => g.rows)
+    st.scoredCount = st.allRows.filter(r => r.original != null).length
+    return st
+  }
+  const EX = { 'el-drawer': withFooter, 'el-input-number': true }
+
+  test('按人 / 按 O 列出自评分与主管分输入; 底部「保存评分」「保存并完成本周」', async () => {
+    const html = await renderView(render, state(), EX)
+    assert.ok(html.includes('林晓') && html.includes('O-上线') && html.includes('O-文档'))
+    assert.ok(html.includes('>80<'), '自评分')
+    assert.ok(html.includes(esc(t('okr.v3.mgr_no_self'))))
+    assert.ok(html.includes(esc(t('okr.v3.mgr_own'))))
+    assert.ok(html.includes(esc(t('okr.v3.mgr_save'))) && html.includes(esc(t('okr.v3.mgr_save_close'))))
+    assert.ok(html.includes(esc(t('okr.v3.mgr_progress', { p0: 0, p1: 3 }))))
+  })
+
+  test('close-by-score 400: message 原样展示', async () => {
+    const msg = '还有 1 个 O 没有主管评分, 评完才能完成本周：林晓 O2「O-文档」'
+    const html = await renderView(render, state({ error: msg }), EX)
+    assert.ok(html.split('data-test="okr-mgr-error"')[1].includes(msg))
+  })
+
+  test('已归档: 两个按钮都置灰', async () => {
+    const html = await renderView(render, state({ closed: true }), EX)
+    assert.match(btnTag(html, 'okr-mgr-save'), /disabled/)
+    assert.match(btnTag(html, 'okr-mgr-close'), /disabled/)
+  })
+
+  test('保存并完成本周: 先逐个 /manager-score, 全部成功才调 close-by-score; 失败把 message 放进面板', () => {
+    const s = src('components/okr/OkrManagerScorePanel.vue')
+    const fn = s.split('async function saveAndClose()')[1]
+    assert.ok(fn.indexOf('saveScores()') < fn.indexOf('fde.okr.closeByScore(props.week)'))
+    assert.match(fn, /if \(failed\.length\) \{[\s\S]*?return\s*\}/)
+    assert.match(fn, /catch \(e\) \{\s*error\.value = e\.message/)
+    assert.match(s, /fde\.okr\.managerScore\(\{ objectiveId: r\.id, score: r\.score, comment: r\.comment\.trim\(\) \}\)/)
+  })
+
+  test('managerScoreChanges: 只发有改动的; 没自评 / 自己的 O 跳过', () => {
+    const rows = [
+      { id: 'a', score: 80, original: 80, comment: '' },
+      { id: 'b', score: 70, original: 80, comment: '' },
+      { id: 'c', score: 80, original: 80, comment: '补一句' },
+      { id: 'd', score: null, original: null, comment: '' },
+      { id: 'e', score: 90, original: null, comment: '', locked: 'noself' },
+      { id: 'f', score: 90, original: null, comment: '', locked: 'own' }
+    ]
+    assert.deepEqual(managerScoreChanges(rows).map(r => r.id), ['b', 'c'])
+  })
+})

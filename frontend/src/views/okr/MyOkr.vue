@@ -37,6 +37,11 @@
           data-test="okr-self-open" @click="openSelf"
         >{{ selfBtnText }}</el-button>
         <span v-if="showSelfBtn && !isClosed && handling.missing.length" class="okr-act-warn" data-test="okr-self-pending">{{ $t('okr.v3.kr_pending', { p0: handling.missing.length }) }}</span>
+        <!-- 主管评分: 只渲染给 okr.score.manager(ADMIN); 次要按钮, 与自评区分 -->
+        <el-button
+          v-if="canScoreManager" class="okr-act-btn okr-act-mgr" :disabled="isClosed" :title="isClosed ? $t('okr.v3.closed_tip') : undefined"
+          data-test="okr-mgr-open" @click="mgr.visible = true"
+        >{{ isClosed ? $t('okr.v3.closed_btn') : $t('okr.v3.mgr_btn') }}</el-button>
       </div>
 
       <!-- 本周一句话概况 -->
@@ -137,6 +142,11 @@
       </template>
     </el-drawer>
 
+    <OkrManagerScorePanel
+      v-if="canScoreManager && data?.cycle" v-model="mgr.visible" :week="weekKeyNow" :me-id="String(meId)" :closed="isClosed" :mobile="isMobile"
+      @changed="mgr.changed = true" @update:model-value="onMgrClosed"
+    />
+
     <OkrReportDraftDialog
       v-model="reportOpen" :source="reportSource" :target-user-id="proxyTarget" :target-name="proxyMode ? ownerName : ''"
       @fill="fillFromReport"
@@ -169,6 +179,7 @@ import OkrWeekBar from '@/components/okr/OkrWeekBar.vue'
 import OkrObjectiveCard from '@/components/okr/OkrObjectiveCard.vue'
 import OkrPlanEditor from '@/components/okr/OkrPlanEditor.vue'
 import OkrReportDraftDialog from '@/components/okr/OkrReportDraftDialog.vue'
+import OkrManagerScorePanel from '@/components/okr/OkrManagerScorePanel.vue'
 import {
   PERSONAL_TAG, pct, toDraft, shiftKey, parseKey, isoWeekOf, weekKey, weekStart,
   weekWindow, weekNav, isPastKey, shortWeekLabel, emptyState, isBackfilledPlan,
@@ -191,6 +202,11 @@ const reportSource = ref('text')
 const isMobile = useIsMobile()
 const { me, meId, people, loadPeople, ensurePerson } = useOkrPeople()
 const self = reactive({ visible: false, rows: [] })
+// 主管评分面板(仅 ADMIN): 关掉时有改动就重拉, 卡片上的主管分 / 归档状态同步
+const mgr = reactive({ visible: false, changed: false })
+function onMgrClosed(v) {
+  if (!v && mgr.changed) { mgr.changed = false; load() }
+}
 const miss = reactive({ visible: false, obj: null, reason: '', carry: false })
 
 // OKR 2.0: 团队页全员可进(后端按 ADMIN 全部 / 其他人本团队过滤)
@@ -491,6 +507,7 @@ async function submitMiss() {
 .okr-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
 .okr-actions .el-button { margin-left: 0; }
 .okr-act-btn { min-height: 40px; padding: 0 18px; font-weight: 600; }
+.okr-act-mgr { font-weight: 500; }
 .okr-act-warn { font-size: 12px; color: var(--el-color-warning-dark-2); }
 .okr-sp { display: flex; flex-direction: column; gap: 12px; }
 .okr-sp-handling { margin: 0; font-size: 14px; font-weight: 600; color: var(--el-color-warning-dark-2); }

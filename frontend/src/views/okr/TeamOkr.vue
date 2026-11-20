@@ -83,18 +83,17 @@
         </ul>
       </section>
 
-      <!-- 周期管理收成一个菜单: 归档 / 重开都要二次确认并写清后果 -->
-      <div v-if="canManage && data.cycle?.id && (canClose || canReopen)" class="okr-admin">
-        <el-dropdown trigger="click" @command="(c) => (c === 'close' ? closeWeek() : reopenWeek())">
-          <el-button size="small">{{ $t('okr.manage_cycle') }} ▾</el-button>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item v-if="canClose" command="close">{{ $t('okr.close_week') }}</el-dropdown-item>
-              <el-dropdown-item v-if="canReopen" command="reopen" class="okr-danger-item">{{ $t('okr.reopen_week') }}</el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
+      <!-- OKR 3.0: 不再有「归档 / 重开本周」入口(应急重开只留在后端)。
+           正常流程: ADMIN 打完主管分 →「保存并完成本周」归档 -->
+      <div v-if="canScore && data.cycle?.status" class="okr-admin">
+        <el-button :disabled="data.cycle.status === 'CLOSED'" data-test="okr-mgr-open" @click="mgrOpen = true">
+          {{ data.cycle.status === 'CLOSED' ? $t('okr.v3.closed_btn') : $t('okr.v3.mgr_btn') }}
+        </el-button>
       </div>
+      <OkrManagerScorePanel
+        v-if="canScore && data.cycle?.status" v-model="mgrOpen" :week="weekKeyNow" :me-id="meId" :closed="data.cycle.status === 'CLOSED'" :mobile="isMobile"
+        @changed="mgrChanged = true" @update:model-value="v => { if (!v && mgrChanged) { mgrChanged = false; load() } }"
+      />
     </template>
   </div>
 </template>
@@ -102,13 +101,14 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import { $t } from '@/i18n'
 import { fde } from '@/api/index.js'
 import { can } from '@/api/permissions.js'
 import { useIsMobile } from '@/composables/useResponsive.js'
 import OkrWeekBar from '@/components/okr/OkrWeekBar.vue'
 import OkrPersonPicker from '@/components/okr/OkrPersonPicker.vue'
+import OkrManagerScorePanel from '@/components/okr/OkrManagerScorePanel.vue'
 import { pct, shiftKey, parseKey, isoWeekOf, weekKey } from './okrUtils.js'
 import { initialOf, mayProxyRow, pickerPeople, currentUser } from './okrPeople.js'
 
@@ -117,7 +117,6 @@ const router = useRouter()
 const isMobile = useIsMobile()
 const data = ref(null)
 const loading = ref(false)
-const canManage = computed(() => can('okr.cycle.manage'))
 const canScore = can('okr.score.manager')
 const me = currentUser()
 const meId = String(me.id || '')
@@ -126,8 +125,8 @@ const anyProxy = computed(() => (data.value?.rows || []).some(r => mayProxyRow(m
 
 const weekKeyNow = computed(() => data.value?.cycle?.key || route.query.week || weekKey(isoWeekOf()))
 const weekParts = computed(() => parseKey(weekKeyNow.value) || isoWeekOf())
-const canClose = computed(() => data.value?.cycle?.status === 'REVIEW' || (data.value?.cycle?.status !== 'CLOSED' && data.value?.cycle?.reopened))
-const canReopen = computed(() => ['REVIEW', 'CLOSED'].includes(data.value?.cycle?.status))
+const mgrOpen = ref(false)
+const mgrChanged = ref(false)
 const cycleTag = computed(() => ({ PLANNING: 'warning', IN_PROGRESS: 'primary', REVIEW: 'warning', CLOSED: 'info' }[data.value?.cycle?.status] || 'info'))
 
 async function load() {
@@ -166,32 +165,6 @@ function subClass(row) {
   return row.submission === 'LATE' ? 'okr-sub late' : 'okr-sub ok'
 }
 
-async function closeWeek() {
-  try {
-    await ElMessageBox.confirm($t('okr.confirm_close', { p0: weekKeyNow.value }), $t('okr.close_week'), { type: 'warning', confirmButtonText: $t('okr.close_week'), cancelButtonText: $t('common.cancel') })
-  } catch { return }
-  try {
-    await fde.okr.close(weekKeyNow.value)
-    ElMessage.success($t('okr.closed_ok'))
-    await load()
-  } catch (e) { ElMessage.error(e.message) }
-}
-
-async function reopenWeek() {
-  let reason
-  try {
-    const r = await ElMessageBox.prompt($t('okr.confirm_reopen', { p0: weekKeyNow.value }), $t('okr.reopen_week'), {
-      type: 'warning', confirmButtonText: $t('okr.reopen_week'), cancelButtonText: $t('common.cancel'),
-      inputPlaceholder: $t('okr.reopen_reason'), inputValidator: v => !!String(v || '').trim() || $t('okr.reopen_reason_required')
-    })
-    reason = r.value
-  } catch { return }
-  try {
-    await fde.okr.reopen(weekKeyNow.value, reason)
-    ElMessage.success($t('okr.reopened_ok'))
-    await load()
-  } catch (e) { ElMessage.error(e.message) }
-}
 </script>
 
 <style scoped>
@@ -227,5 +200,4 @@ async function reopenWeek() {
 .okr-low li { display: flex; justify-content: space-between; gap: 8px; }
 .okr-low a { color: var(--el-color-primary); text-decoration: none; }
 .okr-admin { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
-:global(.okr-danger-item) { color: var(--el-color-danger) !important; }
 </style>
