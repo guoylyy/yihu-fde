@@ -45,7 +45,7 @@
       <el-button v-if="cancellable" @click="$emit('cancel')">{{ $t('common.cancel') }}</el-button>
       <el-button v-if="!submitted" :loading="busy === 'save'" @click="emitPlan('save')">{{ $t('okr.save_draft') }}</el-button>
       <el-button type="primary" :loading="busy === 'submit'" :disabled="problems.length > 0" @click="emitPlan('submit')">
-        {{ submitted ? $t('okr.save_and_submit') : $t('okr.submit_plan') }}
+        {{ submitLabel || (submitted ? $t('okr.save_and_submit') : $t('okr.submit_plan')) }}
       </el-button>
     </div>
     <p v-if="lateHint" class="okr-late-hint">{{ $t('okr.late_hint') }}</p>
@@ -68,7 +68,9 @@ const props = defineProps({
   submitted: Boolean,
   cancellable: Boolean,
   lateHint: Boolean,
-  busy: { type: String, default: '' }
+  busy: { type: String, default: '' },
+  // 代管时「代 <姓名> 提交」; 空 = 默认文案
+  submitLabel: { type: String, default: '' }
 })
 const emit = defineEmits(['save', 'submit', 'cancel'])
 
@@ -163,14 +165,17 @@ function insertBulk(titles) {
 function hasContent() {
   return draft.value.some(o => String(o.title || '').trim() || String(o.description || '').trim() || o.keyResults.some(k => String(k.title || '').trim()))
 }
-defineExpose({ hasContent })
-
-function emitPlan(kind) {
-  const objectives = draft.value.map(({ _k, ...o }) => ({
+/** 当前编辑器里的计划(去掉内部 key), 「追加」草稿时用 */
+function getPlan() {
+  return draft.value.map(({ _k, ...o }) => ({
     ...o,
     keyResults: o.keyResults.map(({ _k: _, ...k }) => ({ ...k, unit: k.unit || null }))
   }))
-  emit(kind, objectives)
+}
+defineExpose({ hasContent, getPlan })
+
+function emitPlan(kind) {
+  emit(kind, getPlan())
 }
 </script>
 
