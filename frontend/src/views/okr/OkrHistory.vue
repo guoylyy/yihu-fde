@@ -12,7 +12,7 @@
     <div class="okr-legend">
       <span class="l1">{{ $t('okr.completion') }}</span>
       <span class="l2">{{ $t('okr.self_score') }}</span>
-      <span class="l3">{{ $t('okr.manager_score') }}</span>
+      <span v-if="showMgr" class="l3">{{ $t('okr.manager_score') }}</span>
     </div>
     <div ref="chartEl" class="okr-chart" />
     <!-- 明细只露最近 4 周, 更早的收进「全部 12 周」(首屏可点元素不随周数增长) -->
@@ -44,6 +44,7 @@ import { echarts } from '@/utils/echarts.js'
 import OkrWeekBar from '@/components/okr/OkrWeekBar.vue'
 import OkrHistoryRow from '@/components/okr/OkrHistoryRow.vue'
 import { pct, isoWeekOf, weekKey } from './okrUtils.js'
+import { canSeeManagerScore, currentUser, viewedUserId } from './okrPeople.js'
 
 const RECENT = 4
 
@@ -52,8 +53,11 @@ const data = ref(null)
 const loading = ref(false)
 const chartEl = ref(null)
 let chart = null
-const canTeam = computed(() => can('okr.view.all'))
-const ownerId = computed(() => route.query.ownerId || '')
+// OKR 2.0: 团队页全员可进; 主管分只给本人与 okr.score.manager(后端对其他人不返回)
+const canTeam = computed(() => true)
+const meId = String(currentUser().id || '')
+const ownerId = computed(() => viewedUserId(route.query))
+const showMgr = computed(() => canSeeManagerScore({ ownerId: ownerId.value || meId, meId, canScore: can('okr.score.manager') }))
 const cur = isoWeekOf()
 const curKey = weekKey(cur)
 const showAll = ref(false)
@@ -86,13 +90,12 @@ function draw() {
   chart.setOption({
     grid: { left: 32, right: 12, top: 28, bottom: 24 },
     tooltip: { trigger: 'axis', valueFormatter: v => (v == null ? '-' : v) },
-    legend: undefined,
     xAxis: { type: 'category', data: ws.map(w => 'W' + w.weekNo), axisTick: { show: false } },
     yAxis: { type: 'value', min: 0, max: 100, interval: 25 },
     series: [
       { name: $t('okr.completion'), type: 'line', data: ws.map(w => (w.completion == null ? null : pct(w.completion))), connectNulls: false, symbolSize: 6, itemStyle: { color: c1 }, lineStyle: { width: 2 } },
       { name: $t('okr.self_score'), type: 'line', data: ws.map(w => w.selfScore), symbolSize: 5, itemStyle: { color: c2 }, lineStyle: { width: 1.5, type: 'dashed' } },
-      { name: $t('okr.manager_score'), type: 'line', data: ws.map(w => w.managerScore), symbolSize: 5, itemStyle: { color: c3 }, lineStyle: { width: 1.5 } }
+      ...(showMgr.value ? [{ name: $t('okr.manager_score'), type: 'line', data: ws.map(w => w.managerScore), symbolSize: 5, itemStyle: { color: c3 }, lineStyle: { width: 1.5 } }] : [])
     ]
   }, true)
   chart.resize()

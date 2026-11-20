@@ -49,11 +49,12 @@ const routes = [
         meta: { requiredPerm: 'project.view', requiredRoles: ['ADMIN', 'MANAGER', 'FDE_ENGINEER'] } },
       { path: 'conversations/:id(\\d+)', name: 'AdminConversationDetail', component: () => import('@/views/admin/conversations/ConversationDetail.vue'),
         meta: { requiredPerm: 'project.view', requiredRoles: ['ADMIN', 'MANAGER', 'FDE_ENGINEER'] } },
-      // 周 OKR(公司管理级, 与项目管理无关): 自己的 OKR 与历史只要登录; 团队视图要 okr.view.all(只给老板)
+      // 周 OKR(公司管理级, 与项目管理无关)。OKR 2.0: 全员可看他人 O/KR, 团队页登录即可进
+      // (后端按 ADMIN 全部 / 其他人本团队过滤, 主管评分只给本人与 ADMIN)
       { path: 'okr', name: 'AdminOkr', component: () => import('@/views/okr/MyOkr.vue') },
       { path: 'okr/history', name: 'AdminOkrHistory', component: () => import('@/views/okr/OkrHistory.vue') },
-      { path: 'okr/team', name: 'AdminOkrTeam', component: () => import('@/views/okr/TeamOkr.vue'),
-        meta: { requiredPerm: 'okr.view.all', requiredRoles: ['ADMIN'] } },
+      { path: 'okr/team', name: 'AdminOkrTeam', component: () => import('@/views/okr/TeamOkr.vue') },
+      { path: 'okr/person/:userId(\\d+)', name: 'AdminOkrPerson', component: () => import('@/views/okr/OkrPerson.vue') },
       { path: 'customers', name: 'AdminCustomers', component: () => import('@/views/admin/Customers.vue'),
         meta: { requiredPerm: 'customer.view', requiredRoles: ['ADMIN', 'MANAGER'] } },
       { path: 'projects', name: 'AdminProjects', component: () => import('@/views/admin/Projects.vue'),

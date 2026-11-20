@@ -53,4 +53,7 @@ const weekQuery = computed(() => (props.weekKey ? { week: props.weekKey } : {}))
 .okr-wb-sub { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 24px; }
 .okr-wb-links { display: flex; gap: 16px; margin-left: auto; }
 .okr-wb-links a { font-size: 13px; color: var(--el-color-primary); text-decoration: none; padding: 2px 0; }
+@media (max-width: 640px) {
+  .okr-wb-arrow { min-width: 44px; min-height: 44px; }
+}
 </style>
