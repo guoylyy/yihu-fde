@@ -15,8 +15,9 @@
 
     <OkrWeekBar
       :year="weekParts.year" :week-no="weekParts.weekNo" :week-key="weekKeyNow"
-      :start="data?.cycle?.startDate" :end="data?.cycle?.endDate"
-      :tag-text="tagText" :tag-type="tagType" :active="viewingOther ? '' : 'mine'" :show-team="canTeam" :hide-links="viewingOther"
+      :start="weekDates.start" :end="weekDates.end"
+      :tag-text="tagText" :tag-type="tagType" :extra-tag="backfillTag" :active="viewingOther ? '' : 'mine'" :show-team="canTeam" :hide-links="viewingOther"
+      :prev-disabled="!nav.prev" :next-disabled="!nav.next"
       @shift="shift"
     />
 
@@ -36,10 +37,19 @@
         <button v-if="canEditPlan" type="button" class="okr-edit-link" @click="startEdit">{{ $t('okr.edit_plan') }}</button>
       </div>
 
-      <p v-if="!data.cycle" class="okr-empty">{{ $t('okr.no_cycle') }}</p>
+      <!-- 这周一条 O 都没有: 空态必须带去处(补录 / 新建 / 代补录); 只有已归档、超出窗口、看别人且无代管权时才只有说明 -->
+      <div v-if="empty && !editing" class="okr-empty okr-empty-box" data-test="okr-empty">
+        <p>{{ $t(...empty.text) }}</p>
+        <el-button v-if="empty.action" type="primary" class="okr-empty-btn" :data-test="'okr-empty-' + empty.action" @click="startBackfill">{{ $t(...empty.label) }}</el-button>
+      </div>
+
+      <!-- 补录: 编辑器顶部常驻一条, 说清这周已过、提交记迟交 -->
+      <div v-if="editing && isPastWeek" class="okr-backfill-bar" role="status" data-test="okr-backfill-bar">
+        {{ $t('okr.backfill.banner', { p0: weekLabel }) }}
+      </div>
 
       <!-- 本周还没提交: 贴周报生成草稿(只填编辑器, 不提交)。代管时常驻, 另加「导入文档生成」 -->
-      <div v-if="data.cycle && editing && (proxyMode || (!submittedOnce && !viewingOther))" class="okr-quick">
+      <div v-if="editorOpen && (proxyMode || (!submittedOnce && !viewingOther))" class="okr-quick">
         <span class="okr-quick-text">{{ proxyMode ? $t('okr.import.entry_hint', { p0: ownerName }) : $t('okr.report.entry_hint') }}</span>
         <span class="okr-quick-btns">
           <el-button type="primary" plain size="small" data-test="report-open" @click="openDraft('text')">{{ $t('okr.report.open') }}</el-button>
@@ -49,15 +59,14 @@
 
       <!-- 写计划 / 改计划 -->
       <OkrPlanEditor
-        v-if="data.cycle && editing" ref="editorRef"
-        :initial="draftInit" :submitted="submittedOnce" :cancellable="submittedOnce" :busy="busy"
-        :late-hint="data.cycle.deadlinePassed && !submittedOnce"
+        v-if="editorOpen" ref="editorRef"
+        :initial="draftInit" :submitted="submittedOnce" :cancellable="submittedOnce || !!empty" :busy="busy"
+        :late-hint="deadlinePassed && !submittedOnce"
         :submit-label="proxyMode ? $t('okr.proxy.submit_for', { p0: ownerName }) : ''"
         @save="(objs) => savePlan(objs, false)" @submit="(objs) => savePlan(objs, true)" @cancel="editing = false"
       />
 
       <template v-else-if="data.cycle">
-        <p v-if="!data.objectives.length" class="okr-empty">{{ viewingOther ? $t('okr.other_not_submitted') : $t('okr.nothing_this_week') }}</p>
         <div class="okr-list">
           <OkrObjectiveCard
             v-for="o in data.objectives" :key="o.id + ':' + o.updatedKey" :obj="o"
@@ -135,7 +144,10 @@ import OkrWeekBar from '@/components/okr/OkrWeekBar.vue'
 import OkrObjectiveCard from '@/components/okr/OkrObjectiveCard.vue'
 import OkrPlanEditor from '@/components/okr/OkrPlanEditor.vue'
 import OkrReportDraftDialog from '@/components/okr/OkrReportDraftDialog.vue'
-import { PERSONAL_TAG, pct, toDraft, shiftKey, parseKey, isoWeekOf, weekKey } from './okrUtils.js'
+import {
+  PERSONAL_TAG, pct, toDraft, shiftKey, parseKey, isoWeekOf, weekKey, weekStart,
+  weekWindow, weekNav, isPastKey, shortWeekLabel, emptyState, isBackfilledPlan
+} from './okrUtils.js'
 import { viewedUserId, queryForPerson, sameId, mergeDraft } from './okrPeople.js'
 import { useOkrPeople } from './useOkrPeople.js'
 
@@ -166,12 +178,39 @@ const proxyMode = computed(() => viewingOther.value && !!data.value?.can?.proxy)
 const proxyTarget = computed(() => (proxyMode.value ? String(data.value.owner?.id || ownerId.value) : ''))
 /** 能动手(本人或代管): 改计划 / 记进展 / 自评 / 未达成 */
 const canAct = computed(() => !viewingOther.value || proxyMode.value)
-const ownerName = computed(() => data.value?.owner?.name || '')
+const ownerName = computed(() => data.value?.owner?.name || people.value?.find?.(p => sameId(p.id, ownerId.value))?.name || '')
 const meName = me.name || me.username || ''
 const weekKeyNow = computed(() => data.value?.cycle?.key || data.value?.week || route.query.week || weekKey(isoWeekOf()))
 const weekParts = computed(() => parseKey(weekKeyNow.value) || isoWeekOf())
 
 const submittedOnce = computed(() => (data.value?.objectives || []).some(o => o.submittedAt))
+
+// 补录 / 空态 / 周切换边界
+const weekDates = computed(() => {
+  const d = data.value
+  if (d?.cycle) return { start: d.cycle.startDate, end: d.cycle.endDate }
+  if (d?.startDate) return { start: d.startDate, end: d.endDate }
+  const s = weekStart(weekParts.value)
+  return { start: s.toISOString(), end: new Date(s.getTime() + 7 * 86400000 - 1).toISOString() }
+})
+const win = computed(() => weekWindow(data.value?.window))
+const nav = computed(() => weekNav(weekKeyNow.value, win.value))
+const isPastWeek = computed(() => {
+  const d = data.value
+  if (d?.cycle?.backfilled != null) return d.cycle.backfilled
+  if (d && !d.cycle && d.backfill != null) return d.backfill
+  return isPastKey(weekKeyNow.value)
+})
+const weekLabel = computed(() => shortWeekLabel(weekKeyNow.value, $t))
+const empty = computed(() => emptyState(data.value, { viewingOther: viewingOther.value, ownerName: ownerName.value }))
+/** 编辑器开着: 有周期且在编辑; 或周期还没建(补录 / 新建)但后端说能建 */
+const editorOpen = computed(() => !!data.value && editing.value && (!!data.value.cycle || !!data.value.can?.create))
+const deadlinePassed = computed(() => {
+  const d = data.value
+  if (d?.cycle) return !!d.cycle.deadlinePassed
+  return d?.submitDeadline ? Date.now() >= new Date(d.submitDeadline).getTime() : isPastWeek.value
+})
+const backfillTag = computed(() => (isBackfilledPlan(data.value) ? $t('okr.backfill.tag') : ''))
 const canEditPlan = computed(() => canAct.value && data.value?.can?.edit)
 
 const tagText = computed(() => {
@@ -195,7 +234,9 @@ async function load() {
     }
     data.value = d
     // 本人(或代管人)、可编辑、还没提交过 → 直接进入写计划。看别人且无代管权时 can.edit 本来就是 false
-    editing.value = !!d.cycle && !!d.can?.edit && !(d.objectives || []).some(o => o.submittedAt) && (!viewingOther.value || !!d.can?.proxy)
+    // 过去的周一条都没有时不自动进编辑器, 先给「补录这一周」空态, 点了再进
+    const pastEmpty = !(d.objectives || []).length && (d.cycle ? !!d.cycle.backfilled : true)
+    editing.value = !!d.cycle && !!d.can?.edit && !(d.objectives || []).some(o => o.submittedAt) && (!viewingOther.value || !!d.can?.proxy) && !pastEmpty
     if (editing.value) draftInit.value = toDraft(d.objectives)
   } catch (e) {
     ElMessage.error(e.message)
@@ -218,6 +259,12 @@ function openDraft(source) {
 
 function shift(delta) {
   router.replace({ query: { ...route.query, week: shiftKey(weekKeyNow.value, delta) } })
+}
+
+/** 空态主操作: 补录 / 新建 / 代补录 —— 都是直接进编辑器(周期由保存时的写接口建) */
+function startBackfill() {
+  draftInit.value = toDraft(data.value?.objectives)
+  editing.value = true
 }
 
 function startEdit() {
@@ -379,6 +426,11 @@ async function submitMiss() {
 .okr-quick .el-button { flex: none; margin-left: 0; }
 .okr-list { display: flex; flex-direction: column; gap: 10px; }
 .okr-empty { color: var(--el-text-color-secondary); font-size: 13px; text-align: center; padding: 24px 0; }
+.okr-empty-box { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.okr-empty-box p { margin: 0; }
+.okr-empty-btn { min-height: 44px; padding: 0 20px; }
+.okr-backfill-bar { margin-bottom: 10px; padding: 10px 12px; border-radius: 8px; font-size: 13px; font-weight: 600;
+  color: var(--el-color-warning-dark-2); background: var(--el-color-warning-light-9); border: 1px solid var(--el-color-warning-light-5); }
 .okr-self { margin-top: 16px; padding: 12px 14px; border-radius: 10px; background: var(--el-color-warning-light-9); display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .okr-self-text { min-width: 0; }
 .okr-self h3 { margin: 0; font-size: 14px; }

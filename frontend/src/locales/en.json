@@ -2318,6 +2318,21 @@
       "confirm_submit": "Submit this week's plan on behalf of {p0}? Lateness is judged by {p0}'s deadline (after Monday 24:00 it counts as late for {p0}), and your name is recorded as the operator.",
       "act": "Edit for them"
     },
+    "backfill": {
+      "action": "Backfill this week",
+      "create_this": "Create this week's OKR",
+      "create_next": "Create next week's OKR",
+      "banner": "Backfilling {p0} (deadline passed, will be marked late)",
+      "week_label": "W{p1} '{p0}",
+      "tag": "Backfill",
+      "empty_past": "No OKRs for this week yet. You can backfill them (marked late).",
+      "empty_now": "No OKRs this week yet",
+      "archived": "This week is archived and has no OKRs from you. A manager must reopen it before you can backfill.",
+      "out_of_window": "OKRs can only be created or backfilled for {p0} ~ {p1}",
+      "other_none": "{p0} didn't submit OKRs for this week",
+      "proxy_backfill": "Backfill for {p0}",
+      "proxy_create": "Create for {p0}"
+    },
     "import": {
       "open": "Import document",
       "title": "Import this week's document as an OKR draft",

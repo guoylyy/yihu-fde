@@ -211,3 +211,85 @@ export function draftToEditor(objectives) {
 export function reportLength(text) {
   return String(text || '').replace(/\s+/g, '').length
 }
+
+// ---------------------------------------------------------------- 补录 / 周切换边界(与后端 creatableRange 同口径)
+
+export function compareKey(a, b) {
+  const x = parseKey(a); const y = parseKey(b)
+  if (!x || !y) return 0
+  return x.year !== y.year ? x.year - y.year : x.weekNo - y.weekNo
+}
+
+/** 能新建 / 补录的周: 本年第 1 周 ~ 下周。后端给了 window 用后端的, 没给(老后端)按本机时间算 */
+export function weekWindow(serverWindow, now = new Date()) {
+  if (serverWindow?.from && serverWindow?.to) return { from: serverWindow.from, to: serverWindow.to }
+  const cur = isoWeekOf(now)
+  return { from: weekKey({ year: cur.year, weekNo: 1 }), to: shiftKey(weekKey(cur), 1) }
+}
+
+export function inWindow(key, win) {
+  return compareKey(key, win.from) >= 0 && compareKey(key, win.to) <= 0
+}
+
+/**
+ * 周切换箭头能不能点: 目标周在窗口内才能翻; 当前周在窗口外(比如从链接进了去年的周)时, 朝窗口方向的那个箭头可点。
+ * 于是窗口第 1 周的 ‹(第 0 周)、下周的 ›(再往后)置灰, 不会翻过去才报错
+ */
+export function weekNav(key, win) {
+  const prev = shiftKey(key, -1)
+  const next = shiftKey(key, 1)
+  return {
+    prev: compareKey(prev, win.from) >= 0 && (compareKey(prev, win.to) <= 0 || compareKey(key, win.to) > 0),
+    next: compareKey(next, win.to) <= 0 && (compareKey(next, win.from) >= 0 || compareKey(key, win.from) < 0)
+  }
+}
+
+/** 周日 24:00(上海)之后 = 已过完的周; 此时写的计划是补录 */
+export function isPastKey(key, now = new Date()) {
+  const w = parseKey(key)
+  if (!w) return false
+  return weekStart(w).getTime() + 7 * DAY <= now.getTime()
+}
+
+/** 「26/第44周」 */
+export function shortWeekLabel(key, t = (k, p) => `${p.p0}/W${p.p1}`) {
+  const w = parseKey(key)
+  return w ? t('okr.backfill.week_label', { p0: String(w.year).slice(-2), p1: w.weekNo }) : String(key || '')
+}
+
+/**
+ * 这周这个人一条 O 都没有时的空态: 文案 + 主操作(没有操作 = action null)。
+ * - 本人: 能写 → 过去周「补录这一周」, 本周/下周「新建本(下)周 OKR」; 已归档 / 超出窗口只给说明
+ * - 看别人: 「<姓名> 这一周没有提交 OKR」, 只有代管权限才给「代 <姓名> 补录」
+ * canCreate 以后端为准(cycle 不存在时 can.create, 存在时 can.edit), 不在前端放宽
+ */
+export function emptyState(d, { viewingOther = false, ownerName = '', now = new Date() } = {}) {
+  if (!d || (d.objectives || []).length) return null
+  const key = d.cycle?.key || d.week
+  const win = weekWindow(d.window, now)
+  const past = d.cycle ? (d.cycle.backfilled ?? isPastKey(key, now)) : (d.backfill ?? isPastKey(key, now))
+  const canCreate = d.cycle ? !!d.can?.edit : !!d.can?.create
+  const proxy = !!d.can?.proxy
+  const name = ownerName || d.owner?.name || d.owner?.username || ''
+  if (viewingOther) {
+    const text = ['okr.backfill.other_none', { p0: name }]
+    if (proxy && canCreate) return { text, action: 'proxy', label: [past ? 'okr.backfill.proxy_backfill' : 'okr.backfill.proxy_create', { p0: name }] }
+    return { text, action: null }
+  }
+  if (canCreate) {
+    if (past) return { text: ['okr.backfill.empty_past'], action: 'backfill', label: ['okr.backfill.action'] }
+    const isNext = compareKey(key, weekKey(isoWeekOf(now))) > 0
+    return { text: ['okr.backfill.empty_now'], action: 'create', label: [isNext ? 'okr.backfill.create_next' : 'okr.backfill.create_this'] }
+  }
+  if (d.cycle?.status === 'CLOSED') return { text: ['okr.backfill.archived'], action: null }
+  if (!inWindow(key, win)) return { text: ['okr.backfill.out_of_window', { p0: win.from, p1: win.to }], action: null }
+  return { text: ['okr.nothing_this_week'], action: null }
+}
+
+/** 这份计划是不是补录的: 有 O 在那周过完之后才提交 */
+export function isBackfilledPlan(d) {
+  const end = d?.cycle?.endDate
+  if (!end) return false
+  const t = new Date(end).getTime()
+  return (d.objectives || []).some(o => o.status !== 'DROPPED' && o.submittedAt && new Date(o.submittedAt).getTime() > t)
+}

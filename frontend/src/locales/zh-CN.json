@@ -2318,6 +2318,21 @@
       "confirm_submit": "确认代 {p0} 提交本周计划？提交后按 {p0} 的时间算迟交（已过周一 24:00 即记为 {p0} 迟交），并留下你的代填记录。",
       "act": "代操作"
     },
+    "backfill": {
+      "action": "补录这一周",
+      "create_this": "新建本周 OKR",
+      "create_next": "新建下周 OKR",
+      "banner": "补录 {p0}（原截止已过，记为迟交）",
+      "week_label": "{p0}/第{p1}周",
+      "tag": "补录",
+      "empty_past": "这一周还没有 OKR，可以补录（记为迟交）",
+      "empty_now": "这周还没有 OKR",
+      "archived": "这一周已归档，没有你的 OKR；需要主管重开后才能补录",
+      "out_of_window": "只能新建或补录 {p0} ~ {p1} 的 OKR",
+      "other_none": "{p0} 这一周没有提交 OKR",
+      "proxy_backfill": "代 {p0} 补录",
+      "proxy_create": "代 {p0} 新建"
+    },
     "import": {
       "open": "导入文档生成",
       "title": "导入本周文档生成 OKR 草稿",

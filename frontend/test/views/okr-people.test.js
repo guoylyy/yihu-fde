@@ -266,11 +266,18 @@ describe('按年每周条形: 完成口径 = KR 条数比', () => {
   })
 })
 
+/** MyOkr 里 editorOpen 是 computed; 测试没手给就按「有周期且在编辑」推出来 */
+function withDerived(st) {
+  if (!('editorOpen' in st)) st.editorOpen = !!st.editing && !!st.data?.cycle
+  return st
+}
+
 describe('周 OKR 页 MyOkr: 看别人 / 代管', () => {
   const render = compileView('views/okr/MyOkr.vue')
   const obj = { id: '1', seq: 1, title: 'O-上线', weight: 100, status: 'ON_TRACK', progress: 0.4, submittedAt: '2026-11-16T02:00:00Z', keyResults: [], updatedKey: '0' }
-  const base = (over = {}) => ({
+  const base = (over = {}) => withDerived({
     loading: false, isMobile: false, busy: '', editing: false, draftInit: [], editorRef: null, reportOpen: false, reportSource: 'text',
+    empty: null, nav: { prev: true, next: true }, weekDates: {}, backfillTag: '', isPastWeek: false, deadlinePassed: false, weekLabel: '', startBackfill() {},
     self: { visible: false }, miss: { visible: false, reason: '' }, selfObj: null, scorable: [obj], selfDone: 0,
     pickedId: '5', people: [], meId: '3', meName: 'Boss', ownerId: '5', ownerName: '林晓',
     viewingOther: true, proxyMode: false, proxyTarget: '', canAct: false, canEditPlan: false, canScoreManager: false, showSelfScore: false,
