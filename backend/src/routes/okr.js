@@ -10,6 +10,10 @@
 // (ADMIN 任何人; MANAGER / 组长限本团队; 其余 403)。代填的记录写 operatorId, 返回带 onBehalfOf。
 // 主管评分不在代管范围, 仍只给 okr.score.manager(ADMIN)。
 import express from 'express'
+import multer from 'multer'
+import mammoth from 'mammoth'
+import prisma from '../lib/prisma.js'
+import { decodeOriginalName } from '../lib/storage.js'
 import { internalAuth, requirePermission, hasPermission } from '../lib/auth.js'
 import { logInternalAction } from '../lib/audit.js'
 import { parseWeek, weekKey, isoWeekOf, shiftWeek } from '../services/okrRules.js'
@@ -157,10 +161,69 @@ router.post('/plan/submit', humanOnly('提交本周计划'), async (req, res) =>
 })
 
 // 贴周报 → O/KR 草稿: 只返回草稿给编辑器, 不写库、不提交(提交仍走上面的 /plan/submit 和它的校验)
+// targetUserId: 主管替某个员工生成(要有代管权限); 草稿标注是替谁生成的, 仍然不落库
+async function draftTarget(req) {
+  const t = await targetOf(req)
+  const u = await prisma.user.findUnique({ where: { id: BigInt(t.ownerId) }, select: { id: true, name: true, username: true } })
+  return {
+    target: { id: t.ownerId, name: u?.name ?? null, username: u?.username ?? null },
+    onBehalfOf: onBehalfOf(t)
+  }
+}
+
 router.post('/plan/draft-from-report', async (req, res) => {
   try {
-    ok(res, await generateOkrDraft(req.body?.text))
+    const who = await draftTarget(req)
+    ok(res, { ...(await generateOkrDraft(req.body?.text)), ...who })
   } catch (e) { fail(res, e, 'plan/draft-from-report') }
+})
+
+// 上传本周文档 → O/KR 草稿(经理可替员工导入)。.md / .txt / .docx, 单文件 ≤ 2MB;
+// 解析出正文后复用 generateOkrDraft, 返回结构与 draft-from-report 相同, 另带 fileName。不落库
+export const DRAFT_FILE_MAX_BYTES = 2 * 1024 * 1024
+const DRAFT_FILE_EXT = /\.(md|markdown|txt|docx)$/i
+const draftUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: DRAFT_FILE_MAX_BYTES, files: 1 },
+  fileFilter: (req, file, cb) => {
+    file.originalname = decodeOriginalName(file.originalname)
+    if (!DRAFT_FILE_EXT.test(file.originalname)) {
+      return cb(new OkrRuleError('只支持 .md / .txt / .docx(老版 .doc 请先另存为 .docx)', { code: 8132 }))
+    }
+    cb(null, true)
+  }
+}).single('file')
+
+function receiveDraftFile(req, res, next) {
+  draftUpload(req, res, (err) => {
+    if (!err) return next()
+    if (err instanceof multer.MulterError) {
+      const msg = err.code === 'LIMIT_FILE_SIZE' ? '文件超过 2MB' : `上传失败: ${err.message}`
+      return res.status(400).json({ code: err.code === 'LIMIT_FILE_SIZE' ? 8133 : 8132, message: msg })
+    }
+    fail(res, err, 'plan/draft-from-file')
+  })
+}
+
+async function fileText(file) {
+  const name = file.originalname.toLowerCase()
+  if (name.endsWith('.docx')) {
+    let r
+    try { r = await mammoth.extractRawText({ buffer: file.buffer }) } catch {
+      throw new OkrRuleError('读不出这个 .docx(文件损坏或不是 Word 文档)', { code: 8132 })
+    }
+    return r.value || ''
+  }
+  return file.buffer.toString('utf8').replace(/^\uFEFF/, '')
+}
+
+router.post('/plan/draft-from-file', receiveDraftFile, async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ code: 8132, message: '请用 multipart 字段 file 上传 .md / .txt / .docx' })
+    const who = await draftTarget(req)
+    const text = await fileText(req.file)
+    ok(res, { ...(await generateOkrDraft(text)), fileName: req.file.originalname, ...who })
+  } catch (e) { fail(res, e, 'plan/draft-from-file') }
 })
 
 // ---------------------------------------------------------------- 进展
