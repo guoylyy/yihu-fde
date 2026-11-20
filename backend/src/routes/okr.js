@@ -19,10 +19,10 @@ import prisma from '../lib/prisma.js'
 import { decodeOriginalName } from '../lib/storage.js'
 import { internalAuth, requirePermission, hasPermission } from '../lib/auth.js'
 import { logInternalAction } from '../lib/audit.js'
-import { parseWeek, weekKey, isoWeekOf, shiftWeek } from '../services/okrRules.js'
+import { parseWeek, weekKey, isoWeekOf, shiftWeek, weekRange, submitDeadline, creatableRange, isCreatableWeek, isPastWeek } from '../services/okrRules.js'
 import {
   OkrRuleError, getCycle, personWeek, savePlan, appendUpdate, patchKr, scoreObjective,
-  markMiss, teamView, history, closeCycle, reopenCycle, okrTick
+  markMiss, teamView, history, closeCycle, reopenCycle, okrTick, planWritable
 } from '../services/okr.js'
 import { generateOkrDraft } from '../services/okrDraft.js'
 import { resolveOkrTarget, canManageOkrOf, teamListScope, forViewer, stripManagerScore } from '../services/okrAccess.js'
@@ -84,17 +84,41 @@ async function weekPayload(req, res, { detail }) {
   if (!week) return
   const ownerId = resolveOwner(req, res)
   if (!ownerId) return
-  // 本周/下周没有周期就建一个(空的), 其他周不存在就如实返回 null
-  const cur = isoWeekOf()
-  const creatable = weekKey(week) === weekKey(cur) || weekKey(week) === weekKey(shiftWeek(cur, 1))
-  const cycle = await getCycle(week, { create: creatable })
-  if (!cycle) return ok(res, { cycle: null, week: weekKey(week), objectives: [] })
-  const data = await personWeek(cycle, ownerId, { detail })
+  // 本周/下周没有周期就建一个(空的); 过去的周读的时候不建 —— 补录由写接口(保存/提交计划)建
+  const now = new Date()
+  const cur = isoWeekOf(now)
+  const autoCreate = weekKey(week) === weekKey(cur) || weekKey(week) === weekKey(shiftWeek(cur, 1))
+  const cycle = await getCycle(week, { create: autoCreate, now })
   const mine = ownerId === String(req.user.id)
+  // 新建窗口(本年第 1 周 ~ 下周): 前端据此决定空态给不给「补录这一周」, 周切换箭头到边界置灰
+  const { from, to } = creatableRange(now)
+  const window = { from: weekKey(from), to: weekKey(to) }
+  if (!cycle) {
+    const owner = await prisma.user.findUnique({ where: { id: BigInt(ownerId) }, select: { id: true, name: true, username: true, avatarUrl: true, role: true } })
+    const proxy = !mine && !viaAssistant(req) && !!owner && await canManageOkrOf(req.user, ownerId, { targetRole: owner.role })
+    const creatable = isCreatableWeek(week, now)
+    const { start, end } = weekRange(week.year, week.weekNo)
+    return ok(res, {
+      cycle: null,
+      week: weekKey(week),
+      startDate: start,
+      endDate: end,
+      submitDeadline: submitDeadline(start),
+      backfill: isPastWeek(week, now),
+      window,
+      owner: owner ? { id: String(owner.id), name: owner.name, username: owner.username, avatarUrl: owner.avatarUrl, role: owner.role } : { id: ownerId },
+      objectives: [],
+      can: { create: creatable && (mine || proxy) && !viaAssistant(req), proxy, edit: false, selfScore: false, managerScore: false, manageCycle: hasPermission(req.user, 'okr.cycle.manage') }
+    })
+  }
+  const data = await personWeek(cycle, ownerId, { detail })
   // 代管: 能替此人改计划 / 进展 / 自评(不含主管评分)
   const proxy = !mine && !viaAssistant(req) && await canManageOkrOf(req.user, ownerId, { targetRole: data.owner?.role })
+  const submittedBefore = data.objectives.some(o => o.submittedAt)
+  data.window = window
   data.can = {
-    edit: (mine || proxy) && data.cycle.editable,
+    // 计划可写: 进行中的周; 或周五复盘里这人还一条没交(补交, 记迟交)
+    edit: (mine || proxy) && planWritable(data.cycle.status, submittedBefore),
     selfScore: (mine || proxy) && data.cycle.scorable,
     proxy,
     managerScore: !mine && data.cycle.scorable && hasPermission(req.user, 'okr.score.manager'),

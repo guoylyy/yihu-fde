@@ -6,8 +6,11 @@ import {
   OkrRuleError, isoWeekOf, weekRange, weekKey, shiftWeek, compareWeek, nextStatus, timeStatus,
   isReopened, isEditable, isScorable, isLate, submitDeadline, normalizePlan, checkKrStatus,
   krProgress, objectiveProgress, personProgress, weightedScore, derivedObjectiveStatus,
-  validScore, personalStatus, equalWeights, LOW_COMPLETION, UPDATE_KINDS
+  validScore, personalStatus, equalWeights, LOW_COMPLETION, UPDATE_KINDS,
+  creatableRange, isCreatableWeek, isPastWeek, planWritable
 } from './okrRules.js'
+
+export { planWritable }
 
 export { OkrRuleError }
 
@@ -36,22 +39,35 @@ async function syncStatus(cycle, now = new Date(), db = prisma) {
   })
 }
 
+/** 超出新建窗口的报错文案: 只能为 2026-W01 ~ 2026-W48 之间的周新建或补录计划 */
+export function outOfRangeMessage(week, now = new Date()) {
+  const { from, to } = creatableRange(now)
+  return `${weekKey(week)} 没有 OKR 周期; 只能为 ${weekKey(from)}(本年第一周) ~ ${weekKey(to)}(下周) 之间的周新建或补录计划`
+}
+
 /**
- * 取某一周的周期。create=true 时不存在就建(只允许当前周与下一周, 防止随手造出几十年后的周期)。
+ * 取某一周的周期。create=true 时不存在就建(本年第 1 周 ~ 下周; 再往后不建, 防止随手造出几十年后的周期)。
+ * 只有写接口(保存/提交计划、顺延)传 create, 读接口不偷偷建过去的周。
+ * 补录: 建一个已经过完的周时直接给 IN_PROGRESS, 并按「重开」处理(reopenedAt=now, reopenedBy=null 表示
+ * 系统为补录开放), 否则会被时间立刻推成 CLOSED。它和主管重开一样, 等主管归档后才只读。
+ * 已经存在的周期(包括已归档的)不受影响 —— 补录放开的只是「没有周期的周」。
  * 返回 null 表示不存在且未建
  */
 export async function getCycle(week, { create = false, anyWeek = false, now = new Date(), db = prisma } = {}) {
   let cycle = await db.okrCycle.findUnique({ where: { year_weekNo: { year: week.year, weekNo: week.weekNo } } })
   if (!cycle) {
     if (!create) return null
-    const cur = isoWeekOf(now)
-    const d = compareWeek(week, cur)
     // anyWeek: 内部用(顺延到某个已有周期的下一周), 不受「本周/下周」限制
-    if (!anyWeek && (d < 0 || d > 1)) throw notFound(`${weekKey(week)} 没有 OKR 周期; 只能为本周或下周新建计划`)
+    if (!anyWeek && !isCreatableWeek(week, now)) throw notFound(outOfRangeMessage(week, now))
     const { start, end } = weekRange(week.year, week.weekNo)
+    const backfill = isPastWeek(week, now)
     try {
       cycle = await db.okrCycle.create({
-        data: { year: week.year, weekNo: week.weekNo, startDate: start, endDate: end, status: timeStatus({ startDate: start, endDate: end }, now) }
+        data: {
+          year: week.year, weekNo: week.weekNo, startDate: start, endDate: end,
+          status: backfill ? 'IN_PROGRESS' : timeStatus({ startDate: start, endDate: end }, now),
+          ...(backfill ? { reopenedAt: now, reopenedBy: null } : {})
+        }
       })
     } catch (e) {
       // 并发首建撞唯一键: 读回已存在的那条, 保证同一周永远只有一个周期
@@ -72,7 +88,10 @@ export function cycleView(cycle, now = new Date()) {
     endDate: cycle.endDate,
     submitDeadline: submitDeadline(cycle.startDate),
     status: cycle.status,
-    reopened: isReopened(cycle),
+    // reopenedBy 为空的「重开」是系统为补录开放的, 界面上不显示「已重开」
+    reopened: isReopened(cycle) && cycle.reopenedBy != null,
+    // 补录: 这一周已经过完(周日 24:00 之后), 此时写的计划记迟交
+    backfilled: new Date(cycle.endDate).getTime() < now.getTime(),
     reopenedAt: cycle.reopenedAt,
     closedAt: cycle.closedAt,
     editable: isEditable(cycle.status),
@@ -140,7 +159,7 @@ function objectiveView(o, users, { detail = true } = {}) {
 }
 
 /** 某人某周的 OKR(含 KR、进展、评分历史) */
-export async function personWeek(cycle, ownerId, { detail = true, updatesPerObjective = 30 } = {}) {
+export async function personWeek(cycle, ownerId, { detail = true, updatesPerObjective = 30, now = new Date() } = {}) {
   const objectives = await prisma.okrObjective.findMany({
     where: { cycleId: cycle.id, ownerId: BigInt(ownerId) },
     orderBy: { seq: 'asc' },
@@ -162,9 +181,13 @@ export async function personWeek(cycle, ownerId, { detail = true, updatesPerObje
   }
   const users = await loadUsers(userIds)
   const views = objectives.map(o => objectiveView(o, users, { detail }))
+  const cv = cycleView(cycle, now)
   return {
-    cycle: cycleView(cycle),
+    cycle: cv,
     owner: users.get(String(ownerId)) || { id: String(ownerId) },
+    // 与团队 / 统计同口径: NONE / ON_TIME / LATE; 补录的周提交即 LATE
+    submission: personSummary(cycle, objectives).submission,
+    backfilled: cv.backfilled,
     personalStatus: personalStatus(cycle.status, objectives),
     completion: r4(personProgress(objectives)),
     selfScore: weightedScore(objectives, 'selfScore'),
@@ -184,8 +207,8 @@ export async function personWeek(cycle, ownerId, { detail = true, updatesPerObje
  */
 export async function savePlan({ ownerId, operatorId = null, week, objectives, submit = false, now = new Date() }) {
   const cycle = await getCycle(week, { create: true, now })
-  if (!isEditable(cycle.status)) throw forbidden(READ_ONLY_MSG)
   const owner = BigInt(ownerId)
+  if (!(await canWritePlan(cycle, owner))) throw forbidden(READ_ONLY_MSG)
   // 代管留痕: 他人代为保存/提交记操作人; 本人自己保存时清空
   const operator = operatorId != null && String(operatorId) !== String(ownerId) ? BigInt(operatorId) : null
 
@@ -274,6 +297,14 @@ export async function savePlan({ ownerId, operatorId = null, week, objectives, s
     }
     return { cycle, late: submit ? late : undefined }
   })
+}
+
+/** 见 okrRules.planWritable; 只在复盘期才需要查这人交没交过 */
+async function canWritePlan(cycle, ownerId, db = prisma) {
+  if (isEditable(cycle.status)) return true
+  if (cycle.status !== 'REVIEW') return false
+  const n = await db.okrObjective.count({ where: { cycleId: cycle.id, ownerId: BigInt(ownerId), submittedAt: { not: null } } })
+  return planWritable(cycle.status, n > 0)
 }
 
 function krData(objectiveId, k) {

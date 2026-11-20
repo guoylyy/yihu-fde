@@ -64,6 +64,25 @@ export function weekKey({ year, weekNo }) {
 }
 
 /**
+ * 能新建 / 补录计划的周: 本(ISO)年第 1 周 ~ 下周。
+ * 过去的周可以补录(记迟交), 未来只放到下周, 防止随手造出几十年后的周期
+ */
+export function creatableRange(now = new Date()) {
+  const cur = isoWeekOf(now)
+  return { from: { year: cur.year, weekNo: 1 }, to: shiftWeek(cur, 1) }
+}
+
+export function isCreatableWeek(week, now = new Date()) {
+  const { from, to } = creatableRange(now)
+  return compareWeek(week, from) >= 0 && compareWeek(week, to) <= 0
+}
+
+/** 整周已经过完(周日 24:00 之后): 这时才写的计划算补录 */
+export function isPastWeek(week, now = new Date()) {
+  return weekRange(week.year, week.weekNo).end.getTime() < now.getTime()
+}
+
+/**
  * 解析 week 参数: 空 / current / next / prev / YYYY-Www。不合法返回 null
  */
 export function parseWeek(raw, now = new Date()) {
@@ -125,6 +144,14 @@ export function isReopened(cycle) {
 /** 计划/进展/KR 数值能不能改 */
 export function isEditable(status) {
   return status === 'PLANNING' || status === 'SUBMITTED' || status === 'IN_PROGRESS'
+}
+
+/**
+ * 计划能不能写: 进行中的周照旧; 周五复盘(REVIEW)里, 这周一条都还没提交的人也可以补上计划(记迟交),
+ * 免得周五之后打开就是死路。已提交过的人 REVIEW 里计划仍只读; 已归档(CLOSED)一律只读
+ */
+export function planWritable(cycleStatus, submittedBefore) {
+  return isEditable(cycleStatus) || (cycleStatus === 'REVIEW' && !submittedBefore)
 }
 
 /** 能不能评分(自评/主管评): 进行中和周五复盘; 归档后要主管重开 */

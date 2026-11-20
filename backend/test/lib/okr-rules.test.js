@@ -192,3 +192,47 @@ describe('完成度与评分', () => {
     assert.equal(personalStatus('CLOSED', [sub]), 'CLOSED')
   })
 })
+
+describe('补录窗口: 本年第 1 周 ~ 下周', async () => {
+  const { creatableRange, isCreatableWeek, isPastWeek, planWritable } = await import('../../src/services/okrRules.js')
+
+  test('2026-W47 时: W01…W48 可建, W49 及以后、去年的周都不行', () => {
+    const now = at('2026-11-20T04:00:00Z') // 周五(上海)
+    assert.deepEqual(creatableRange(now), { from: { year: 2026, weekNo: 1 }, to: { year: 2026, weekNo: 48 } })
+    for (const n of [1, 2, 44, 45, 46, 47, 48]) assert.equal(isCreatableWeek({ year: 2026, weekNo: n }, now), true, `W${n}`)
+    assert.equal(isCreatableWeek({ year: 2026, weekNo: 49 }, now), false)
+    assert.equal(isCreatableWeek({ year: 2026, weekNo: 50 }, now), false)
+    assert.equal(isCreatableWeek({ year: 2025, weekNo: 52 }, now), false)
+    assert.equal(isCreatableWeek({ year: 2099, weekNo: 1 }, now), false)
+  })
+
+  test('跨年: 2026-12-31 属 2026-W53, 下周是 2027-W01 —— 两者都可建, 2027-W02 不行', () => {
+    const now = at('2026-12-31T04:00:00Z')
+    assert.deepEqual(isoWeekOf(now), { year: 2026, weekNo: 53 })
+    assert.deepEqual(creatableRange(now).to, { year: 2027, weekNo: 1 })
+    assert.equal(isCreatableWeek({ year: 2026, weekNo: 1 }, now), true)
+    assert.equal(isCreatableWeek({ year: 2027, weekNo: 1 }, now), true)
+    assert.equal(isCreatableWeek({ year: 2027, weekNo: 2 }, now), false)
+  })
+
+  test('新年第一周: 只能补本年 W01, 去年的周不再能新建', () => {
+    const now = at('2027-01-06T04:00:00Z') // 2027-W01 周三
+    assert.deepEqual(isoWeekOf(now), { year: 2027, weekNo: 1 })
+    assert.equal(isCreatableWeek({ year: 2026, weekNo: 53 }, now), false)
+    assert.equal(isCreatableWeek({ year: 2027, weekNo: 2 }, now), true)
+  })
+
+  test('isPastWeek: 周日 24:00(上海)之后才算过去', () => {
+    const { end } = weekRange(2026, 46)
+    assert.equal(isPastWeek({ year: 2026, weekNo: 46 }, new Date(end.getTime())), false)
+    assert.equal(isPastWeek({ year: 2026, weekNo: 46 }, new Date(end.getTime() + 1)), true)
+    assert.equal(isPastWeek({ year: 2026, weekNo: 47 }, at('2026-11-20T04:00:00Z')), false)
+  })
+
+  test('planWritable: 进行中可写; 复盘里没交过的人可补; 交过的、已归档的只读', () => {
+    assert.equal(planWritable('IN_PROGRESS', true), true)
+    assert.equal(planWritable('REVIEW', false), true)
+    assert.equal(planWritable('REVIEW', true), false)
+    assert.equal(planWritable('CLOSED', false), false)
+  })
+})
