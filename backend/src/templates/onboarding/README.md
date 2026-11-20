@@ -30,7 +30,7 @@
 - `.mcp.json`：让 Claude Code 连上以虎 One（取任务、回写进度都靠它）。打开它，把 `<在以虎 One 个人中心生成的 API Key>` 换成你的 Key
   - 生成 Key：打开 {{PLATFORM_URL}} → 右上角头像 → 个人中心 → API Key
   - 不想放项目里也可以全局配一次：`claude mcp add --scope user yihu-one --transport http {{MCP_URL}} --header "Authorization: Bearer <你的 Key>"`
-- `fde-tasks` 技能：教 AI 按团队标准流程干活（开工 → 拆分 → 开发 → 收工回写），内置**巡检模式**（定时自动取任务开发，进阶用法）
+- `fde-tasks` 技能：教 AI 按团队标准流程干活（开工 → 拆分 → 开发 → 收工回写）；自动定时开发**默认不启用**，由管理者统一调度，进阶用法见文末
 - `CLAUDE-template.md`：**项目开发说明书模板**。复制到项目仓库根目录改名 `CLAUDE.md` 并按 `<占位符>` 填写（技术栈/启动/验证/发布策略）——AI 靠它知道怎么跑项目、怎么验证、能不能上线。发布策略一行必填，模板细节见 /docs/auto-dev 第 4 节
 
 ## 第 3 步：验证连接
@@ -61,7 +61,7 @@
 流程细节、看板五态含义、报工时口径、常见坑 FAQ 和 10 分钟跟练路径，都在官网教程里：
 **/docs/dev-workflow**
 
-想让自己的项目跑「AI 定时巡检自动开发」？看进阶教程：
+想让 AI 按定时器连续干活（**默认不启用，日常由管理者统一调度**，一线不建议自己挂）？看进阶教程：
 **/docs/auto-dev**（五通道接入 + CLAUDE.md 模板 + 巡检 prompt 模板）
 
 ## 遇到问题
