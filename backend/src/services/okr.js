@@ -2,6 +2,7 @@
 // 与项目管理完全独立: 不读写 Project / Task / Timesheet。
 import prisma from '../lib/prisma.js'
 import { pushNotification } from '../lib/notify.js'
+import { exemptIds } from './okrExempt.js'
 import {
   OkrRuleError, isoWeekOf, weekRange, weekKey, shiftWeek, compareWeek, nextStatus, timeStatus,
   isReopened, isEditable, isScorable, isLate, submitDeadline, normalizePlan, checkKrStatus,
@@ -602,8 +603,12 @@ export async function markMiss({ objectiveId, userId, ownerId, reason, carryToNe
 
 // ---------------------------------------------------------------- 团队
 
-/** 应该交 OKR 的人: 在职的 FDE 工程师; 主管/老板自己也交了的话一并列出 */
+/**
+ * 应该交 OKR 的人: 在职的 FDE 工程师; 主管/老板自己也交了的话一并列出。
+ * OKR 免提交白名单里的人不算(即使他自己交了也不进团队列表 / 统计)
+ */
 async function participants(cycleId) {
+  const exempt = await exemptIds()
   const engineers = await prisma.user.findMany({
     where: { role: { in: ['FDE_ENGINEER', 'TEAM_LEAD'] }, status: 1, deletedAt: null },
     select: { id: true }
@@ -611,7 +616,7 @@ async function participants(cycleId) {
   const owners = cycleId
     ? await prisma.okrObjective.findMany({ where: { cycleId }, select: { ownerId: true }, distinct: ['ownerId'] })
     : []
-  return [...new Set([...engineers.map(e => String(e.id)), ...owners.map(o => String(o.ownerId))])]
+  return [...new Set([...engineers.map(e => String(e.id)), ...owners.map(o => String(o.ownerId))])].filter(id => !exempt.has(id))
 }
 
 export function personSummary(cycle, objs) {
@@ -839,11 +844,13 @@ export async function okrMondayReminder(now = new Date(), { dryRun = false } = {
   const cycle = await prisma.okrCycle.findUnique({ where: { year_weekNo: { year: week.year, weekNo: week.weekNo } } })
   if (!cycle || cycle.status !== 'PLANNING') return { week: key, skipped: 'no-planning-cycle' }
 
-  const engineers = await prisma.user.findMany({
+  // 免提交白名单里的人不提醒、不进未交汇总
+  const exempt = await exemptIds()
+  const engineers = (await prisma.user.findMany({
     where: { role: { in: ['FDE_ENGINEER', 'TEAM_LEAD'] }, status: 1, deletedAt: null },
     select: { id: true, name: true, username: true },
     orderBy: { id: 'asc' }
-  })
+  })).filter(u => !exempt.has(String(u.id)))
   const objs = await prisma.okrObjective.findMany({
     where: { cycleId: cycle.id, ownerId: { in: engineers.map(u => u.id) } },
     select: { ownerId: true, status: true, submittedAt: true }

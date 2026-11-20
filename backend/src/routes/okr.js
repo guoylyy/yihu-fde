@@ -27,6 +27,7 @@ import {
 import { generateOkrDraft } from '../services/okrDraft.js'
 import { resolveOkrTarget, canManageOkrOf, teamListScope, forViewer, stripManagerScore } from '../services/okrAccess.js'
 import { personOverview, weekStats, yearStats } from '../services/okrStats.js'
+import { describeExempt, setExempt, isExempt } from '../services/okrExempt.js'
 
 const router = express.Router()
 router.use(internalAuth)
@@ -116,6 +117,8 @@ async function weekPayload(req, res, { detail }) {
   const proxy = !mine && !viaAssistant(req) && await canManageOkrOf(req.user, ownerId, { targetRole: data.owner?.role })
   const submittedBefore = data.objectives.some(o => o.submittedAt)
   data.window = window
+  // 免提交白名单: 不需要交 OKR(交了照常记录, 只是不进统计 / 提醒)
+  data.exempt = await isExempt(ownerId)
   data.can = {
     // 计划可写: 进行中的周; 或周五复盘里这人还一条没交(补交, 记迟交)
     edit: (mine || proxy) && planWritable(data.cycle.status, submittedBefore),
@@ -373,6 +376,23 @@ router.post('/objectives/:id/miss', humanOnly('填写未达成原因'), async (r
       carriedToObjectiveId: r.carried ? String(r.carried.id) : null
     })
   } catch (e) { fail(res, e, 'miss') }
+})
+
+// ---------------------------------------------------------------- 设置: 免提交白名单
+
+// 登录可读: 前端据此在团队页 / 设置页显示「免提交」
+router.get('/settings/exempt', async (req, res) => {
+  try { ok(res, await describeExempt()) } catch (e) { fail(res, e, 'settings/exempt') }
+})
+
+// 仅 ADMIN: 整份覆盖, 校验都是真实用户、最多 50 人; 前后差异写审计
+router.put('/settings/exempt', humanOnly('修改 OKR 免提交名单'), async (req, res) => {
+  try {
+    if (req.user?.role !== 'ADMIN') return res.status(403).json({ code: 8142, message: '只有管理员能修改 OKR 免提交名单' })
+    const diff = await setExempt(req.body?.userIds, { by: req.user.id })
+    await logInternalAction(req, 'okr.settings.exempt', { resourceType: 'appSetting', details: diff })
+    ok(res, await describeExempt())
+  } catch (e) { fail(res, e, 'settings/exempt') }
 })
 
 // ---------------------------------------------------------------- 周期管理

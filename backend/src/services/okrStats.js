@@ -1,9 +1,11 @@
 // OKR 2.0: 个人 OKR 汇总与按周 / 按年统计。
 // 只读现有 okr_* 表, 不建统计表、不跑定时任务; 只做个人维度, 不排名。
 // 主管评分是否返回由路由按查看人处理(okrAccess.forViewer), 这里一律算出来。
+// OKR 免提交白名单里的人不进统计: 三个接口照常 200(带 exempt: true), 但按「一周都没参与」返回 —— 不计迟交、不计承诺。
 import prisma from '../lib/prisma.js'
 import { OkrRuleError, isoWeekOf, shiftWeek, weekKey, krProgress, objectiveProgress } from './okrRules.js'
 import { personSummary, cycleView } from './okr.js'
+import { isExempt } from './okrExempt.js'
 
 const r2 = n => (n == null ? null : Math.round(n * 100) / 100)
 const r4 = n => (n == null ? null : Math.round(n * 10000) / 10000)
@@ -88,9 +90,19 @@ function yearSummary(rows) {
  */
 export async function personOverview(userId, { now = new Date(), trendWeeks = 8 } = {}) {
   const user = await loadPerson(userId)
+  const exempt = await isExempt(userId)
   const cur = isoWeekOf(now)
   const keys = []
   for (let i = trendWeeks - 1; i >= 0; i--) keys.push(shiftWeek(cur, -i))
+  if (exempt) {
+    const e = emptyWeek(cur)
+    return {
+      user, exempt,
+      current: { week: e.key, status: null, submitted: false, late: false, objectiveCount: 0, krCount: 0, avgSelfScore: null, managerScore: null, lateCount: 0, updateCount: 0 },
+      trend: keys.map(k => ({ key: weekKey(k), year: k.year, weekNo: k.weekNo, submitted: false, selfScore: null, managerScore: null, completion: null })),
+      years: []
+    }
+  }
 
   // 此人参与过的所有周期(有 O 的周), 用来做按年聚合; 量是"人 × 周", 一年最多 53 行
   const owned = await prisma.okrObjective.findMany({ where: { ownerId: BigInt(userId) }, select: { cycleId: true }, distinct: ['cycleId'] })
@@ -116,6 +128,7 @@ export async function personOverview(userId, { now = new Date(), trendWeeks = 8 
 
   return {
     user,
+    exempt,
     current: {
       week: now0.key,
       status: now0.status,
@@ -143,11 +156,13 @@ export async function personOverview(userId, { now = new Date(), trendWeeks = 8 
 /** 一周: 每个 O 的 KR 进度、进展条数、是否迟交 */
 export async function weekStats(userId, week) {
   const user = await loadPerson(userId)
+  const exempt = await isExempt(userId)
   const cycle = await prisma.okrCycle.findUnique({ where: { year_weekNo: { year: week.year, weekNo: week.weekNo } } })
-  if (!cycle) return { user, scope: 'week', week: weekKey(week), cycle: null, summary: emptyWeek(week), objectives: [] }
+  if (!cycle || exempt) return { user, exempt, scope: 'week', week: weekKey(week), cycle: cycle ? cycleView(cycle) : null, summary: emptyWeek(week), objectives: [] }
   const objs = (await objectivesByCycle(userId, [cycle.id])).get(String(cycle.id)) || []
   return {
     user,
+    exempt,
     scope: 'week',
     week: weekKey(cycle),
     cycle: cycleView(cycle),
@@ -173,6 +188,8 @@ export async function weekStats(userId, week) {
 /** 一年: 按周聚合(周序号 / 自评均值 / 承诺数 / 完成数) + 年度汇总 */
 export async function yearStats(userId, year) {
   const user = await loadPerson(userId)
+  const exempt = await isExempt(userId)
+  if (exempt) return { user, exempt, scope: 'year', year, weeks: [], summary: yearSummary([]) }
   const cycles = await prisma.okrCycle.findMany({ where: { year }, orderBy: { weekNo: 'asc' } })
   const byCycle = await objectivesByCycle(userId, cycles.map(c => c.id))
   const weeks = cycles
@@ -180,6 +197,7 @@ export async function yearStats(userId, year) {
     .map(c => weekRow(c, byCycle.get(String(c.id))))
   return {
     user,
+    exempt,
     scope: 'year',
     year,
     weeks: weeks.map(r => ({

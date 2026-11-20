@@ -6,7 +6,9 @@ import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import prisma from '../../src/lib/prisma.js'
 import { createTestUser, api } from './helpers.js'
-import { weekRange, weekKey, shiftWeek } from '../../src/services/okrRules.js'
+import { weekRange, weekKey } from '../../src/services/okrRules.js'
+import { okrMondayReminder } from '../../src/services/okr.js'
+import { EXEMPT_KEY } from '../../src/services/okrExempt.js'
 
 const rnd = (a, b) => a + Math.floor(Math.random() * (b - a + 1))
 const YEAR = rnd(2061, 2069)
@@ -253,5 +255,110 @@ describe('OKR 3.0 /api/okr', () => {
       assert.equal(view.data.can.closeByScore, false)
       assert.equal(view.data.can.selfScore, false)
     })
+  })
+})
+
+describe('OKR 免提交白名单 /api/okr/settings/exempt', () => {
+  let A, X, O, a, x, boss, saved
+  const WK = W(5)
+
+  before(async () => {
+    // 白名单是全局设置(共享库): 先存下原值, 只往里加本用例的人, 结束时原样还回去
+    saved = await prisma.appSetting.findUnique({ where: { key: EXEMPT_KEY } })
+    A = await createTestUser('FDE_ENGINEER', { name: 'unit-test-v3-要交的' })
+    X = await createTestUser('FDE_ENGINEER', { name: 'unit-test-v3-免提交' })
+    O = await createTestUser('ADMIN', { name: 'unit-test-v3-管理员' })
+    a = api(A.token); x = api(X.token); boss = api(O.token)
+  })
+
+  after(async () => {
+    if (saved) await prisma.appSetting.update({ where: { key: EXEMPT_KEY }, data: { value: saved.value, updatedBy: saved.updatedBy } })
+    else await prisma.appSetting.deleteMany({ where: { key: EXEMPT_KEY } })
+    await dropCycles(createdCycles)
+    for (const u of [A, X, O]) await u?.cleanup()
+  })
+
+  const current = async () => (await boss.get('/api/okr/settings/exempt')).data.userIds
+
+  test('PUT 不存在的 userId → 400; 非 ADMIN → 403; 合法 → GET 一致, 写审计', async () => {
+    const before = await current()
+    const bad = await boss.put('/api/okr/settings/exempt', { userIds: [...before, '999999999'] })
+    assert.equal(bad.status, 400)
+    assert.equal(bad.code, 8141)
+    assert.match(bad.message, /999999999/)
+    assert.equal((await boss.put('/api/okr/settings/exempt', { userIds: 'x' })).status, 400)
+    assert.equal((await boss.put('/api/okr/settings/exempt', { userIds: Array.from({ length: 51 }, (_, i) => String(i + 1)) })).status, 400, '最多 50 人')
+    assert.equal((await a.put('/api/okr/settings/exempt', { userIds: [X.id] })).status, 403)
+    assert.deepEqual(await current(), before, '失败的请求不改名单')
+
+    const want = [...before, X.id]
+    const r = await boss.put('/api/okr/settings/exempt', { userIds: [...want, X.id] }) // 重复 id 去重
+    assert.equal(r.code, 0, r.message)
+    assert.deepEqual(r.data.userIds, want)
+    const g = await a.get('/api/okr/settings/exempt')
+    assert.equal(g.code, 0, '登录可读')
+    assert.deepEqual(g.data.userIds, want)
+    const u = g.data.users.find(v => v.id === X.id)
+    assert.deepEqual(u, { id: X.id, name: 'unit-test-v3-免提交', username: X.username, role: 'FDE_ENGINEER' })
+    const audit = await prisma.auditLog.findFirst({ where: { action: 'okr.settings.exempt', userId: BigInt(O.id) }, orderBy: { id: 'desc' } })
+    assert.ok(audit, '写审计')
+    assert.deepEqual(audit.details.added, [X.id])
+    assert.deepEqual(audit.details.removed, [])
+  })
+
+  test('白名单生效: 不出现在 /team 列表与汇总; /stats(年/周)与个人概览按没参与返回(exempt=true)', async () => {
+    await makeCycle(WK)
+    for (const who of [a, x]) {
+      const r = await who.post(`/api/okr/plan/submit?week=${weekKey(WK)}`, { objectives: plan(1, '-exempt') })
+      assert.equal(r.code, 0, r.message)
+    }
+    const t = await boss.get(`/api/okr/team?week=${weekKey(WK)}`)
+    assert.equal(t.code, 0, t.message)
+    assert.ok(t.data.rows.some(r => r.user.id === A.id), '不在名单的人照常出现')
+    assert.ok(!t.data.rows.some(r => r.user.id === X.id), '免提交的人不出现(即使他自己交了)')
+    assert.equal(t.data.summary.expected, t.data.rows.length)
+
+    const ys = await boss.get(`/api/okr/stats?scope=year&year=${YEAR}&userId=${X.id}`)
+    assert.equal(ys.code, 0, ys.message)
+    assert.equal(ys.data.exempt, true)
+    assert.deepEqual(ys.data.weeks, [])
+    assert.equal(ys.data.summary.weeksParticipated, 0)
+    assert.equal(ys.data.summary.lateWeeks, 0)
+    const ya = await boss.get(`/api/okr/stats?scope=year&year=${YEAR}&userId=${A.id}`)
+    assert.equal(ya.data.exempt, false)
+    assert.ok(ya.data.weeks.some(w => w.key === weekKey(WK)), '对照: 不在名单的人有这一周')
+    const ws = await boss.get(`/api/okr/stats?scope=week&week=${weekKey(WK)}&userId=${X.id}`)
+    assert.deepEqual(ws.data.objectives, [])
+    assert.equal(ws.data.summary.late, false)
+    const ov = await boss.get(`/api/okr/person/${X.id}/overview`)
+    assert.equal(ov.code, 0, ov.message)
+    assert.equal(ov.data.exempt, true)
+    assert.equal(ov.data.current.lateCount, 0)
+    assert.deepEqual(ov.data.years, [])
+
+    // 他交的 OKR 照常记录, 自己的页面能看到, 并标 exempt
+    const mine = await x.get(`/api/okr/my?week=${weekKey(WK)}`)
+    assert.equal(mine.data.objectives.length, 1)
+    assert.equal(mine.data.exempt, true)
+  })
+
+  test('白名单不计迟交提醒: 周一 10:00 未提交名单里没有他', async () => {
+    const RW = W(6)
+    await makeCycle(RW, { status: 'PLANNING' })
+    const monday10 = new Date(weekRange(RW.year, RW.weekNo).start.getTime() + 10.5 * 3600 * 1000)
+    const r = await okrMondayReminder(monday10, { dryRun: true })
+    assert.equal(r.week, weekKey(RW))
+    assert.ok(r.missing.includes('unit-test-v3-要交的'))
+    assert.ok(!r.missing.includes('unit-test-v3-免提交'))
+  })
+
+  test('白名单不影响登录与查看他人: 他调 /team、看别人 OKR 仍 200', async () => {
+    const t = await x.get(`/api/okr/team?week=${weekKey(WK)}`)
+    assert.equal(t.status, 200)
+    assert.equal(t.code, 0)
+    const other = await x.get(`/api/okr/cycle?week=${weekKey(WK)}&ownerId=${A.id}`)
+    assert.equal(other.status, 200)
+    assert.equal(other.data.owner.id, A.id)
+    assert.equal(other.data.exempt, false)
   })
 })
