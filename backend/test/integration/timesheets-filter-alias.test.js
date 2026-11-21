@@ -8,13 +8,17 @@ import { login, api, uniqName, createTestUser } from './helpers.js'
 import prisma from '../../src/lib/prisma.js'
 
 describe('v1.6.3 工时列表过滤参数别名', () => {
-  let a, projectId, engineerId, tester
+  let a, projectId, engineerId, tester, customerId
   const created = []
 
   before(async () => {
     a = api(await login('admin'))
-    const customers = await a.get('/api/fde/customers?page=1&page_size=1')
-    const p = await a.post('/api/fde/projects', { name: uniqName('过滤别名项目'), customerId: customers.data.list[0].id })
+    // 自建客户: 以前借「最新客户」(customers?page_size=1 按 createdAt desc), 那往往是并行套件刚建、
+    // 马上在其 after 里删掉的临时客户 → 建项目撞外键 P2003 → 1005「客户不存在」, 整个 suite cancelled
+    const c = await a.post('/api/fde/customers', { name: uniqName('过滤别名客户') })
+    assert.equal(c.code, 0, c.message)
+    customerId = c.data.id
+    const p = await a.post('/api/fde/projects', { name: uniqName('过滤别名项目'), customerId })
     assert.equal(p.code, 0, p.message)
     projectId = p.data.id
     // 用自己建的工程师: 列表里的「第一个」可能是别的并行测试的临时账号, 且每人每天工时合计有上限
@@ -31,7 +35,16 @@ describe('v1.6.3 工时列表过滤参数别名', () => {
 
   after(async () => {
     if (created.length) await prisma.timesheet.deleteMany({ where: { id: { in: created.map(BigInt) } } })
-    if (projectId) await a.del(`/api/fde/projects/${projectId}`).catch(() => {})
+    // 项目 DELETE 是软删, 外键仍在; 先硬删项目, 才能删自建的客户
+    if (projectId) {
+      await prisma.projectMember.deleteMany({ where: { projectId: BigInt(projectId) } }).catch(() => {})
+      await prisma.project.delete({ where: { id: BigInt(projectId) } })
+        .catch(() => a.del(`/api/fde/projects/${projectId}`).catch(() => {}))
+    }
+    if (customerId) {
+      await prisma.contact.deleteMany({ where: { customerId: BigInt(customerId) } }).catch(() => {})
+      await prisma.customer.delete({ where: { id: BigInt(customerId) } }).catch(() => {})
+    }
     await tester?.cleanup()
   })
 
