@@ -343,7 +343,7 @@ function send() {
 .okr-ms-due { flex: none; font-size: 12px; color: var(--el-text-color-secondary); }
 .okr-ms-item.overdue .okr-ms-due { color: var(--el-color-danger); font-weight: 600; }
 .okr-kr-blk { grid-column: 1 / -1; margin: 0; font-size: 12px; color: var(--el-color-warning-dark-2); overflow-wrap: anywhere; }
-@media (max-width: 640px) { .okr-ms-item { min-height: 44px; } }
+@media (max-width: 640px) { .okr-ms-item, .okr-toggle, .okr-link { min-height: 44px; } }
 /* 卡点 */
 .okr-blk { margin-top: 8px; border: 1px solid var(--el-border-color-lighter); border-radius: 8px; overflow: hidden; }
 .okr-blk.has { border-color: var(--el-color-warning-light-5); }

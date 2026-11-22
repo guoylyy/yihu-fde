@@ -242,7 +242,11 @@ export function copyResultText(r, t) {
 
 const METRIC_SUFFIX = {
   NUMBER: k => (Number(k.targetValue) > 0 ? `（目标：${k.targetValue}${k.unit || ''}）` : ''),
-  PERCENT: k => `（目标：${Number(k.targetValue) > 0 ? k.targetValue : 100}%）`
+  // 标题里已写了「80%」就不再重复(解析时同样能认出百分比)
+  PERCENT: k => {
+    const v = Number(k.targetValue) > 0 ? k.targetValue : 100
+    return new RegExp(`(^|[^\\d.])${v}\\s*[%％]`).test(String(k.title)) ? '' : `（目标：${v}%）`
+  }
 }
 
 /**

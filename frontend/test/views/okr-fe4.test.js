@@ -337,6 +337,9 @@ describe('复制上周 / 批量导入 / 模板: 纯函数', () => {
       '- 阶段（权重 100）'
     ].join('\n'))
     assert.equal(planToMarkdown([]), '')
+    const pctInTitle = planToMarkdown([{ title: 'O', weight: 100, keyResults: [{ title: '覆盖率 80%', metricType: 'PERCENT', targetValue: 80, weight: 100 }, { title: '达到 180%', metricType: 'PERCENT', targetValue: 80, weight: 0 }] }])
+    assert.ok(pctInTitle.includes('- 覆盖率 80%（权重 100）'), '标题已有 80% 不重复')
+    assert.ok(pctInTitle.includes('- 达到 180%（目标：80%）'), '180% 不是 80%')
   })
   test('预览里 KR 类型说明', () => {
     assert.equal(previewKrMeta({ metricType: 'NUMBER', targetValue: 5, unit: '个' }, t), `${t('okr.metric.NUMBER')} 5个`)

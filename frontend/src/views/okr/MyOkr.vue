@@ -687,6 +687,7 @@ async function submitMiss() {
 .okr-sp-foot .el-button { margin-left: 0; }
 .okr-sp-tip { font-size: 12px; color: var(--el-text-color-secondary); margin-right: auto; }
 @media (max-width: 640px) {
+  .okr-edit-link { min-height: 44px; }
   .okr-act-btn { min-height: 44px; flex: 1 1 0; }
   .okr-act-warn { flex-basis: 100%; }
   .okr-sp-foot .el-button { min-height: 44px; flex: 1 1 0; }
