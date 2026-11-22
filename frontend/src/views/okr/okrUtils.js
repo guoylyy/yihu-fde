@@ -60,6 +60,9 @@ export function toDraft(objectives) {
     description: o.description || '',
     weight: o.weight,
     status: o.status,
+    // OKR 5.0: 所属项目(多选); projects 只给下拉显示名字用, 提交时去掉
+    projectIds: (o.projects || []).map(p => String(p.id)),
+    projects: o.projects || [],
     keyResults: (o.keyResults || []).map(k => ({
       id: k.id, title: k.title, metricType: k.metricType, unit: k.unit || '', targetValue: k.targetValue, weight: k.weight
     }))

@@ -8,9 +8,10 @@ import {
   isLead, canEditProjectDoc, projectLabel, projectDocFileProblem, PROJECT_DOC_MAX,
   todayKey, weekKeyOfDate, dailyMissingRows, dailyRemindText, summaryText,
   weekProgress, statusCells, mergeReminded, skippedByReason,
-  groupHead, orderGroups, byOwner
+  groupHead, orderGroups, byOwner, projectOptions
 } from '../../src/views/okr/okrFe3.js'
-import { pct, OBJ_TAG, krValueText } from '../../src/views/okr/okrUtils.js'
+import { pct, OBJ_TAG, krValueText, toDraft } from '../../src/views/okr/okrUtils.js'
+import { readFileSync } from 'node:fs'
 import { initialOf, mayProxyRow } from '../../src/views/okr/okrPeople.js'
 
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/'/g, '&#39;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -313,5 +314,42 @@ describe('O 卡: 按项目视图的 O(没有 KR 明细) + 项目标签', () => {
   test('没挂项目不出标签行', async () => {
     const html = await renderView(render, st(pobj('1', lin, { projects: [] })), { 'el-tooltip': true })
     assert.ok(!html.includes('data-test="okr-card-projects"'))
+  })
+})
+
+// ---------------------------------------------------------------- 五、O 编辑里选项目
+
+describe('O 编辑: 所属项目', () => {
+  test('toDraft 带上 projectIds(字符串), 老数据没有 projects → []', () => {
+    const d = toDraft([
+      { id: '1', title: 'A', weight: 50, status: 'ON_TRACK', projects: [{ id: 7, name: '园区', code: 'P-7' }], keyResults: [] },
+      { id: '2', title: 'B', weight: 50, status: 'ON_TRACK', keyResults: [] }
+    ])
+    assert.deepEqual(d.map(o => o.projectIds), [['7'], []])
+  })
+  test('下拉选项 = 项目列表 + 计划里已挂但列表里没有的(不重复)', () => {
+    const opts = projectOptions(
+      [{ id: 7, name: '园区', code: 'P-7' }, { id: 8, name: '仓储', code: null }],
+      [{ projects: [{ id: '7', name: '园区', code: 'P-7' }, { id: '99', name: '别组项目', code: 'X-9' }] }]
+    )
+    assert.deepEqual(opts, [
+      { id: '7', name: '园区', code: 'P-7' }, { id: '8', name: '仓储', code: null }, { id: '99', name: '别组项目', code: 'X-9' }
+    ])
+  })
+  test('编辑器每个 O 一个多选; 提交时带 projectIds、去掉只读的 projects', async () => {
+    const render = compileView('components/okr/OkrPlanEditor.vue')
+    const draft = [
+      { _k: 1, title: 'A', description: '', weight: 50, projectIds: ['7'], keyResults: [{ _k: 2, title: 'k', metricType: 'BINARY', weight: 100 }] },
+      { _k: 3, title: 'B', description: '', weight: 50, projectIds: [], keyResults: [{ _k: 4, title: 'k', metricType: 'BINARY', weight: 100 }] }
+    ]
+    const html = await renderView(render, {
+      draft, manualWeights: false, problems: [], MAX_KRS: 10, busy: '', submitted: false, cancellable: false, lateHint: false, submitLabel: '',
+      bulk: { visible: false, obj: null }, roomFor: () => 10, projOptions: [{ id: '7', name: '园区', code: 'P-7' }], projectLabel,
+      addObjective() {}, addKr() {}, removeObjective() {}, removeKr() {}, openBulk() {}, insertBulk() {}, emitPlan() {}
+    }, { 'el-input-number': true, OkrBulkKrDialog: true })
+    assert.ok(html.includes('data-test="okr-ed-projects-0"') && html.includes('data-test="okr-ed-projects-1"'))
+    const src = readFileSync(new URL('../../src/components/okr/OkrPlanEditor.vue', import.meta.url), 'utf8')
+    assert.match(src, /map\(\(\{ _k, projects: _p, \.\.\.o \}\) => \(\{\s*\.\.\.o,\s*projectIds: \[\.\.\.\(o\.projectIds \|\| \[\]\)\]/)
+    assert.match(src, /fde\.projects\.list\(\{ page: 1, page_size: 200 \}\)/)
   })
 })

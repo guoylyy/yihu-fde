@@ -2497,7 +2497,8 @@
       "head": "{p0} people · {p1} objectives",
       "avg": "avg. completion {p0}",
       "empty": "No objectives this week",
-      "kr_sum": "KRs done {p0}/{p1}"
+      "kr_sum": "KRs done {p0}/{p1}",
+      "pick_projects": "Projects (optional, multiple)"
     }
   },
   "assistant": {

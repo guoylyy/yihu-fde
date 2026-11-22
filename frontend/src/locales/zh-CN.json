@@ -2497,7 +2497,8 @@
       "head": "{p0} 人 · {p1} 个 O",
       "avg": "平均完成度 {p0}",
       "empty": "本周还没有 O",
-      "kr_sum": "KR 完成 {p0}/{p1}"
+      "kr_sum": "KR 完成 {p0}/{p1}",
+      "pick_projects": "所属项目（可多选，可不选）"
     }
   },
   "assistant": {
