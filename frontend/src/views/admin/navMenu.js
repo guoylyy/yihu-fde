@@ -2,7 +2,7 @@
 // 纯函数: 传入权限判断, 返回过滤后的分组, 方便单测; 图标用名字, 由 AdminLayout 映射成组件。
 //
 // 可见性约定:
-//   - 团队组: team.view(组长 + 老板); 周 OKR 仍只给 ADMIN
+//   - 团队组: team.view(组长 + 老板); 周 OKR 仍只给 ADMIN; 0.6.4 能力矩阵人人可见(工程师只看自己, 只有 ADMIN 能改)
 //   - 工时(0.5.2 放回, 团队组最后一项): timesheet.view; 任务上的「实际工时」仍是主入口, 工时页是按人按周汇总 + 报工/审批看板
 //   - 精简第二轮(老板: 团队小, 不要搞复杂): 负载 / 承诺 vs 交付 / 项目 OKR / 每日总结 / 决策记录 下线。
 //     周项目计划在周 OKR 页里, 每日总结并进我的今日
@@ -33,7 +33,7 @@ export function buildNav({ can, moduleEnabled = () => true, role } = {}) {
       items: [
         { path: '/admin/team/members', title: 'nav.team_members', icon: 'Avatar', show: can('team.view') },
         { path: '/admin/okr', title: 'okr.menu', icon: 'Aim', show: isAdmin && moduleEnabled('okr') },
-        { path: '/admin/team/skills', title: 'nav.team_skills', icon: 'DataAnalysis', show: can('team.view') },
+        { path: '/admin/team/skills', title: 'nav.team_skills', icon: 'DataAnalysis', show: true },
         { path: '/admin/timesheets', title: 'common.hours', icon: 'Timer', show: can('timesheet.view') }
       ]
     },

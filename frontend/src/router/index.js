@@ -36,8 +36,9 @@ const routes = [
         meta: { requiredPerm: 'team.view', requiredRoles: ['ADMIN', 'TEAM_LEAD'] } },
       { path: 'team/members/:engineerId(\\d+)', name: 'AdminTeamMemberDetail', component: () => import('@/views/admin/team/TeamMemberDetail.vue'),
         meta: { requiredPerm: 'team.view', requiredRoles: ['ADMIN', 'TEAM_LEAD'] } },
-      { path: 'team/skills', name: 'AdminTeamSkills', component: () => import('@/views/admin/team/TeamSkills.vue'),
-        meta: { requiredPerm: 'team.view', requiredRoles: ['ADMIN', 'TEAM_LEAD'] } },
+      // 0.6.4 能力矩阵人人能看: 只要登录(后端 GET /api/team/skills 按人收窄: 工程师只有自己, 组长本团队, ADMIN 全部);
+      // 改等级 / 确认候选只给 ADMIN, 由后端 requireRole('ADMIN') 保证, 页面只读态只是展示
+      { path: 'team/skills', name: 'AdminTeamSkills', component: () => import('@/views/admin/team/TeamSkills.vue') },
       // 0.5.0 经验组: 经验库 / 开发会话(后端按数据范围过滤, 前端先用 project.view 兜底)
       { path: 'experience', name: 'AdminExperience', component: () => import('@/views/admin/experience/Experience.vue'),
         meta: { requiredPerm: 'project.view', requiredRoles: ['ADMIN', 'MANAGER', 'FDE_ENGINEER'] } },

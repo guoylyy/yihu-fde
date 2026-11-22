@@ -15,7 +15,7 @@ test('新页面路由都已注册, 工时路由保留', () => {
 })
 
 test('团队页按 team.view 拦(组长+老板): 工程师直达弹回今日; 负载 / 承诺 vs 交付已下线(旧地址落兜底 → 我的今日)', () => {
-  for (const p of ['team/members', 'team/skills']) {
+  for (const p of ['team/members']) {
     const idx = src.indexOf(`path: '${p}'`)
     assert.match(src.slice(idx, idx + 260), /requiredPerm: 'team\.view'/, p)
   }
@@ -31,4 +31,14 @@ test('团队页按 team.view 拦(组长+老板): 工程师直达弹回今日; �
   const promise = [{ meta: { requiresInternalAuth: true } }, { meta: { requiredPerm: 'team.view.all', requiredRoles: ['ADMIN'] } }]
   assert.deepEqual(resolveGuard(promise, { internalToken: 't', role: 'TEAM_LEAD' }, canAs('TEAM_LEAD')), { name: 'AdminWorkbench' })
   assert.equal(resolveGuard(promise, { internalToken: 't', role: 'ADMIN' }, canAs('ADMIN')), true)
+})
+
+test('0.6.4 能力矩阵路由只要登录: 没有 requiredPerm / requiredRoles, 工程师直达放行', () => {
+  const line = routeLine('team/skills')
+  assert.ok(line && !/requiredPerm|requiredRoles/.test(line), line)
+  const idx = src.indexOf("path: 'team/skills'")
+  assert.ok(!/meta:/.test(src.slice(idx, src.indexOf('\n', idx))), '同一行不带 meta')
+  assert.ok(!/^\s*meta: \{ requiredPerm/.test(src.slice(idx).split('\n')[1]), '下一行也不带权限 meta')
+  const matched = [{ meta: { requiresInternalAuth: true } }, { meta: {} }]
+  assert.equal(resolveGuard(matched, { internalToken: 't', role: 'FDE_ENGINEER' }, () => false), true)
 })

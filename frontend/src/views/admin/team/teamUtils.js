@@ -94,3 +94,26 @@ export function levelDots(level) {
   const n = Math.max(0, Math.min(5, Number(level) || 0))
   return [1, 2, 3, 4, 5].map(i => i <= n)
 }
+
+/**
+ * 0.6.4 能力矩阵三种形态。能不能改**只看 role === 'ADMIN'**(组长有 team.view 但不能改);
+ * 只读时看自己还是看本团队, 以后端 meta.scope 为准(SELF = 后端只给了本人)。
+ * @returns {'admin'|'self'|'team'}
+ */
+export function skillsMode(role, scope) {
+  if (role === 'ADMIN') return 'admin'
+  return scope === 'SELF' ? 'self' : 'team'
+}
+
+/**
+ * 矩阵 → 每人一张卡(手机竖排 / 工程师只看自己): 只列这个人有的格子(人工标注 + 候选), 人工标注按等级降序在前
+ * @returns {Array<{ member:{engineerId,name}, items: Array<{ skill, cell }> }>}
+ */
+export function skillCards(members, matrix) {
+  return (members || []).map((member, i) => {
+    const items = (matrix || []).map(r => ({ skill: r.skill, cell: r.cells[i] })).filter(x => x.cell)
+    const rank = (c) => (c.source === 'MANUAL' ? 10 + (Number(c.level) || 0) : 0)
+    items.sort((a, b) => rank(b.cell) - rank(a.cell))
+    return { member, items }
+  })
+}

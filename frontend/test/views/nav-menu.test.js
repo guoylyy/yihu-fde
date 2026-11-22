@@ -39,11 +39,12 @@ test('0.5.2 工时放回团队组, 排最后(成员/周 OKR/能力矩阵/工时)
   assert.match(layout, /const NAV_ICONS = \{[^}]*\bTimer\b/, 'Timer 图标已注册')
 })
 
-test('没有 team.view 的工程师看不到团队组, 落地页仍是我的今日', () => {
+test('没有 team.view 的工程师: 团队组只有能力矩阵(0.6.4), 落地页仍是我的今日', () => {
   const engineerPerms = new Set(['projects', 'project.view', 'knowledge', 'idea.view', 'asset.view'])
   const groups = buildNav({ can: p => engineerPerms.has(p), role: 'FDE_ENGINEER' })
   const keys = groups.map(g => g.key)
-  assert.ok(!keys.includes('team'))
+  // 0.6.4 能力矩阵人人可见: 团队组只剩这一项(成员 / 周 OKR / 工时仍按权限)
+  assert.deepEqual(paths(byKey(groups).team), ['/admin/team/skills'])
   assert.ok(!keys.includes('config'), '没有设置类权限时设置组整组不出现')
   assert.deepEqual(paths(byKey(groups).today), ['/admin/workbench'])
   assert.ok(paths(byKey(groups).delivery).includes('/admin/tasks'), '工程师兜底能看到任务')
@@ -112,4 +113,11 @@ test('精简第二轮: 项目 OKR / 每日总结 / 决策记录 / 负载 不再�
   const layout = readFileSync(new URL('../../src/views/admin/AdminLayout.vue', import.meta.url), 'utf8')
   assert.doesNotMatch(layout, /\b(TrendCharts|Flag|Notebook|Stamp)\b/, '下线菜单的图标不再引入')
   assert.doesNotMatch(layout, /team\/load|team\/promise/)
+})
+
+test('0.6.4 能力矩阵对所有登录角色都显示, 不再要 team.view', () => {
+  for (const role of ['FDE_ENGINEER', 'MANAGER', 'TEAM_LEAD', 'ADMIN']) {
+    const all = buildNav({ can: () => false, role }).flatMap(paths)
+    assert.ok(all.includes('/admin/team/skills'), role)
+  }
 })

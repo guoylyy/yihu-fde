@@ -2863,7 +2863,12 @@
       "skill_name_ph": "e.g. Vue, Go, data governance",
       "need_fields": "Pick a member, enter a skill name and choose a level",
       "legend_manual": "Set by a person",
-      "legend_candidate": "Candidate"
+      "legend_candidate": "Candidate",
+      "hint_self": "The skill matrix is maintained by admins. These are your own skill levels.",
+      "hint_team": "The skill matrix is maintained by admins. You can view your team here.",
+      "self_empty": "An admin hasn't tagged your skills yet",
+      "empty_ro": "No skill data yet — waiting for an admin to tag skills.",
+      "card_none": "Nothing tagged yet"
     }
   },
   "experience": {

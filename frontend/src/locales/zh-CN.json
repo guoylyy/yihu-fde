@@ -2863,7 +2863,12 @@
       "skill_name_ph": "如 Vue、Go、数据治理",
       "need_fields": "请选成员、填技能名、选等级",
       "legend_manual": "人工标注",
-      "legend_candidate": "候选"
+      "legend_candidate": "候选",
+      "hint_self": "能力矩阵由管理员维护，这里看到的是你自己的技能等级",
+      "hint_team": "能力矩阵由管理员维护，你可以查看本团队",
+      "self_empty": "管理员还没给你标注技能",
+      "empty_ro": "还没有技能数据，等管理员标注。",
+      "card_none": "还没有标注"
     }
   },
   "experience": {

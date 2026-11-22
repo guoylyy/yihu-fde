@@ -3,59 +3,119 @@
        数据: GET /api/team/skills —— MANUAL = 人工标注(1–5), DERIVED = 近 N 天会话里提到过的候选(没等级);
        写: 点格子标等级 POST /api/team/skills/:engineerId { skillId, level }
            候选「确认」/ 新加一项 POST /api/team/skills/confirm { engineerId, skillName, level } -->
-  <div class="team-skills">
+  <!-- 0.6.4 三种形态(skillsMode): admin = 全团队矩阵可改; team = 组长看本团队只读; self = 其余人只看自己一张卡。
+       能不能改只看 role === 'ADMIN'; 只读只是展示, 写接口本身由后端 requireRole('ADMIN') 拦。 -->
+  <div class="team-skills" :class="'mode-' + mode">
     <div class="toolbar">
-      <p class="hint">{{ $t('team.skills.hint', { days: meta.derivedWindowDays || 90 }) }}</p>
-      <div class="legend">
+      <p class="hint" data-test="skills-hint">{{ hintText }}</p>
+      <div v-if="mode !== 'self'" class="legend">
         <span><i class="dot on" /> {{ $t('team.skills.legend_manual') }}</span>
         <span><i class="dot cand" /> {{ $t('team.skills.legend_candidate') }}</span>
-        <el-button size="small" type="primary" data-test="skill-add" :disabled="!members.length" @click="openAdd">{{ $t('team.skills.add') }}</el-button>
+        <el-button v-if="editable" size="small" type="primary" data-test="skill-add" :disabled="!members.length" @click="openAdd">{{ $t('team.skills.add') }}</el-button>
       </div>
     </div>
 
     <div v-if="loading" class="panel pad" data-test="skills-skeleton"><el-skeleton :rows="6" animated /></div>
     <LoadError v-else-if="error" :message="error" @retry="load" />
-    <el-empty v-else-if="!matrix.length" :description="members.length ? $t('team.skills.empty') : $t('team.no_members')" />
-    <div v-else class="panel scroll" data-test="skills-matrix">
-      <table class="matrix">
-        <thead>
-          <tr>
-            <th class="sticky skill-col">{{ $t('team.skills.skill') }}</th>
-            <th v-for="m in members" :key="m.engineerId" class="person">
-              <router-link :to="`/admin/team/members/${m.engineerId}`">{{ m.name }}</router-link>
-            </th>
-            <th class="risk-col" />
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="row in matrix" :key="row.skill.id" data-test="skill-row">
-            <th class="sticky skill-col">
-              {{ row.skill.name }}
-              <span v-if="row.singlePoint" class="sp-inline">{{ $t('team.skills.single_point') }}</span>
-            </th>
-            <td v-for="(c, i) in row.cells" :key="members[i].engineerId" class="cell">
-              <!-- 候选: 灰点 + 确认 -->
-              <span v-if="c && c.source === 'DERIVED'" class="cand-wrap">
-                <el-tooltip :content="`${$t('team.skills.candidate')} · ${$t('team.skills.candidate_tip', { n: c.hits || 0, days: meta.derivedWindowDays || 90 })}`" placement="top">
-                  <i class="dot cand" data-test="skill-candidate" />
+
+    <!-- 只看自己: 一张卡(姓名 · 职级 + 技能列表), 没有任何改等级的入口, 不画单点风险 -->
+    <template v-else-if="mode === 'self'">
+      <el-empty v-if="!selfCard || !selfCard.items.length" :description="$t('team.skills.self_empty')" data-test="skills-self-empty" />
+      <article v-else class="panel person-card self" data-test="skills-self-card">
+        <header class="pc-head">
+          <b class="pc-name">{{ selfCard.member.name }}</b>
+          <span v-if="selfLevel" class="pc-level" data-test="skills-self-level">{{ levelLabel(selfLevel) }}</span>
+        </header>
+        <ul class="pc-list">
+          <li v-for="it in selfCard.items" :key="it.skill.id" class="pc-item" data-test="skill-item">
+            <span class="pc-skill">{{ it.skill.name }}</span>
+            <span v-if="it.cell.source === 'DERIVED'" class="cand-wrap">
+              <el-tooltip :content="candTip(it.cell)" placement="top"><i class="dot cand" data-test="skill-candidate" /></el-tooltip>
+              <span class="cand-label">{{ $t('team.skills.candidate') }}</span>
+            </span>
+            <span v-else class="pc-level-wrap">
+              <span class="dots ro" data-test="skill-cell-ro"><i v-for="(on, k) in levelDots(it.cell.level)" :key="k" class="dot" :class="{ on }" /></span>
+              <span class="pc-desc">{{ it.cell.level }} · {{ $t('team.skills.level_desc.' + it.cell.level) }}</span>
+            </span>
+          </li>
+        </ul>
+      </article>
+    </template>
+
+    <el-empty v-else-if="!matrix.length" :description="members.length ? $t(editable ? 'team.skills.empty' : 'team.skills.empty_ro') : $t('team.no_members')" />
+    <template v-else>
+      <!-- 桌面: 行技能列人的矩阵 -->
+      <div class="panel scroll matrix-wrap" data-test="skills-matrix">
+        <table class="matrix">
+          <thead>
+            <tr>
+              <th class="sticky skill-col">{{ $t('team.skills.skill') }}</th>
+              <th v-for="m in members" :key="m.engineerId" class="person">
+                <router-link :to="`/admin/team/members/${m.engineerId}`">{{ m.name }}</router-link>
+              </th>
+              <th class="risk-col" />
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in matrix" :key="row.skill.id" data-test="skill-row">
+              <th class="sticky skill-col">
+                {{ row.skill.name }}
+                <span v-if="row.singlePoint" class="sp-inline">{{ $t('team.skills.single_point') }}</span>
+              </th>
+              <td v-for="(c, i) in row.cells" :key="members[i].engineerId" class="cell">
+                <!-- 候选: 灰点(管理员多一个「确认」) -->
+                <span v-if="c && c.source === 'DERIVED'" class="cand-wrap">
+                  <el-tooltip :content="candTip(c)" placement="top">
+                    <i class="dot cand" data-test="skill-candidate" />
+                  </el-tooltip>
+                  <el-button v-if="editable" link size="small" type="primary" class="confirm" data-test="skill-confirm" @click="openPick('confirm', row.skill, members[i], null)">{{ $t('team.skills.confirm') }}</el-button>
+                </span>
+                <!-- 管理员: 人工标注 / 空格点了直接选 1–5 -->
+                <button v-else-if="editable" type="button" class="dots" :class="{ empty: !c }" :title="c ? levelTitle(c.level) : ''"
+                        data-test="skill-cell" @click="openPick('set', row.skill, members[i], c?.level || null)">
+                  <i v-for="(on, k) in levelDots(c?.level)" :key="k" class="dot" :class="{ on }" />
+                </button>
+                <!-- 只读: 没有点击区, 空格什么都不画 -->
+                <span v-else-if="c" class="dots ro" :title="levelTitle(c.level)" data-test="skill-cell-ro">
+                  <i v-for="(on, k) in levelDots(c.level)" :key="k" class="dot" :class="{ on }" />
+                </span>
+              </td>
+              <td class="risk-col">
+                <el-tooltip v-if="row.singlePoint" :content="$t('team.skills.single_point_tip')" placement="left">
+                  <el-tag size="small" type="danger" effect="light" data-test="single-point">{{ $t('team.skills.single_point') }}</el-tag>
                 </el-tooltip>
-                <el-button link size="small" type="primary" class="confirm" data-test="skill-confirm" @click="openPick('confirm', row.skill, members[i], null)">{{ $t('team.skills.confirm') }}</el-button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 手机: 每人一张卡竖排; 只读时没有点击区 -->
+      <div class="cards" data-test="skills-cards">
+        <article v-for="card in cards" :key="card.member.engineerId" class="panel person-card" data-test="skill-card">
+          <header class="pc-head">
+            <router-link class="pc-name" :to="`/admin/team/members/${card.member.engineerId}`">{{ card.member.name }}</router-link>
+          </header>
+          <p v-if="!card.items.length" class="pc-none">{{ $t('team.skills.card_none') }}</p>
+          <ul v-else class="pc-list">
+            <li v-for="it in card.items" :key="it.skill.id" class="pc-item">
+              <span class="pc-skill">{{ it.skill.name }}</span>
+              <span v-if="it.cell.source === 'DERIVED'" class="cand-wrap">
+                <el-tooltip :content="candTip(it.cell)" placement="top"><i class="dot cand" /></el-tooltip>
+                <span v-if="!editable" class="cand-label">{{ $t('team.skills.candidate') }}</span>
+                <el-button v-else link size="small" type="primary" class="confirm" @click="openPick('confirm', it.skill, card.member, null)">{{ $t('team.skills.confirm') }}</el-button>
               </span>
-              <!-- 人工标注 / 空格: 点了直接选 1–5 -->
-              <button v-else type="button" class="dots" :class="{ empty: !c }" :title="c ? `${c.level} · ${$t('team.skills.level_desc.' + c.level)}` : ''"
-                      data-test="skill-cell" @click="openPick('set', row.skill, members[i], c?.level || null)">
-                <i v-for="(on, k) in levelDots(c?.level)" :key="k" class="dot" :class="{ on }" />
+              <button v-else-if="editable" type="button" class="dots" :title="levelTitle(it.cell.level)" @click="openPick('set', it.skill, card.member, it.cell.level)">
+                <i v-for="(on, k) in levelDots(it.cell.level)" :key="k" class="dot" :class="{ on }" />
               </button>
-            </td>
-            <td class="risk-col">
-              <el-tooltip v-if="row.singlePoint" :content="$t('team.skills.single_point_tip')" placement="left">
-                <el-tag size="small" type="danger" effect="light" data-test="single-point">{{ $t('team.skills.single_point') }}</el-tag>
-              </el-tooltip>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+              <span v-else class="dots ro" :title="levelTitle(it.cell.level)">
+                <i v-for="(on, k) in levelDots(it.cell.level)" :key="k" class="dot" :class="{ on }" />
+              </span>
+            </li>
+          </ul>
+        </article>
+      </div>
+    </template>
 
     <!-- 选等级: 标注(set) / 确认候选(confirm) 共用 -->
     <el-dialog v-model="pick.visible" :title="pickTitle" width="min(440px, 92vw)" append-to-body>
@@ -104,7 +164,8 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { fde } from '@/api/index.js'
 import LoadError from '@/components/common/LoadError.vue'
-import { buildSkillMatrix, levelDots } from './teamUtils.js'
+import { buildSkillMatrix, levelDots, skillsMode, skillCards } from './teamUtils.js'
+import { currentUser } from '@/views/okr/okrPeople.js'
 
 const payload = ref(null)
 const meta = ref({})
@@ -114,6 +175,26 @@ const members = computed(() => payload.value?.members || [])
 const skills = computed(() => payload.value?.skills || [])
 const matrix = computed(() => buildSkillMatrix(payload.value))
 
+// 能不能改只看 role === 'ADMIN'; 只读时看自己还是本团队以后端 meta.scope 为准
+const me = currentUser()
+const mode = computed(() => skillsMode(me.role, meta.value.scope))
+const editable = computed(() => mode.value === 'admin')
+const hintText = computed(() => mode.value === 'admin'
+  ? $t('team.skills.hint', { days: meta.value.derivedWindowDays || 90 })
+  : $t(mode.value === 'self' ? 'team.skills.hint_self' : 'team.skills.hint_team'))
+const cards = computed(() => skillCards(members.value, matrix.value))
+const selfCard = computed(() => cards.value[0] || null)
+const selfLevel = ref('')
+const LEVEL_KEYS = { JUNIOR: 'common.junior', MIDDLE: 'common.mid', SENIOR: 'common.senior', EXPERT: 'common.expert' }
+const levelLabel = (lv) => (LEVEL_KEYS[lv] ? $t(LEVEL_KEYS[lv]) : lv)
+const levelTitle = (lv) => `${lv} · ${$t('team.skills.level_desc.' + lv)}`
+const candTip = (c) => `${$t('team.skills.candidate')} · ${$t('team.skills.candidate_tip', { n: c.hits || 0, days: meta.value.derivedWindowDays || 90 })}`
+
+// 只看自己时补职级(技能接口不带); 拿不到就不显示, 不影响主区
+async function loadSelfLevel() {
+  try { selfLevel.value = (await fde.me())?.engineer?.level || '' } catch { selfLevel.value = '' }
+}
+
 // 保存后静默刷新, 不闪骨架(保留横向滚动位置)
 async function load({ silent = false } = {}) {
   if (!silent) loading.value = true
@@ -122,6 +203,7 @@ async function load({ silent = false } = {}) {
     const r = await fde.team.skills()
     payload.value = r.data
     meta.value = r.meta || {}
+    if (!silent && mode.value === 'self') loadSelfLevel()
   } catch (e) {
     if (silent) ElMessage.error(e.message)
     else error.value = e.message
@@ -207,6 +289,26 @@ async function saveAdd() {
 @media (max-width: 640px) {
   .sp-inline { display: inline; }
   .risk-col { display: none; }
+}
+.dots.ro { cursor: default; padding: 4px 0; }
+.dots.ro:hover { border-color: transparent; background: none; }
+.cand-label { font-size: 12px; color: var(--text-muted); }
+.cards { display: none; flex-direction: column; gap: 10px; }
+.person-card { padding: 14px 16px; }
+.person-card.self { max-width: 520px; }
+.pc-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+.pc-name { font-weight: 600; color: var(--text); text-decoration: none; font-size: 15px; }
+.pc-level { font-size: 12px; color: var(--text-secondary); }
+.pc-list { list-style: none; margin: 0; padding: 0; }
+.pc-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid #f3f1ed; font-size: 13px; }
+.pc-item:last-child { border-bottom: none; }
+.pc-skill { color: var(--text); }
+.pc-level-wrap { display: inline-flex; align-items: center; gap: 8px; }
+.pc-desc { font-size: 12px; color: var(--text-muted); min-width: 52px; text-align: right; }
+.pc-none { margin: 0; font-size: 12px; color: var(--text-muted); }
+@media (max-width: 640px) {
+  .matrix-wrap { display: none; }
+  .cards { display: flex; }
 }
 .levels { display: flex; flex-direction: column; gap: 6px; }
 .level-btn { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); cursor: pointer; text-align: left; font-size: 13px; color: var(--text-secondary); }
