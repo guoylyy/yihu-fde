@@ -224,7 +224,8 @@ const RE_MD_HEADING = /^(#{1,6})\s+(.+)$/
 const RE_O_NUM = new RegExp(`^${BULLET}(?:\\*\\*)?O\\s*\\d{1,2}(?:\\*\\*)?(?:\\s*[:：.、]\\s*|\\s+)(.+)$`, 'i')
 // KR 行: - / * / + / • / 1. / 1、 / 1) 开头(* 后面要有空格, 免得撞上 **加粗**; 1.5 这种小数不算序号)
 const RE_LIST_ITEM = /^(?:[-+•·]\s*|\*\s+|\d{1,2}(?:\.(?!\d)|[、)）])\s*)(.*)$/
-const RE_KR_PREFIX = /^(?:\*\*)?KR\s*\d{0,2}(?:\*\*)?\s*[:：.、]?\s*/i
+// KR1：/ KR2 / **KR3** / KR：前缀(要有序号或冒号, 「KR 评审会」这类标题不剥)
+const RE_KR_PREFIX = /^(?:\*\*)?KR\s*(?:\d{1,2}(?:\*\*)?\s*[:：.、]?|(?:\*\*)?\s*[:：])\s*/i
 const RE_CHECKBOX = /^\[[ xX]\]\s*/
 const RE_WEIGHT = /[（(]?\s*权重\s*[:：]?\s*(\d+(?:\.\d+)?)\s*[%％]?\s*[)）]?/
 const RE_TARGET = /[（(]?\s*目标值?\s*[:：]\s*(\d+(?:\.\d+)?)\s*([%％]|[一-龥]|[A-Za-z]{1,10})?\s*[)）]?/
@@ -337,7 +338,7 @@ export function parsePlanMarkdown(text) {
     }
 
     const li = RE_LIST_ITEM.exec(line)
-    const krPrefixed = RE_KR_PREFIX.test(line) && /^(?:\*\*)?KR/i.test(line)
+    const krPrefixed = RE_KR_PREFIX.test(line)
     if (li || krPrefixed) {
       const s = (li ? li[1] : line).replace(RE_CHECKBOX, '').replace(RE_KR_PREFIX, '').trim()
       if (tidy(s).length < 2 || RE_NOT_A_BULK_KR.test(tidy(s))) return miss(no, raw)

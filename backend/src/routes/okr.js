@@ -377,7 +377,8 @@ router.post('/plan/copy-from-week', humanOnly('复制计划'), async (req, res) 
     const t = await targetOf(req)
     const { cycleId, ...r } = await copyFromWeek({ ownerId: t.ownerId, operatorId: t.operatorId, from, to, objectiveIds: req.body?.objectiveIds })
     if (r.createdObjectives) {
-      logInternalAction(req, 'okr.plan.copy', {
+      // 审计等它落库再回包(和 reopen 一样): 批量写入要能查得到是谁、替谁做的
+      await logInternalAction(req, 'okr.plan.copy', {
         resourceType: 'okr_cycle', resourceId: cycleId,
         details: { fromWeek: r.fromWeek, toWeek: r.toWeek, objectives: r.createdObjectives, krs: r.createdKrs, skipped: r.skipped.length, ...(t.onBehalf ? { ownerId: t.ownerId, onBehalf: true } : {}) }
       })
@@ -395,7 +396,7 @@ router.post('/plan/bulk-import', humanOnly('批量导入计划'), async (req, re
     const mode = req.body?.mode ?? 'preview'
     const { cycleId, ...r } = await bulkImport({ ownerId: t.ownerId, operatorId: t.operatorId, week, text: req.body?.text, mode })
     if (mode === 'apply') {
-      logInternalAction(req, 'okr.plan.bulk', {
+      await logInternalAction(req, 'okr.plan.bulk', {
         resourceType: 'okr_cycle', resourceId: cycleId,
         details: { week: r.week, objectives: r.createdObjectives, krs: r.createdKrs, truncated: r.truncated, skipped: r.skipped.length, unparsed: r.unparsed.length, ...(t.onBehalf ? { ownerId: t.ownerId, onBehalf: true } : {}) }
       })
