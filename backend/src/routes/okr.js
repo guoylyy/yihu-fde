@@ -28,6 +28,7 @@
 //
 // OKR 7.0: 编计划提效(人点才做, 只写草稿, 不提交): /plan/copy-from-week 从某周复制 O/KR、/plan/bulk-import 粘贴 Markdown
 // 批量建(preview 不落库)。目标周已提交 → 400(8171)。代管同 /plan(targetUserId)。不改上面任何权重 / 提交校验。
+// /templates: 个人模板(只归本人, 存 Markdown, 用时交给 bulk-import)。
 import express from 'express'
 import multer from 'multer'
 import mammoth from 'mammoth'
@@ -51,6 +52,7 @@ import { projectBrief } from '../services/okrObjectiveProjects.js'
 import { byProject, projectObjectives } from '../services/okrByProject.js'
 import { okrBlockerTick } from '../services/okrBlockers.js'
 import { copyFromWeek, bulkImport } from '../services/okrPlanImport.js'
+import { listTemplates, createTemplate, deleteTemplate } from '../services/okrTemplates.js'
 
 const router = express.Router()
 router.use(internalAuth)
@@ -400,6 +402,19 @@ router.post('/plan/bulk-import', humanOnly('批量导入计划'), async (req, re
     }
     ok(res, { ...r, onBehalfOf: onBehalfOf(t) })
   } catch (e) { fail(res, e, 'plan/bulk-import') }
+})
+
+// 个人 OKR 模板: 只看 / 建 / 删自己的
+router.get('/templates', async (req, res) => {
+  try { ok(res, await listTemplates(req.user.id)) } catch (e) { fail(res, e, 'templates') }
+})
+
+router.post('/templates', async (req, res) => {
+  try { ok(res, await createTemplate(req.user.id, req.body || {})) } catch (e) { fail(res, e, 'templates post') }
+})
+
+router.delete('/templates/:id', async (req, res) => {
+  try { ok(res, await deleteTemplate(req.user.id, req.params.id)) } catch (e) { fail(res, e, 'templates delete') }
 })
 
 // ---------------------------------------------------------------- 进展

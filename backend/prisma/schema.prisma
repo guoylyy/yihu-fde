@@ -1554,6 +1554,18 @@ model OkrProjectDoc {
   @@map("okr_project_docs")
 }
 
+// OKR 7.0: 个人 OKR 模板 —— 常用的周计划 Markdown, 前端选中后交给 /api/okr/plan/bulk-import。只归本人
+model OkrTemplate {
+  id        BigInt   @id @default(autoincrement())
+  userId    BigInt   @map("user_id")
+  name      String   @db.VarChar(100)
+  contentMd String   @map("content_md") @db.MediumText // 上限 20000 字(与批量导入同)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@map("okr_templates")
+}
+
 // OKR 5.0: O 挂项目(一个 O 可挂多个项目, 空 = 个人发展类 O)。结构化归属, 与 okr_project_docs(叙述)并存。
 // 不建外键: 项目被删时保留关联行, 查询时过滤掉不存在 / 已删的项目; O 被删时由 savePlan 一并删关联
 model OkrObjectiveProject {
