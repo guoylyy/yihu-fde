@@ -19,6 +19,16 @@
     <!-- OKR 4.0: 本周进度 + 催交(仅 ADMIN/MANAGER) -->
     <OkrWeekStatus v-if="lead" :key="weekKeyNow" :week="weekKeyNow" />
 
+    <!-- 0.6.2: 周进度后面两个计数(主管): 待你确认 / 变更待批, 都可点开 -->
+    <div v-if="canScore && data" class="okr-cf-counts" data-test="okr-cf-counts">
+      <button type="button" class="okr-cf-count" :class="{ hot: counts.toConfirm.length }" data-test="okr-to-confirm" @click="toConfirmOpen = true">
+        {{ $t('okr.confirm.to_confirm_n', { p0: counts.toConfirm.length }) }}
+      </button>
+      <button type="button" class="okr-cf-count" :class="{ hot: counts.pending.length }" data-test="okr-pending-changes" @click="changesOpen = true">
+        {{ $t('okr.confirm.pending_n', { p0: counts.pending.length }) }}
+      </button>
+    </div>
+
     <template v-if="data">
       <div class="okr-kpis">
         <div><b>{{ data.summary.expected }}</b><span>{{ $t('okr.expected') }}</span></div>
@@ -38,6 +48,21 @@
         </el-table-column>
         <el-table-column :label="$t('okr.submission')" width="96" align="center">
           <template #default="{ row }"><span :class="subClass(row)">{{ subText(row) }}</span></template>
+        </el-table-column>
+        <el-table-column :label="$t('okr.confirm.col')" width="104" align="center">
+          <template #default="{ row }">
+            <span class="okr-cf-cell" :data-test="'okr-cf-cell-' + row.user.id" @click.stop>
+              <template v-for="c in [cellOf(row)]" :key="c.kind">
+                <el-button v-if="c.kind === 'confirm'" type="primary" size="small" :loading="cfBusy === String(row.user.id)" data-test="okr-row-confirm" @click.stop="confirmRow(row)">{{ $t('okr.confirm.confirm_manager') }}</el-button>
+                <el-tooltip v-else-if="c.kind === 'done'" :content="$t('okr.confirm.done_tip', { p0: c.ownerAt, p1: c.manager, p2: c.managerAt })" placement="top">
+                  <span class="okr-cf-done" tabindex="0">{{ $t('okr.confirm.done') }}</span>
+                </el-tooltip>
+                <span v-else-if="c.kind === 'await_owner'" class="okr-dim">{{ $t('okr.confirm.await_owner') }}</span>
+                <span v-else-if="c.kind === 'await_manager'" class="okr-dim">{{ $t('okr.confirm.await_manager') }}</span>
+                <span v-else class="okr-dim">-</span>
+              </template>
+            </span>
+          </template>
         </el-table-column>
         <el-table-column :label="$t('okr.o_count')" width="70" align="center" prop="objectiveCount" />
         <el-table-column :label="$t('okr.kr_completion')" min-width="150">
@@ -70,6 +95,14 @@
             {{ row.user.name }}
           </span>
           <span :class="subClass(row)">{{ subText(row) }}</span>
+          <span class="okr-m-cf" :data-test="'okr-cf-cell-' + row.user.id" @click.stop>
+            <template v-for="c in [cellOf(row)]" :key="c.kind">
+              <el-button v-if="c.kind === 'confirm'" type="primary" class="okr-m-cf-btn" :loading="cfBusy === String(row.user.id)" data-test="okr-row-confirm" @click.stop="confirmRow(row)">{{ $t('okr.confirm.confirm_manager') }}</el-button>
+              <span v-else-if="c.kind === 'done'" class="okr-cf-done" :title="$t('okr.confirm.done_tip', { p0: c.ownerAt, p1: c.manager, p2: c.managerAt })">{{ $t('okr.confirm.done') }}</span>
+              <span v-else-if="c.kind === 'await_owner'" class="okr-dim">{{ $t('okr.confirm.await_owner') }}</span>
+              <span v-else-if="c.kind === 'await_manager'" class="okr-dim">{{ $t('okr.confirm.await_manager') }}</span>
+            </template>
+          </span>
           <span class="okr-m-stats">
             <template v-if="row.completion != null">{{ pct(row.completion) }}% · {{ row.objectiveCount }}O · {{ $t('okr.self_short') }}{{ row.selfScore ?? '-' }}<template v-if="canScore"> · {{ $t('okr.manager_short') }}{{ row.managerScore ?? '-' }}</template></template>
             <template v-else>-</template>
@@ -96,6 +129,19 @@
           {{ data.cycle.status === 'CLOSED' ? $t('okr.v3.closed_btn') : $t('okr.v3.mgr_btn') }}
         </el-button>
       </div>
+      <!-- 0.6.2: 待你确认(点开逐个确认) / 变更待批(差异 + 批准 / 拒绝) -->
+      <el-dialog v-model="toConfirmOpen" :title="$t('okr.confirm.to_confirm_title')" :width="isMobile ? '100%' : 'min(92vw, 420px)'" :fullscreen="isMobile" append-to-body>
+        <p v-if="!counts.toConfirm.length" class="okr-cf-empty">{{ $t('okr.confirm.to_confirm_empty') }}</p>
+        <ul v-else class="okr-cf-tolist" data-test="okr-to-confirm-list">
+          <li v-for="row in counts.toConfirm" :key="row.user.id">
+            <span class="okr-who"><el-avatar :size="24" :src="row.user.avatarUrl || undefined" class="okr-who-av">{{ initialOf(row.user.name) }}</el-avatar>{{ row.user.name }}</span>
+            <span class="okr-dim">{{ cellOf(row).ownerAt }}</span>
+            <el-button type="primary" class="okr-cf-tobtn" :loading="cfBusy === String(row.user.id)" @click="confirmRow(row)">{{ $t('okr.confirm.confirm_manager') }}</el-button>
+          </li>
+        </ul>
+      </el-dialog>
+      <OkrChangeReviewDialog v-model="changesOpen" :changes="counts.pending" :mobile="isMobile" @decided="onDecided" />
+
       <OkrManagerScorePanel
         v-if="canScore && data.cycle?.status" v-model="mgrOpen" :week="weekKeyNow" :me-id="meId" :closed="data.cycle.status === 'CLOSED'" :can-close="canCloseWeek" :mobile="isMobile"
         @changed="mgrChanged = true" @update:model-value="v => { if (!v && mgrChanged) { mgrChanged = false; load() } }"
@@ -107,7 +153,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { $t } from '@/i18n'
 import { fde } from '@/api/index.js'
 import { can } from '@/api/permissions.js'
@@ -117,6 +163,8 @@ import OkrPersonPicker from '@/components/okr/OkrPersonPicker.vue'
 import OkrManagerScorePanel from '@/components/okr/OkrManagerScorePanel.vue'
 import OkrWeekStatus from '@/components/okr/OkrWeekStatus.vue'
 import OkrExportMenu from '@/components/okr/OkrExportMenu.vue'
+import OkrChangeReviewDialog from '@/components/okr/OkrChangeReviewDialog.vue'
+import { teamConfirmCell, teamCounts } from './okrConfirm.js'
 import { exportItems } from './okrFe5.js'
 import { isLead } from './okrFe3.js'
 import { pct, shiftKey, parseKey, isoWeekOf, weekKey } from './okrUtils.js'
@@ -141,15 +189,74 @@ const mgrOpen = ref(false)
 const mgrChanged = ref(false)
 const cycleTag = computed(() => ({ PLANNING: 'warning', IN_PROGRESS: 'primary', REVIEW: 'warning', CLOSED: 'info' }[data.value?.cycle?.status] || 'info'))
 
-async function load() {
-  loading.value = true
+async function load({ quiet = false } = {}) {
+  if (!quiet) loading.value = true
   try {
     data.value = await fde.okr.team(route.query.week)
+    loadConfirms()
   } catch (e) {
     ElMessage.error(e.message)
   } finally {
     loading.value = false
   }
+}
+
+// ---------------------------------------------------------------- 0.6.2 确认列 / 待你确认 / 变更待批
+// 团队接口不带确认状态(契约不改), 逐人拉 confirm-status(团队小, 并发拉); 变更待批只给主管拉
+const cfMap = ref({})
+const changes = ref([])
+const cfBusy = ref('')
+const toConfirmOpen = ref(false)
+const changesOpen = ref(false)
+const cfCtx = { meId, canScore }
+const cellOf = row => teamConfirmCell(row, cfMap.value[String(row.user.id)], cfCtx)
+const counts = computed(() => teamCounts(data.value?.rows, cfMap.value, changes.value, cfCtx))
+
+async function loadConfirmOf(userId, week = weekKeyNow.value) {
+  try {
+    const s = await fde.okr.confirmStatus(week, userId)
+    if (week === weekKeyNow.value) cfMap.value = { ...cfMap.value, [String(userId)]: s }
+  } catch { /* 拉不到就画 - */ }
+}
+
+async function loadConfirms() {
+  const week = weekKeyNow.value
+  cfMap.value = {}
+  const rows = data.value?.rows || []
+  await Promise.all(rows.map(r => loadConfirmOf(r.user.id, week)))
+  if (canScore) {
+    try {
+      const list = await fde.okr.changes({ week, status: 'PENDING' })
+      if (week === weekKeyNow.value) changes.value = Array.isArray(list) ? list : (list?.items || [])
+    } catch { changes.value = [] }
+  }
+}
+
+/** 行里的「确认」: 二次确认(锁定后改动需走变更申请)→ 主管确认 → 只刷这一行 */
+async function confirmRow(row) {
+  try {
+    await ElMessageBox.confirm($t('okr.confirm.manager_confirm_body'), $t('okr.confirm.manager_confirm_title') + ' · ' + row.user.name, {
+      type: 'warning', confirmButtonText: $t('okr.confirm.confirm_manager'), cancelButtonText: $t('common.cancel')
+    })
+  } catch { return }
+  cfBusy.value = String(row.user.id)
+  try {
+    const s = await fde.okr.confirmManager(weekKeyNow.value, row.user.id)
+    cfMap.value = { ...cfMap.value, [String(row.user.id)]: s }
+    ElMessage.success($t('okr.confirm.confirmed_ok'))
+  } catch (e) {
+    ElMessage.error(e.message)
+    await loadConfirmOf(row.user.id)
+  } finally {
+    cfBusy.value = ''
+  }
+}
+
+/** 批准 / 拒绝后: 列表里移除, 刷新这个人的行(计划可能变了, 完成度 / O 数跟着变) */
+async function onDecided({ id, ownerId }) {
+  changes.value = changes.value.filter(c => String(c.id) !== String(id))
+  if (ownerId) await loadConfirmOf(ownerId)
+  try { data.value = { ...data.value, ...(await fde.okr.team(weekKeyNow.value)) } } catch { /* 下次进页再刷 */ }
 }
 watch(() => route.query.week, load, { immediate: true })
 
@@ -216,4 +323,21 @@ function subClass(row) {
 .okr-low li { display: flex; justify-content: space-between; gap: 8px; }
 .okr-low a { color: var(--el-color-primary); text-decoration: none; }
 .okr-admin { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.okr-cf-counts { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.okr-cf-count { min-height: 36px; padding: 0 14px; border-radius: 18px; border: 1px solid var(--el-border-color); background: var(--el-bg-color); color: var(--el-text-color-regular); font-size: 13px; cursor: pointer; }
+.okr-cf-count.hot { border-color: var(--el-color-primary-light-5); color: var(--el-color-primary); font-weight: 600; background: var(--el-color-primary-light-9); }
+.okr-cf-cell { display: inline-flex; justify-content: center; }
+.okr-cf-done { color: var(--el-color-success); font-weight: 600; cursor: default; }
+.okr-m-cf { grid-column: 1 / -1; justify-self: end; font-size: 12px; }
+.okr-m-cf:empty { display: none; }
+.okr-m-cf-btn { min-height: 44px; padding: 0 16px; }
+.okr-cf-empty { margin: 16px 0; text-align: center; color: var(--el-text-color-secondary); font-size: 13px; }
+.okr-cf-tolist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.okr-cf-tolist li { display: flex; align-items: center; gap: 10px; }
+.okr-cf-tolist .okr-who { flex: 1; }
+.okr-cf-tobtn { min-height: 36px; }
+@media (max-width: 640px) {
+  .okr-cf-count { min-height: 44px; flex: 1 1 0; }
+  .okr-cf-tobtn { min-height: 44px; }
+}
 </style>
