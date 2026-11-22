@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import * as Vue from 'vue'
 import { compileView, renderView, t } from '../helpers/sfc-render.js'
 import {
-  isLead, canEditProjectDoc, projectLabel, projectDocFileProblem, PROJECT_DOC_MAX,
+  isLead, canEditProjectDoc, projectLabel, projectDocFileProblem, PROJECT_DOC_MAX, firstHeading,
   todayKey, weekKeyOfDate, dailyMissingRows, dailyRemindText, summaryText,
   weekProgress, statusCells, mergeReminded, skippedByReason,
   groupHead, orderGroups, byOwner, projectOptions
@@ -45,6 +45,11 @@ describe('项目周 OKR: 写权限与后端 canWriteProjectDoc 同口径', () =>
     assert.equal(projectDocFileProblem({ name: 'a.pdf', size: 10 }), 'type')
     assert.equal(projectDocFileProblem({ name: 'a.md', size: PROJECT_DOC_MAX + 1 }), 'size')
     assert.equal(projectDocFileProblem(null), 'empty')
+  })
+  test('上传 .md 取正文第一个标题当标题', () => {
+    assert.equal(firstHeading('前言\n\n## 电梯导轨 · W47 ##\n# 第二个'), '电梯导轨 · W47')
+    assert.equal(firstHeading('没有标题\n- 列表'), '')
+    assert.equal(firstHeading('#不是标题'), '')
   })
 })
 

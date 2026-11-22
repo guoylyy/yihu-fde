@@ -79,7 +79,7 @@ import { useIsMobile } from '@/composables/useResponsive.js'
 import OkrWeekBar from '@/components/okr/OkrWeekBar.vue'
 import { shiftKey, parseKey, isoWeekOf, weekKey, weekStart, shDate } from './okrUtils.js'
 import { currentUser } from './okrPeople.js'
-import { canEditProjectDoc, projectLabel, projectDocFileProblem, isLead } from './okrFe3.js'
+import { canEditProjectDoc, projectLabel, projectDocFileProblem, isLead, firstHeading } from './okrFe3.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -176,7 +176,9 @@ async function onFile(ev) {
   if (bad) { if (bad !== 'empty') ElMessage.warning($t('okr.proj.file_' + bad)); return }
   uploading.value = true
   try {
-    const doc = await fde.okr.importProjectDoc(projectId.value, week.value, file)
+    // .md/.txt: 正文第一个标题当标题; .docx 交给后端(用文件名)
+    const title = /\.(md|markdown|txt)$/i.test(file.name) ? firstHeading(await file.text()) : ''
+    const doc = await fde.okr.importProjectDoc(projectId.value, week.value, file, title || undefined)
     afterSave(doc, 'okr.proj.imported')
   } catch (e) {
     ElMessage.error(e.message)

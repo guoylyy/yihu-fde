@@ -178,7 +178,7 @@ async function remind() {
 @media (max-width: 768px) {
   .dsum-top > * { flex: 1 1 auto; }
   .dsum-date { width: auto; }
-  .dsum-date :deep(.el-input__wrapper) { min-height: 44px; }
+  .dsum-top :deep(.el-input__wrapper) { min-height: 44px; box-sizing: border-box; }
   .dsum-scope { display: flex; }
   .dsum-scope :deep(.el-radio-button) { flex: 1; }
   .dsum-scope :deep(.el-radio-button__inner) { width: 100%; min-height: 44px; line-height: 20px; padding-top: 12px; padding-bottom: 12px; }

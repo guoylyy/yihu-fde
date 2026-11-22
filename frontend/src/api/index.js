@@ -648,9 +648,10 @@ export const fde = {
     projectDocs: (week) => request('/api/okr/projects?' + new URLSearchParams(clean({ week })).toString()),
     projectDoc: (projectId, week) => request(`/api/okr/projects/${encodeURIComponent(projectId)}?` + new URLSearchParams(clean({ week })).toString()),
     saveProjectDoc: (projectId, { week, title, contentMd }) => request(`/api/okr/projects/${encodeURIComponent(projectId)}`, { method: 'PUT', body: JSON.stringify({ week, title, contentMd }) }),
-    importProjectDoc: (projectId, week, file) => {
+    importProjectDoc: (projectId, week, file, title) => {
       const fd = new FormData()
       fd.append('file', file)
+      if (title) fd.append('title', title)
       return request(`/api/okr/projects/${encodeURIComponent(projectId)}/import?week=${encodeURIComponent(week)}`, { method: 'POST', body: fd, timeout: 60000 })
     },
     // OKR 4.0: 每日总结(autoItems 自动归并 + 人补一句); 主管代写带 targetUserId

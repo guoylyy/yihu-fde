@@ -38,6 +38,12 @@ export function projectDocFileProblem(file) {
   return ''
 }
 
+/** Markdown 第一个标题(# xxx), 上传 .md/.txt 时当标题传给后端(不传后端会用文件名); 没有返回 '' */
+export function firstHeading(text) {
+  const m = /^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/m.exec(String(text || ''))
+  return m ? m[1].slice(0, 200) : ''
+}
+
 // ---------------------------------------------------------------- 周状态与催交
 
 /** 进度条三个数: 已提交 / 已自评 / 已打分, 分母都是应交人数(免提交不算) */
