@@ -25,13 +25,16 @@
       <button type="button" class="okr-close-notice-x" :aria-label="$t('okr.close.dismiss')" :title="$t('okr.close.dismiss')" data-test="okr-close-notice-x" @click="hideNotice">×</button>
     </div>
 
-    <!-- 0.6.2: 周进度后面两个计数(主管): 待你确认 / 变更待批, 都可点开 -->
+    <!-- 0.6.2: 周进度后面两个计数(主管): 待你确认 / 变更待批, 都可点开; 0.6.3 多一个「未交自评」(名单来自周状态) -->
     <div v-if="canScore && data" class="okr-cf-counts" data-test="okr-cf-counts">
       <button type="button" class="okr-cf-count" :class="{ hot: counts.toConfirm.length }" data-test="okr-to-confirm" @click="toConfirmOpen = true">
         {{ $t('okr.confirm.to_confirm_n', { p0: counts.toConfirm.length }) }}
       </button>
       <button type="button" class="okr-cf-count" :class="{ hot: counts.pending.length }" data-test="okr-pending-changes" @click="changesOpen = true">
         {{ $t('okr.confirm.pending_n', { p0: counts.pending.length }) }}
+      </button>
+      <button v-if="wst" type="button" class="okr-cf-count" :class="{ warm: pendingSelf.length }" data-test="okr-pending-self" @click="pendingSelfOpen = true">
+        {{ $t('okr.close.pending_self_n', { p0: pendingSelf.length }) }}
       </button>
     </div>
 
@@ -82,7 +85,12 @@
           </template>
         </el-table-column>
         <el-table-column :label="$t('okr.self_score')" width="80" align="center">
-          <template #default="{ row }">{{ row.selfScore ?? '-' }}</template>
+          <template #default="{ row }">
+            <template v-for="c in [selfCell(row)]" :key="c.kind">
+              <span v-if="c.kind === 'missing'" class="okr-dim" :data-test="'okr-self-missing-' + row.user.id">{{ $t('okr.close.self_missing') }}</span>
+              <template v-else>{{ c.kind === 'score' ? c.text : '-' }}</template>
+            </template>
+          </template>
         </el-table-column>
         <el-table-column v-if="canScore" :label="$t('okr.manager_score')" width="80" align="center">
           <template #default="{ row }">{{ row.managerScore ?? '-' }}</template>
@@ -110,7 +118,7 @@
             </template>
           </span>
           <span class="okr-m-stats">
-            <template v-if="row.completion != null">{{ pct(row.completion) }}% · {{ row.objectiveCount }}O · {{ $t('okr.self_short') }}{{ row.selfScore ?? '-' }}<template v-if="canScore"> · {{ $t('okr.manager_short') }}{{ row.managerScore ?? '-' }}</template></template>
+            <template v-if="row.completion != null">{{ pct(row.completion) }}% · {{ row.objectiveCount }}O · {{ $t('okr.self_short') }}<span v-if="selfCell(row).kind === 'missing'" class="okr-m-self-missing" :data-test="'okr-self-missing-' + row.user.id">{{ $t('okr.close.self_missing') }}</span><template v-else>{{ row.selfScore ?? '-' }}</template><template v-if="canScore"> · {{ $t('okr.manager_short') }}{{ row.managerScore ?? '-' }}</template></template>
             <template v-else>-</template>
           </span>
           <el-button v-if="mayProxyRow(me, row.user)" size="small" type="warning" plain class="okr-m-proxy" @click.stop="openProxy(row.user.id)">{{ $t('okr.proxy.act') }}</el-button>
@@ -146,6 +154,16 @@
           </li>
         </ul>
       </el-dialog>
+      <!-- 0.6.3: 未交自评名单(不影响归档, 主管可直接打分) -->
+      <el-dialog v-model="pendingSelfOpen" :title="$t('okr.close.pending_self_title', { p0: weekKeyNow })" :width="isMobile ? '94vw' : 'min(92vw, 420px)'" append-to-body>
+        <p v-if="!pendingSelf.length" class="okr-cf-empty">{{ $t('okr.close.pending_self_empty') }}</p>
+        <ul v-else class="okr-cf-tolist okr-ps-list" data-test="okr-pending-self-list">
+          <li v-for="p in pendingSelf" :key="p.userId" :data-test="'okr-pending-self-' + p.userId">
+            <button type="button" class="okr-ps-who" @click="pendingSelfOpen = false; openPerson(p.userId)">{{ p.name }}</button>
+            <span class="okr-dim">{{ $t('okr.close.pending_self_os', { p0: p.objectiveCount }) }}</span>
+          </li>
+        </ul>
+      </el-dialog>
       <OkrChangeReviewDialog v-model="changesOpen" :changes="counts.pending" :mobile="isMobile" @decided="onDecided" />
 
       <OkrManagerScorePanel
@@ -171,7 +189,7 @@ import OkrWeekStatus from '@/components/okr/OkrWeekStatus.vue'
 import OkrExportMenu from '@/components/okr/OkrExportMenu.vue'
 import OkrChangeReviewDialog from '@/components/okr/OkrChangeReviewDialog.vue'
 import { teamConfirmCell, teamCounts } from './okrConfirm.js'
-import { pendingSelfFromStatus, closedNoticeText, noticeDismissed, dismissNotice } from './okrClose.js'
+import { pendingSelfFromStatus, closedNoticeText, noticeDismissed, dismissNotice, selfCell } from './okrClose.js'
 import { exportItems } from './okrFe5.js'
 import { isLead } from './okrFe3.js'
 import { pct, shiftKey, parseKey, isoWeekOf, weekKey } from './okrUtils.js'
@@ -271,6 +289,7 @@ watch(() => route.query.week, load, { immediate: true })
 const wstRef = ref(null)
 const wst = ref(null)
 const pendingSelf = computed(() => (wst.value && wst.value.week === weekKeyNow.value ? pendingSelfFromStatus(wst.value) : []))
+const pendingSelfOpen = ref(false)
 const dismissed = ref(new Set())
 const closedNotice = computed(() => {
   const week = weekKeyNow.value
@@ -353,6 +372,10 @@ function subClass(row) {
 .okr-cf-counts { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
 .okr-cf-count { min-height: 36px; padding: 0 14px; border-radius: 18px; border: 1px solid var(--el-border-color); background: var(--el-bg-color); color: var(--el-text-color-regular); font-size: 13px; cursor: pointer; }
 .okr-cf-count.hot { border-color: var(--el-color-primary-light-5); color: var(--el-color-primary); font-weight: 600; background: var(--el-color-primary-light-9); }
+.okr-cf-count.warm { border-color: #f1dc8a; color: #6b5300; font-weight: 600; background: #fdf6d8; }
+.okr-m-self-missing { color: var(--el-text-color-placeholder); }
+.okr-ps-list { max-height: min(60vh, 480px); overflow-y: auto; }
+.okr-ps-who { flex: 1; min-height: 36px; padding: 0; border: 0; background: none; font: inherit; font-weight: 600; text-align: left; color: var(--el-color-primary); cursor: pointer; }
 .okr-cf-cell { display: inline-flex; justify-content: center; }
 .okr-cf-done { color: var(--el-color-success); font-weight: 600; cursor: default; }
 .okr-m-cf { grid-column: 1 / -1; justify-self: end; font-size: 12px; }
@@ -366,6 +389,7 @@ function subClass(row) {
 @media (max-width: 640px) {
   .okr-cf-count { min-height: 44px; flex: 1 1 0; }
   .okr-cf-tobtn { min-height: 44px; }
+  .okr-ps-who { min-height: 44px; }
   .okr-close-notice-x { width: 44px; height: 44px; margin: -10px -4px; }
 }
 </style>

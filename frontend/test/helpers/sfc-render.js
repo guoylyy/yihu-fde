@@ -6,6 +6,7 @@ import * as Vue from 'vue'
 import { renderToString } from '@vue/server-renderer'
 import { parse, compileTemplate } from '@vue/compiler-sfc'
 import { i18n } from '../../src/i18n/index.js'
+import { selfCell } from '../../src/views/okr/okrClose.js'
 
 export function compileView(relPath) {
   const file = new URL(`../../src/${relPath}`, import.meta.url)
@@ -40,7 +41,7 @@ export const CONFIRM_DEFAULTS = {
 // 0.6.3 完成本周弹窗 / 未交自评 / 归档提示条在面板与团队页里加的 setup 名字: 缺省「弹窗没开、没人没交自评、没有提示条」
 export const CLOSE_DEFAULTS = {
   closeDlg: { open: false, phase: 'confirm', missing: [], pendingSelf: [], unscored: 0 }, openClose() {},
-  closedNotice: '', hideNotice() {}, pendingSelf: [], pendingSelfOpen: false, wst: null, wstRef: null
+  closedNotice: '', hideNotice() {}, pendingSelf: [], pendingSelfOpen: false, wst: null, wstRef: null, selfCell
 }
 
 /** 渲染; el-table 把 data 逐行喂给列的默认插槽, 列头插槽也渲染(看 tooltip 文案) */

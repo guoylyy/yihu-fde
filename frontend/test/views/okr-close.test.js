@@ -8,7 +8,7 @@ import { compileView, renderView, t } from '../helpers/sfc-render.js'
 import { managerScoreChanges } from '../../src/views/okr/okrUtils.js'
 import {
   CLOSE_MISSING_CODE, shortWeek, nameList, parseCloseError, groupMissing, unscoredSelfCount,
-  pendingSelfFromGroups, closedNoticeText, pendingSelfFromStatus, noticeDismissed, dismissNotice
+  pendingSelfFromGroups, closedNoticeText, pendingSelfFromStatus, noticeDismissed, dismissNotice, selfCell
 } from '../../src/views/okr/okrClose.js'
 
 const esc = s => String(s).replace(/'/g, '&#39;').replace(/"/g, '&quot;')
@@ -292,6 +292,62 @@ describe('团队页: 归档后未自评提示条', () => {
     assert.match(s, /load\(\); wstRef\?\.reload\(\)/)
     assert.match(s, /\.okr-close-notice \{[^}]*background: #fdf6d8/)
     assert.match(src('components/okr/OkrWeekStatus.vue'), /emit\('loaded', status\.value\)/)
+  })
+})
+
+describe('团队页: 未交自评计数 / 名单 / 自评列', () => {
+  const render = compileView('views/okr/TeamOkr.vue')
+  const EXTRA = { OkrPersonPicker: true, OkrWeekBar: true, OkrWeekStatus: true, OkrExportMenu: true, OkrManagerScorePanel: true, OkrChangeReviewDialog: true }
+  const pct = v => (v == null ? null : Math.round(v * 100))
+  const row = (id, name, over = {}) => ({ user: { id, name }, submitted: true, submission: 'ON_TIME', objectiveCount: 2, completion: 0.5, krDone: 1, krTotal: 2, selfScore: null, managerScore: null, ...over })
+  const rows = [row('38', '张三'), row('39', '周舟', { selfScore: 80 }), row('3', 'Sam', { submitted: false, submission: 'NONE', completion: null })]
+  const pending = [{ userId: '38', name: '张三', objectiveCount: 2 }]
+  const base = (over = {}) => ({
+    loading: false, isMobile: false, meId: '1', me: { id: '1', role: 'ADMIN' }, people: [], canScore: true, anyProxy: false, lead: true,
+    weekKeyNow: '2026-W47', weekParts: { year: 2026, weekNo: 47 }, cycleTag: 'info', canCloseWeek: true, mgrOpen: false, mgrChanged: false,
+    pct, initialOf: n => String(n || '').slice(0, 1), mayProxyRow: () => false, subText: r => r.submission, subClass: () => 'okr-sub', openPerson() {}, openProxy() {}, shift() {}, load() {},
+    data: { cycle: { status: 'IN_PROGRESS' }, summary: { expected: 3, submitted: 2, late: 0, avgCompletion: 0.5 }, rows, lowStreak: { people: [], weeks: [] } },
+    wst: { week: '2026-W47', rows: [] }, pendingSelf: pending, pendingSelfOpen: true,
+    ...over
+  })
+  test('selfCell: 有分显示分; 交了没自评 → 未交; 没提交 → -', () => {
+    assert.deepEqual(selfCell(rows[1]), { kind: 'score', text: '80' })
+    assert.deepEqual(selfCell(rows[0]), { kind: 'missing' })
+    assert.deepEqual(selfCell(rows[2]), { kind: 'none' })
+    assert.deepEqual(selfCell({ submission: 'LATE', selfScore: null }), { kind: 'missing' })
+    assert.deepEqual(selfCell(null), { kind: 'none' })
+    assert.equal(zh.okr.close.self_missing, '未交')
+  })
+  test('计数「未交自评 1」与「待你确认 / 变更待批」并排; 点开是名单(人名 + 几个 O 没自评)', async () => {
+    const html = await renderView(render, base(), EXTRA)
+    const counts = html.split('data-test="okr-cf-counts"')[1].split('</div>')[0]
+    assert.ok(counts.includes('data-test="okr-to-confirm"') && counts.includes('data-test="okr-pending-changes"'))
+    assert.ok(counts.includes('data-test="okr-pending-self"'))
+    assert.ok(counts.includes(esc(t('okr.close.pending_self_n', { p0: 1 }))))
+    const list = html.split('data-test="okr-pending-self-list"')[1].split('</ul>')[0]
+    assert.ok(list.includes('data-test="okr-pending-self-38"') && list.includes('张三'))
+    assert.ok(list.includes(esc(t('okr.close.pending_self_os', { p0: 2 }))))
+    assert.ok(!list.includes('周舟'))
+    assert.equal(zt('okr.close.pending_self_n', { p0: 2 }), '未交自评 2')
+  })
+  test('周状态没拿到(非主管 / 403) → 不出这个计数; 名单空 → 空态', async () => {
+    const no = await renderView(render, base({ wst: null }), EXTRA)
+    assert.ok(!no.includes('data-test="okr-pending-self"'))
+    const empty = await renderView(render, base({ pendingSelf: [] }), EXTRA)
+    has(empty, t('okr.close.pending_self_n', { p0: 0 }))
+    has(empty, t('okr.close.pending_self_empty'))
+  })
+  test('桌面表格「自评」列: 未交显示灰字「未交」, 有分显示分, 没提交 -', async () => {
+    const html = await renderView(render, base({ pendingSelfOpen: false }), EXTRA)
+    const m = html.match(/<span class="okr-dim" data-test="okr-self-missing-38">([^<]*)<\/span>/)
+    assert.ok(m, '张三 未交')
+    assert.equal(m[1], t('okr.close.self_missing'))
+    assert.ok(!html.includes('okr-self-missing-39') && !html.includes('okr-self-missing-3"'))
+  })
+  test('手机卡片: 自评处同样显示「未交」', async () => {
+    const html = await renderView(render, base({ isMobile: true, pendingSelfOpen: false }), EXTRA)
+    assert.match(html, /class="okr-m-self-missing" data-test="okr-self-missing-38"/)
+    assert.match(src('views/okr/TeamOkr.vue'), /@media \(max-width: 640px\) \{[\s\S]*\.okr-ps-who \{ min-height: 44px; \}/)
   })
 })
 
