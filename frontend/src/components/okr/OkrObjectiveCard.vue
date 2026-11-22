@@ -14,10 +14,16 @@
       <span v-if="obj.selfScore != null" class="okr-score">{{ $t('okr.self_short') }} {{ obj.selfScore }}</span>
       <span v-if="obj.managerScore != null" class="okr-score mgr">{{ $t('okr.manager_short') }} {{ obj.managerScore }}</span>
       <span v-if="obj.lateSubmit" class="okr-late">{{ $t('okr.late') }}</span>
+      <!-- 按项目视图的 O 不带 KR 明细, 只给 KR 完成数 -->
+      <span v-if="!obj.keyResults && obj.krTotal != null" class="okr-krsum" data-test="okr-kr-sum">{{ $t('okr.byproj.kr_sum', { p0: obj.krDone, p1: obj.krTotal }) }}</span>
+    </div>
+    <!-- OKR 5.0: O 挂的项目 -->
+    <div v-if="obj.projects?.length" class="okr-projs" data-test="okr-card-projects">
+      <span v-for="p in obj.projects" :key="p.id" class="okr-proj" :title="p.code || undefined">{{ p.name }}</span>
     </div>
     <p v-if="obj.description" class="okr-desc">{{ obj.description }}</p>
 
-    <ul class="okr-krs">
+    <ul v-if="obj.keyResults?.length" class="okr-krs">
       <li v-for="kr in obj.keyResults" :key="kr.id" class="okr-kr" :class="{ picked: open && form.krId === kr.id, 'has-acts': showActs }" :data-test="'okr-kr-' + kr.id">
         <span class="okr-kr-title">{{ kr.title }}</span>
         <span class="okr-kr-val" :class="{ done: kr.status === 'DONE', missed: kr.status === 'MISSED' }" data-test="okr-kr-val">{{ krValueText(kr, $t) }}</span>
@@ -123,7 +129,7 @@ function complete(kr, done) {
 }
 const nUpdates = computed(() => props.obj.updates?.length || 0)
 const hasPanel = computed(() => props.canEdit || props.canMiss || props.canManagerScore || nUpdates.value > 0)
-const pickedKr = computed(() => props.obj.keyResults.find(k => k.id === form.krId) || null)
+const pickedKr = computed(() => (props.obj.keyResults || []).find(k => k.id === form.krId) || null)
 const toggleText = computed(() => {
   if (props.canManagerScore) return $t('okr.toggle_review', { p0: nUpdates.value })
   if (props.canEdit) return $t('okr.toggle_log', { p0: nUpdates.value })
@@ -134,7 +140,8 @@ function toggle() {
   open.value = !open.value
   if (open.value && props.canEdit) {
     // 默认挑第一条还没完成的 KR
-    const kr = props.obj.keyResults.find(k => k.status !== 'DONE') || props.obj.keyResults[0]
+    const krs = props.obj.keyResults || []
+    const kr = krs.find(k => k.status !== 'DONE') || krs[0]
     pick(kr)
   }
 }
@@ -172,6 +179,9 @@ function send() {
 .okr-pct { font-weight: 600; color: var(--el-text-color-primary); }
 .okr-score.mgr { color: var(--el-color-success); }
 .okr-late { color: var(--el-color-danger); }
+.okr-krsum { color: var(--el-text-color-secondary); }
+.okr-projs { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.okr-proj { font-size: 11px; line-height: 18px; padding: 0 7px; border-radius: 9px; background: var(--el-color-primary-light-9); color: var(--el-color-primary); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .okr-desc { margin: 6px 0 0; font-size: 13px; color: var(--el-text-color-regular); white-space: pre-wrap; overflow-wrap: anywhere; }
 .okr-krs { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .okr-kr { display: grid; grid-template-columns: 1fr auto; grid-template-rows: auto 4px; column-gap: 8px; row-gap: 4px; padding: 8px 10px; border-radius: 8px; background: var(--el-fill-color-light); }

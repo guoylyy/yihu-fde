@@ -2489,6 +2489,15 @@
       "reminded_n": "Reminded {p0} people",
       "nobody": "Nobody needs a reminder",
       "recent_skipped": " ({p0} reminded within the last 2 hours, skipped)"
+    },
+    "byproj": {
+      "by_person": "By person",
+      "by_project": "By project",
+      "unassigned": "No project",
+      "head": "{p0} people · {p1} objectives",
+      "avg": "avg. completion {p0}",
+      "empty": "No objectives this week",
+      "kr_sum": "KRs done {p0}/{p1}"
     }
   },
   "assistant": {

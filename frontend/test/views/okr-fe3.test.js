@@ -2,12 +2,16 @@
 // 纯函数直接测; 页面用真实模板 + 手给状态 SSR 渲染(测试语言为 en, 文案用 t() 取)
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
+import * as Vue from 'vue'
 import { compileView, renderView, t } from '../helpers/sfc-render.js'
 import {
   isLead, canEditProjectDoc, projectLabel, projectDocFileProblem, PROJECT_DOC_MAX,
   todayKey, weekKeyOfDate, dailyMissingRows, dailyRemindText, summaryText,
-  weekProgress, statusCells, mergeReminded, skippedByReason
+  weekProgress, statusCells, mergeReminded, skippedByReason,
+  groupHead, orderGroups, byOwner
 } from '../../src/views/okr/okrFe3.js'
+import { pct, OBJ_TAG, krValueText } from '../../src/views/okr/okrUtils.js'
+import { initialOf, mayProxyRow } from '../../src/views/okr/okrPeople.js'
 
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/'/g, '&#39;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 const has = (html, text) => assert.ok(html.includes(esc(text)), `应出现: ${text}`)
@@ -226,5 +230,88 @@ describe('周状态条(团队页顶部)', () => {
     assert.equal((html.match(/data-test="wst-reminded"/g) || []).length, 1)
     has(html, t('okr.wstatus.exempt_hint'))
     assert.ok((html.match(/class="bad"/g) || []).length >= 3, '林晓的计划 / 自评 / 主管分标红')
+  })
+})
+
+// ---------------------------------------------------------------- 四、按项目分组
+
+const pobj = (id, owner, over = {}) => ({
+  id, seq: 1, title: 'O-' + id, weight: 100, status: 'ON_TRACK', submitted: true, lateSubmit: false, owner,
+  progress: 0.5, krTotal: 3, krDone: 1, selfScore: null, projects: [{ id: '7', name: '园区', code: 'P-7' }], ...over
+})
+const lin = { id: '38', name: '林晓' }
+const zhou = { id: '39', name: '周舟' }
+
+describe('按项目分组: 纯函数', () => {
+  test('块头: O 数不含放弃的, 人数 / 完成度用后端 groupSummary', () => {
+    const g = { project: { id: '7', name: '园区', code: 'P-7' }, objectives: [pobj('1', lin), pobj('2', zhou), pobj('3', zhou, { status: 'DROPPED' })], ownerCount: 2, completion: 0.4567 }
+    assert.deepEqual(groupHead(g), { key: '7', name: '园区', code: 'P-7', unassigned: false, objectiveCount: 2, ownerCount: 2, completion: 0.4567 })
+    const un = groupHead({ project: { id: null, name: '未挂项目', code: null }, objectives: [pobj('4', lin)], completion: null })
+    assert.equal(un.unassigned, true)
+    assert.equal(un.key, 'none')
+    assert.equal(un.ownerCount, 1, '后端没给 ownerCount 时自己数')
+  })
+  test('「未挂项目」放最后; 块内按人分段并保持顺序', () => {
+    const gs = orderGroups([{ project: { id: null } }, { project: { id: '2' } }, { project: { id: '1' } }])
+    assert.deepEqual(gs.map(g => g.project.id), ['2', '1', null])
+    const segs = byOwner([pobj('1', lin), pobj('2', lin, { seq: 2 }), pobj('3', zhou)])
+    assert.deepEqual(segs.map(s => [s.owner.name, s.objectives.length]), [['林晓', 2], ['周舟', 1]])
+  })
+})
+
+describe('团队页 · 按项目', () => {
+  const render = compileView('views/okr/TeamOkr.vue')
+  const raw = [
+    { project: { id: '7', name: '园区', code: 'P-7' }, objectives: [pobj('1', lin), pobj('2', zhou)], ownerCount: 2, completion: 0.5 },
+    { project: { id: null, name: '未挂项目', code: null }, objectives: [pobj('3', lin, { projects: [] })], ownerCount: 1, completion: null }
+  ]
+  const groups = orderGroups(raw).map(g => ({ head: groupHead(g), owners: byOwner(g.objectives) }))
+  const state = (over = {}) => ({
+    loading: false, isMobile: false, meId: '38', me: { id: '38', role: 'FDE_ENGINEER' }, people: [], canScore: false, anyProxy: false, lead: false,
+    weekKeyNow: '2026-W48', weekParts: { year: 2026, weekNo: 48 }, cycleTag: 'info', mgrOpen: false, mgrChanged: false, canCloseWeek: false,
+    pct, initialOf, mayProxyRow, subText: r => r.submission, subClass: () => 'okr-sub', openPerson() {}, openProxy() {}, shift() {}, setMode() {}, load() {},
+    data: { cycle: { status: 'IN_PROGRESS' }, summary: { expected: 2, submitted: 1, late: 0, avgCompletion: 0.5 }, rows: [], lowStreak: { people: [], weeks: [] } },
+    mode: 'project', groups,
+    ...over
+  })
+  const cardStub = { props: ['obj'], setup: p => () => Vue.h('div', { class: 'card-stub' }, `${p.obj.owner.name}:${p.obj.title}`) }
+  const extra = { OkrWeekBar: true, OkrPersonPicker: true, OkrManagerScorePanel: true, OkrWeekStatus: true, OkrObjectiveCard: cardStub }
+
+  test('每个项目一块: 块头项目名 + 人数 + 平均完成度; 块内各人的 O 卡; 「未挂项目」在最后; 不出按人表格', async () => {
+    const html = await renderView(render, state(), extra)
+    assert.ok(html.includes('data-test="okr-by-project"'))
+    has(html, t('okr.byproj.head', { p0: 2, p1: 2 }))
+    has(html, t('okr.byproj.avg', { p0: '50%' }))
+    has(html, t('okr.byproj.avg', { p0: '-' }))
+    assert.equal((html.match(/class="card-stub"/g) || []).length, 3)
+    assert.ok(html.indexOf('data-test="okr-group-7"') < html.indexOf('data-test="okr-group-none"'))
+    has(html, t('okr.byproj.unassigned'))
+    assert.ok(!html.includes('data-test="okr-team-table"'))
+    assert.ok(!html.includes(t('okr.expected')))
+  })
+  test('按人(默认): 照旧出表格, 不出分组', async () => {
+    const html = await renderView(render, state({ mode: 'person' }), extra)
+    assert.ok(html.includes('data-test="okr-team-table"'))
+    assert.ok(!html.includes('data-test="okr-by-project"'))
+  })
+})
+
+describe('O 卡: 按项目视图的 O(没有 KR 明细) + 项目标签', () => {
+  const render = compileView('components/okr/OkrObjectiveCard.vue')
+  const st = (obj) => ({
+    obj, canEdit: false, canMiss: false, canManagerScore: false, canComplete: false, closed: false, krBusy: '', busy: false,
+    open: false, form: { krId: '' }, mScore: null, mComment: '', hasPanel: false, toggleText: '', pickedKr: null, showActs: false, actsDisabled: true,
+    OBJ_TAG, pct, krValueText, round: n => n, shDate: s => s, toggle() {}, send() {}, complete() {}
+  })
+  test('出「KR 完成 1/3」和项目标签, 不出 KR 列表', async () => {
+    const html = await renderView(render, st(pobj('1', lin)), { 'el-tooltip': true })
+    has(html, t('okr.byproj.kr_sum', { p0: 1, p1: 3 }))
+    assert.ok(html.includes('data-test="okr-card-projects"'))
+    has(html, '园区')
+    assert.ok(!html.includes('class="okr-krs"'))
+  })
+  test('没挂项目不出标签行', async () => {
+    const html = await renderView(render, st(pobj('1', lin, { projects: [] })), { 'el-tooltip': true })
+    assert.ok(!html.includes('data-test="okr-card-projects"'))
   })
 })

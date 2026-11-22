@@ -2489,6 +2489,15 @@
       "reminded_n": "已提醒 {p0} 人",
       "nobody": "没有需要催的人",
       "recent_skipped": "（{p0} 人 2 小时内催过，这次跳过）"
+    },
+    "byproj": {
+      "by_person": "按人",
+      "by_project": "按项目",
+      "unassigned": "未挂项目",
+      "head": "{p0} 人 · {p1} 个 O",
+      "avg": "平均完成度 {p0}",
+      "empty": "本周还没有 O",
+      "kr_sum": "KR 完成 {p0}/{p1}"
     }
   },
   "assistant": {
