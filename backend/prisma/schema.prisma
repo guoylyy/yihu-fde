@@ -1526,6 +1526,41 @@ model OkrScore {
   @@map("okr_scores")
 }
 
+// OKR 4.0: 项目周 OKR 文档(文档形态, 不做结构化)。一周一项目一份, 重复保存覆盖同一份
+model OkrProjectDoc {
+  id         BigInt   @id @default(autoincrement())
+  projectId  BigInt   @map("project_id")
+  year       Int // ISO 年
+  weekNo     Int      @map("week_no")
+  title      String   @db.VarChar(200)
+  contentMd  String   @map("content_md") @db.MediumText // Markdown 正文; 上传 2MB 文件抽出的正文会超过 TEXT
+  sourceFile String?  @map("source_file") @db.VarChar(255) // 导入时的文件名; 手写保存时清空
+  createdBy  BigInt   @map("created_by")
+  updatedBy  BigInt   @map("updated_by")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@unique([projectId, year, weekNo])
+  @@index([year, weekNo])
+  @@map("okr_project_docs")
+}
+
+// OKR 4.0: 每人每天一篇进展总结(人补一句); 自动聚合部分从 okr_updates 现算, 不落库
+model OkrDailySummary {
+  id         BigInt   @id @default(autoincrement())
+  userId     BigInt   @map("user_id")
+  date       DateTime @db.Date // 上海日期
+  summaryMd  String?  @map("summary_md") @db.Text
+  createdBy  BigInt   @map("created_by") // 首次写入的实际操作人
+  operatorId BigInt?  @map("operator_id") // 最近一次由主管代写时 = 操作人; 本人写为空
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@unique([userId, date])
+  @@index([date])
+  @@map("okr_daily_summaries")
+}
+
 // 未达成原因(周五填), 可选顺延到下周
 model OkrMiss {
   id               BigInt   @id @default(autoincrement())

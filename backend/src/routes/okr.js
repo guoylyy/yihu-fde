@@ -29,6 +29,7 @@ import { generateOkrDraft } from '../services/okrDraft.js'
 import { resolveOkrTarget, canManageOkrOf, teamListScope, forViewer, teamForViewer, managerScoreScope, scopeCovers } from '../services/okrAccess.js'
 import { personOverview, weekStats, yearStats } from '../services/okrStats.js'
 import { describeExempt, setExempt, isExempt } from '../services/okrExempt.js'
+import { listProjectDocs, getProjectDoc, loadProject, canWriteProjectDoc, saveProjectDoc } from '../services/okrProjectDocs.js'
 
 const router = express.Router()
 router.use(internalAuth)
@@ -262,16 +263,18 @@ const draftUpload = multer({
   }
 }).single('file')
 
-function receiveDraftFile(req, res, next) {
+/** 收 multipart 单文件(同一套白名单 / 2MB 限制); 草稿导入与项目周 OKR 文档导入共用 */
+const receiveOkrFile = scope => (req, res, next) => {
   draftUpload(req, res, (err) => {
     if (!err) return next()
     if (err instanceof multer.MulterError) {
       const msg = err.code === 'LIMIT_FILE_SIZE' ? '文件超过 2MB' : `上传失败: ${err.message}`
       return res.status(400).json({ code: err.code === 'LIMIT_FILE_SIZE' ? 8133 : 8132, message: msg })
     }
-    fail(res, err, 'plan/draft-from-file')
+    fail(res, err, scope)
   })
 }
+const receiveDraftFile = receiveOkrFile('plan/draft-from-file')
 
 async function fileText(file) {
   const name = file.originalname.toLowerCase()
@@ -390,6 +393,75 @@ router.post('/objectives/:id/miss', humanOnly('填写未达成原因'), async (r
       carriedToObjectiveId: r.carried ? String(r.carried.id) : null
     })
   } catch (e) { fail(res, e, 'miss') }
+})
+
+// ---------------------------------------------------------------- 项目周 OKR 文档(OKR 4.0)
+// 每周每个项目一份基本 OKR(Markdown 文档), 全员可读; ADMIN / MANAGER / 该项目成员可写。
+// 不做结构化、不做富文本: 手写 Markdown 保存, 或上传 .md/.txt/.docx 抽正文(与 draft-from-file 同一套解析)
+
+router.get('/projects', async (req, res) => {
+  try {
+    const week = weekOf(req, res)
+    if (!week) return
+    ok(res, await listProjectDocs(week))
+  } catch (e) { fail(res, e, 'projects') }
+})
+
+router.get('/projects/:projectId', async (req, res) => {
+  try {
+    const week = weekOf(req, res)
+    if (!week) return
+    ok(res, await getProjectDoc(req.params.projectId, week))
+  } catch (e) { fail(res, e, 'projects/:id') }
+})
+
+/** 写权限 + 周参数; 不满足时已回包, 返回 null */
+async function projectDocTarget(req, res) {
+  const project = await loadProject(req.params.projectId)
+  if (!(await canWriteProjectDoc(req.user, project))) {
+    res.status(403).json({ code: 8152, message: '只有管理员、经理或该项目成员能编辑项目周 OKR' })
+    return null
+  }
+  const week = weekOf(req, res)
+  if (!week) return null
+  return { project, week }
+}
+
+async function saveDoc(req, res, { title, contentMd, sourceFile, via }) {
+  const t = await projectDocTarget(req, res)
+  if (!t) return
+  const { doc, created } = await saveProjectDoc({ project: t.project, week: t.week, title, contentMd, sourceFile, by: req.user.id })
+  logInternalAction(req, 'okr.project_doc.save', {
+    resourceType: 'okr_project_doc', resourceId: doc.id,
+    details: { projectId: doc.projectId, week: doc.week, via, created, ...(sourceFile ? { sourceFile } : {}) }
+  })
+  ok(res, { ...doc, created })
+}
+
+router.put('/projects/:projectId', humanOnly('编辑项目周 OKR'), async (req, res) => {
+  try {
+    const b = req.body || {}
+    await saveDoc(req, res, { title: b.title, contentMd: b.contentMd, sourceFile: null, via: 'edit' })
+  } catch (e) { fail(res, e, 'projects/:id put') }
+})
+
+// 先校验权限再收文件: 没权限的人不用白传 2MB
+async function projectDocGuard(req, res, next) {
+  try {
+    const project = await loadProject(req.params.projectId)
+    if (!(await canWriteProjectDoc(req.user, project))) return res.status(403).json({ code: 8152, message: '只有管理员、经理或该项目成员能编辑项目周 OKR' })
+    next()
+  } catch (e) { fail(res, e, 'projects/:id/import') }
+}
+
+router.post('/projects/:projectId/import', humanOnly('导入项目周 OKR'), projectDocGuard, receiveOkrFile('projects/:id/import'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ code: 8132, message: '请用 multipart 字段 file 上传 .md / .txt / .docx' })
+    const text = await fileText(req.file)
+    if (!text.trim()) return res.status(400).json({ code: 8132, message: '文件里没有读到正文' })
+    const title = String(req.body?.title || req.file.originalname.replace(/\.[^.]+$/, '')).slice(0, 200)
+    await saveDoc(req, res, { title, contentMd: text, sourceFile: req.file.originalname, via: 'import' })
+  } catch (e) { fail(res, e, 'projects/:id/import') }
 })
 
 // ---------------------------------------------------------------- 设置: 免提交白名单
