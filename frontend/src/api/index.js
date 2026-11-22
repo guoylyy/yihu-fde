@@ -662,6 +662,12 @@ export const fde = {
     weekStatus: (week) => request('/api/okr/week/status?' + new URLSearchParams(clean({ week })).toString()),
     remindWeek: (week, userIds) => request('/api/okr/week/remind', { method: 'POST', body: JSON.stringify(userIds ? { week, userIds } : { week }) }),
     // OKR 5.0: 按项目分组看 O
+    // OKR 7.0: 编计划提效(只写草稿, 不提交)
+    copyFromWeek: ({ fromWeek, toWeek, objectiveIds }, targetUserId) => request('/api/okr/plan/copy-from-week', { method: 'POST', body: JSON.stringify(withTarget(clean({ fromWeek, toWeek, objectiveIds }), targetUserId)) }),
+    bulkImport: ({ week, text, mode }, targetUserId) => request('/api/okr/plan/bulk-import', { method: 'POST', body: JSON.stringify(withTarget({ week, text, mode }, targetUserId)) }),
+    templates: () => request('/api/okr/templates'),
+    createTemplate: ({ name, contentMd }) => request('/api/okr/templates', { method: 'POST', body: JSON.stringify({ name, contentMd }) }),
+    deleteTemplate: (id) => request(`/api/okr/templates/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     byProject: (week) => request('/api/okr/by-project?' + new URLSearchParams(clean({ week })).toString()),
     projectObjectives: (projectId, week) => request(`/api/okr/projects/${encodeURIComponent(projectId)}/objectives?` + new URLSearchParams(clean({ week })).toString())
   },

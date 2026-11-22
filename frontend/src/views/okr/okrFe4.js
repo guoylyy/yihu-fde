@@ -5,7 +5,7 @@
 //  - 卡点: 说明 / 卡在谁 / 截止日 要么都空要么都填, 填一半后端 400(8120「填了卡点就要写清卡在谁、什么时候要」)
 //  - copy-from-week / bulk-import 只往目标周追加草稿; 目标周已提交 → 8171
 import { todayKey } from './okrFe3.js'
-import { toDraft } from './okrUtils.js'
+import { shiftKey, toDraft } from './okrUtils.js'
 
 export const MAX_MILESTONES = 20
 export const RISK_LEVELS = ['LOW', 'MEDIUM', 'HIGH']
@@ -204,6 +204,71 @@ export function planWithPatch(objectives, objectiveId, patch) {
     ...(String(o.id) === String(objectiveId) ? patch : {}),
     keyResults: o.keyResults.map(k => ({ ...k, unit: k.unit || null, milestones: k.metricType === 'MILESTONE' ? milestonePayload(k.milestones) : undefined }))
   }))
+}
+
+// ---------------------------------------------------------------- 三、编计划提效
+
+/** 「从上周复制」可选的来源周: 目标周之前的 n 周, 最近的在前(默认选第一个 = 上一周) */
+export function copySourceWeeks(toWeek, n = 8) {
+  return Array.from({ length: n }, (_, i) => shiftKey(toWeek, -(i + 1)))
+}
+
+/** 跳过原因 → 短标签 key(同名 / 上限 / 其他) */
+export function skipReasonKey(reason) {
+  const s = String(reason || '')
+  if (/同名|重复/.test(s)) return 'same'
+  if (/上限/.test(s)) return 'limit'
+  return 'other'
+}
+
+/**
+ * 复制结果 toast: 「已复制 2 个 O / 5 个 KR，跳过 1 个（同名）」+ 跳过明细行。
+ * 返回 { text, lines, level }
+ */
+export function copyResultText(r, t) {
+  const skipped = r?.skipped || []
+  const o = r?.createdObjectives || 0
+  const k = r?.createdKrs || 0
+  let text
+  if (skipped.length) {
+    const why = [...new Set(skipped.map(s => t('okr.plan.skip.' + skipReasonKey(s.reason))))].join(t('okr.plan.sep'))
+    text = t('okr.plan.copied_skip', { p0: o, p1: k, p2: skipped.length, p3: why })
+  } else {
+    text = t('okr.plan.copied', { p0: o, p1: k })
+  }
+  const lines = skipped.map(s => `${s.title || s.objectiveId || '?'}：${s.reason}`)
+  return { text, lines, level: o ? (skipped.length ? 'warning' : 'success') : 'warning' }
+}
+
+const METRIC_SUFFIX = {
+  NUMBER: k => (Number(k.targetValue) > 0 ? `（目标：${k.targetValue}${k.unit || ''}）` : ''),
+  PERCENT: k => `（目标：${Number(k.targetValue) > 0 ? k.targetValue : 100}%）`
+}
+
+/**
+ * 当前计划 → 模板 Markdown(能被 /plan/bulk-import 原样解析回来):
+ *   ## O1：标题（权重 50）
+ *   - KR 标题（目标：5个）（权重 50）
+ */
+export function planToMarkdown(objectives) {
+  const live = (objectives || []).filter(o => o.status !== 'DROPPED' && String(o.title || '').trim())
+  return live.map((o, i) => {
+    const head = `## O${i + 1}：${String(o.title).trim()}${o.weight != null ? `（权重 ${round2(o.weight)}）` : ''}`
+    const krs = (o.keyResults || []).filter(k => String(k.title || '').trim()).map(k => {
+      const suffix = METRIC_SUFFIX[k.metricType]?.(k) || ''
+      return `- ${String(k.title).trim()}${suffix}${k.weight != null ? `（权重 ${round2(k.weight)}）` : ''}`
+    })
+    return [head, ...krs].join('\n')
+  }).join('\n\n')
+}
+
+const round2 = n => Math.round(Number(n) * 100) / 100
+
+/** 批量导入预览里 KR 的类型说明: 是/否 / 百分比 100% / 数值 5个 */
+export function previewKrMeta(k, t) {
+  if (k.metricType === 'PERCENT') return `${t('okr.metric.PERCENT')} ${k.targetValue ?? 100}%`
+  if (k.metricType === 'NUMBER') return `${t('okr.metric.NUMBER')} ${k.targetValue ?? '-'}${k.unit || ''}`
+  return t('okr.metric.' + (k.metricType || 'BINARY'))
 }
 
 /** 编辑器里有没有没保存的改动: 当前计划和打开时的快照比(只看计划字段) */

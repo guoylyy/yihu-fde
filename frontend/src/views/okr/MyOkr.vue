@@ -72,6 +72,13 @@
         </span>
       </div>
 
+      <!-- OKR 7.0 编计划提效: 编辑模式下的三个入口(复制 / 批量导入只往这周追加草稿, 已提交的周后端回 8171) -->
+      <div v-if="editorOpen" class="okr-plan-tools" data-test="okr-plan-tools">
+        <el-button class="okr-tool-btn" data-test="okr-copy-open" @click="openCopy">{{ $t('okr.plan.copy_btn') }}</el-button>
+        <el-button class="okr-tool-btn" data-test="okr-bulk-open" @click="openImport('')">{{ $t('okr.plan.bulk_btn') }}</el-button>
+        <el-button class="okr-tool-btn" data-test="okr-tpl-open" @click="openTemplates">{{ $t('okr.plan.tpl_btn') }}</el-button>
+      </div>
+
       <!-- 写计划 / 改计划 -->
       <OkrPlanEditor
         v-if="editorOpen" ref="editorRef"
@@ -156,6 +163,24 @@
       @fill="fillFromReport"
     />
 
+    <!-- OKR 7.0: 从上周复制 -->
+    <el-dialog v-model="copy.visible" :title="$t('okr.plan.copy_title')" width="min(92vw, 420px)" append-to-body>
+      <p class="okr-dialog-sub">{{ $t('okr.plan.copy_hint', { p0: weekKeyNow }) }}</p>
+      <el-select v-model="copy.from" class="okr-copy-week" data-test="okr-copy-week">
+        <el-option v-for="w in copyWeeks" :key="w" :value="w" :label="copyWeekLabel(w)" />
+      </el-select>
+      <template #footer>
+        <el-button @click="copy.visible = false">{{ $t('common.cancel') }}</el-button>
+        <el-button type="primary" :disabled="!copy.from" :loading="busy === 'copy'" data-test="okr-copy-go" @click="runCopy">{{ $t('okr.plan.copy_go') }}</el-button>
+      </template>
+    </el-dialog>
+
+    <OkrPlanImportDialog
+      v-model="imp.visible" :week="weekKeyNow" :target-user-id="proxyTarget" :initial-text="imp.text" :before-apply="confirmDiscard"
+      @imported="onImported"
+    />
+    <OkrTemplateDialog v-model="tpl.visible" :current-md="tpl.md" @use="useTemplate" />
+
     <!-- 未达成原因(周五) -->
     <el-dialog v-model="miss.visible" :title="$t('okr.mark_missed')" width="min(92vw, 420px)" append-to-body>
       <p class="okr-dialog-sub">{{ miss.obj?.title }}</p>
@@ -171,7 +196,7 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, h, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { $t } from '@/i18n'
@@ -184,8 +209,11 @@ import OkrObjectiveCard from '@/components/okr/OkrObjectiveCard.vue'
 import OkrPlanEditor from '@/components/okr/OkrPlanEditor.vue'
 import OkrReportDraftDialog from '@/components/okr/OkrReportDraftDialog.vue'
 import OkrManagerScorePanel from '@/components/okr/OkrManagerScorePanel.vue'
+import OkrPlanImportDialog from '@/components/okr/OkrPlanImportDialog.vue'
+import OkrTemplateDialog from '@/components/okr/OkrTemplateDialog.vue'
 import {
-  milestoneClick, milestonesWithDone, applyMilestonePatch, blockerPatch, planWithPatch, blockerPeople
+  milestoneClick, milestonesWithDone, applyMilestonePatch, blockerPatch, planWithPatch, blockerPeople,
+  copySourceWeeks, copyResultText, planToMarkdown
 } from './okrFe4.js'
 import {
   PERSONAL_TAG, pct, toDraft, shiftKey, parseKey, isoWeekOf, weekKey, weekStart,
@@ -355,6 +383,82 @@ async function saveBlocker({ objectiveId, form, done }) {
     ElMessage.error({ message: e.message, duration: 6000 })
     done(false)
   }
+}
+
+// ---------------------------------------------------------------- OKR 7.0 编计划提效
+const copy = reactive({ visible: false, from: '' })
+const imp = reactive({ visible: false, text: '' })
+const tpl = reactive({ visible: false, md: '' })
+const copyWeeks = computed(() => copySourceWeeks(weekKeyNow.value))
+const copyWeekLabel = (w) => (w === copyWeeks.value[0] ? $t('okr.plan.copy_last_week', { p0: w }) : w)
+
+/** 复制 / 导入会重载编辑器: 有没保存的改动先确认 */
+async function confirmDiscard() {
+  if (!editorRef.value?.isDirty?.()) return true
+  try {
+    await ElMessageBox.confirm($t('okr.plan.discard_confirm'), $t('okr.plan.discard_title'), {
+      type: 'warning', confirmButtonText: $t('okr.plan.discard_go'), cancelButtonText: $t('common.cancel')
+    })
+    return true
+  } catch { return false }
+}
+
+function openCopy() {
+  copy.from = copyWeeks.value[0]
+  copy.visible = true
+}
+
+async function runCopy() {
+  if (!(await confirmDiscard())) return
+  busy.value = 'copy'
+  try {
+    const r = await fde.okr.copyFromWeek({ fromWeek: copy.from, toWeek: weekKeyNow.value }, proxyTarget.value || undefined)
+    copy.visible = false
+    const msg = copyResultText(r, $t)
+    ElMessage({
+      type: msg.level, duration: msg.lines.length ? 8000 : 4000, showClose: true,
+      message: h('div', { class: 'okr-copy-toast', 'data-test': 'okr-copy-toast' }, [h('div', msg.text), ...msg.lines.map(l => h('div', { style: 'font-size:12px;opacity:.85' }, '· ' + l))])
+    })
+    if (r.createdObjectives) await reloadEditor()
+  } catch (e) {
+    ElMessage.error({ message: e.message, duration: 6000 })
+  } finally {
+    busy.value = ''
+  }
+}
+
+function openImport(text) {
+  imp.text = text || ''
+  imp.visible = true
+}
+
+async function onImported(r) {
+  imp.visible = false
+  const skipped = r.skipped?.length || 0
+  ElMessage[skipped || r.truncated ? 'warning' : 'success']({
+    message: $t(skipped ? 'okr.plan.bulk_done_skip' : 'okr.plan.bulk_done', { p0: r.createdObjectives, p1: r.createdKrs, p2: skipped }),
+    duration: 5000
+  })
+  await reloadEditor()
+}
+
+/** 复制 / 导入写的是服务器上的草稿: 重拉后编辑器显示服务器上的计划(load 在没提交时会自动进编辑) */
+async function reloadEditor() {
+  await load()
+  if (data.value?.can?.edit && !editing.value) {
+    draftInit.value = toDraft(data.value.objectives)
+    editing.value = true
+  }
+}
+
+function openTemplates() {
+  tpl.md = planToMarkdown(editorRef.value?.getPlan?.() || [])
+  tpl.visible = true
+}
+
+function useTemplate(tp) {
+  tpl.visible = false
+  openImport(tp.contentMd)
 }
 
 const scorable = computed(() => (data.value?.objectives || []).filter(o => o.submittedAt && o.status !== 'DROPPED'))
@@ -588,6 +692,12 @@ async function submitMiss() {
   .okr-sp-foot .el-button { min-height: 44px; flex: 1 1 0; }
 }
 .okr-num { width: 72px; flex: none; }
+.okr-plan-tools { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.okr-plan-tools .el-button { margin-left: 0; }
+.okr-copy-week { width: 100%; }
+@media (max-width: 640px) {
+  .okr-tool-btn { min-height: 44px; flex: 1 1 0; padding: 0 8px; }
+}
 .okr-dialog-sub { margin: 0 0 8px; font-weight: 600; }
 .okr-carry { margin-top: 8px; }
 .okr-dialog-warn { margin: 8px 0 0; font-size: 12px; color: var(--el-text-color-secondary); }

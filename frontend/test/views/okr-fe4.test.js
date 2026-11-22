@@ -6,7 +6,8 @@ import { readFileSync } from 'node:fs'
 import { compileView, renderView, t } from '../helpers/sfc-render.js'
 import {
   milestoneRows, milestoneCount, milestoneClick, milestonesWithDone, applyMilestonePatch, setMilestoneDone, blankMilestone,
-  editorKrPayload, blockerFormState, blockerForm, blockerPatch, blockerPeople, overdueDays, planWithPatch, RISK_LEVELS, planSnapshot
+  editorKrPayload, blockerFormState, blockerForm, blockerPatch, blockerPeople, overdueDays, planWithPatch, RISK_LEVELS,
+  copySourceWeeks, skipReasonKey, copyResultText, planToMarkdown, previewKrMeta, planSnapshot
 } from '../../src/views/okr/okrFe4.js'
 import { OBJ_TAG, pct, krValueText, toDraft, planProblems, parseProgress } from '../../src/views/okr/okrUtils.js'
 
@@ -283,3 +284,126 @@ describe('编辑器: 阶段型 + KR 卡点', () => {
   })
 })
 
+// ---------------------------------------------------------------- 三、编计划提效
+
+describe('复制上周 / 批量导入 / 模板: 纯函数', () => {
+  test('来源周: 目标周之前的 8 周, 默认第一个 = 上一周(跨年也对)', () => {
+    const w = copySourceWeeks('2026-W48')
+    assert.equal(w.length, 8)
+    assert.equal(w[0], '2026-W47')
+    assert.equal(w[7], '2026-W40')
+    assert.equal(copySourceWeeks('2027-W01', 1)[0], '2026-W53')
+  })
+  test('toast 数字与接口一致: 「已复制 2 个 O / 5 个 KR，跳过 1 个（同名）」+ 跳过明细', () => {
+    const zhT = (k, p) => {
+      const zh = JSON.parse(readFileSync(new URL('../../src/locales/zh-CN.json', import.meta.url), 'utf8'))
+      let s = k.split('.').reduce((o, x) => o?.[x], zh)
+      for (const [kk, v] of Object.entries(p || {})) s = s.replace(`{${kk}}`, v)
+      return s
+    }
+    const r = { createdObjectives: 2, createdKrs: 5, skipped: [{ objectiveId: '9', title: '周会', reason: '2026-W48 已有同名 O' }] }
+    const m = copyResultText(r, zhT)
+    assert.equal(m.text, '已复制 2 个 O / 5 个 KR，跳过 1 个（同名）')
+    assert.deepEqual(m.lines, ['周会：2026-W48 已有同名 O'])
+    assert.equal(m.level, 'warning')
+    assert.equal(copyResultText({ createdObjectives: 3, createdKrs: 7, skipped: [] }, zhT).text, '已复制 3 个 O / 7 个 KR')
+    assert.equal(copyResultText({ createdObjectives: 3, createdKrs: 7, skipped: [] }, zhT).level, 'success')
+    const two = copyResultText({ createdObjectives: 0, createdKrs: 0, skipped: [{ title: 'a', reason: '已有同名 O' }, { title: 'b', reason: '超过每周 3 个 O 的上限' }] }, zhT)
+    assert.equal(two.text, '已复制 0 个 O / 0 个 KR，跳过 2 个（同名、超上限）')
+  })
+  test('跳过原因分类', () => {
+    assert.equal(skipReasonKey('2026-W48 已有同名 O'), 'same')
+    assert.equal(skipReasonKey('同一段文字里重复的 O'), 'same')
+    assert.equal(skipReasonKey('超过每周 3 个 O 的上限'), 'limit')
+    assert.equal(skipReasonKey('不是此人 2026-W47 的 O'), 'other')
+  })
+  test('当前计划 → 模板 Markdown(批量导入能解析的格式); DROPPED / 空标题不进', () => {
+    const md = planToMarkdown([
+      { title: '上线巡检', weight: 60, status: 'ON_TRACK', keyResults: [
+        { title: '接口联调', metricType: 'NUMBER', targetValue: 5, unit: '个', weight: 50 },
+        { title: '覆盖率', metricType: 'PERCENT', targetValue: 90, weight: 25 },
+        { title: '验收', metricType: 'BINARY', weight: 25 }
+      ] },
+      { title: '旧的', weight: 0, status: 'DROPPED', keyResults: [{ title: 'x', metricType: 'BINARY', weight: 100 }] },
+      { title: '文档', weight: 40, status: 'ON_TRACK', keyResults: [{ title: '阶段', metricType: 'MILESTONE', targetValue: 2, weight: 100 }, { title: ' ', metricType: 'BINARY' }] }
+    ])
+    assert.equal(md, [
+      '## O1：上线巡检（权重 60）',
+      '- 接口联调（目标：5个）（权重 50）',
+      '- 覆盖率（目标：90%）（权重 25）',
+      '- 验收（权重 25）',
+      '',
+      '## O2：文档（权重 40）',
+      '- 阶段（权重 100）'
+    ].join('\n'))
+    assert.equal(planToMarkdown([]), '')
+  })
+  test('预览里 KR 类型说明', () => {
+    assert.equal(previewKrMeta({ metricType: 'NUMBER', targetValue: 5, unit: '个' }, t), `${t('okr.metric.NUMBER')} 5个`)
+    assert.equal(previewKrMeta({ metricType: 'PERCENT', targetValue: 90 }, t), `${t('okr.metric.PERCENT')} 90%`)
+    assert.equal(previewKrMeta({ metricType: 'BINARY' }, t), t('okr.metric.BINARY'))
+  })
+})
+
+describe('批量导入弹窗', () => {
+  const render = compileView('components/okr/OkrPlanImportDialog.vue')
+  const base = (over = {}) => ({
+    modelValue: true, text: '## O1：a\n- k', preview: null, busy: '', limits: { maxObjectives: 3, maxKrsPerObjective: 6 },
+    krTotal: 0, canApply: true, round: n => n, previewKrMeta, run() {}, ...over
+  })
+  test('预览: O/KR 树 + 未识别行(红字) + 截断提示 + 跳过', async () => {
+    const preview = {
+      submitted: false, truncated: true,
+      objectives: [
+        { title: '上线巡检', weight: 50, keyResults: [{ title: '接口联调', metricType: 'NUMBER', targetValue: 5, unit: '个' }, { title: '验收', metricType: 'BINARY' }] },
+        { title: '文档', weight: 50, keyResults: [{ title: '手册', metricType: 'BINARY' }] }
+      ],
+      skipped: [{ title: '周会', reason: '本周已有同名 O' }],
+      unparsed: [{ line: 3, text: '随便一句话' }]
+    }
+    const html = await renderView(render, base({ preview, krTotal: 3 }))
+    has(html, t('okr.plan.bulk_summary', { p0: 2, p1: 3 }))
+    assert.equal(count(html, 'class="okr-imp-o"'), 2)
+    assert.equal(count(html, 'class="okr-imp-kr"'), 3)
+    assert.ok(html.includes('data-test="okr-imp-truncated"'))
+    assert.ok(html.includes('data-test="okr-imp-unparsed"'))
+    has(html, '随便一句话')
+    assert.ok(html.includes('data-test="okr-imp-skipped"'))
+    lacks(html, 'data-test="okr-imp-submitted"')
+  })
+  test('目标周已提交: 预览里明说, 导入置灰', async () => {
+    const html = await renderView(render, base({ preview: { submitted: true, truncated: false, objectives: [], skipped: [], unparsed: [] }, canApply: false }))
+    assert.ok(html.includes('data-test="okr-imp-submitted"'))
+    // el-dialog 的 footer 插槽测试替身不渲染: 看源码里「导入」的置灰条件
+    const src = readFileSync(new URL('../../src/components/okr/OkrPlanImportDialog.vue', import.meta.url), 'utf8')
+    assert.match(src, /:disabled="!canApply"[^>]*data-test="okr-imp-apply"/)
+    assert.match(src, /preview\.value\.objectives\.length > 0 && !preview\.value\.submitted/)
+  })
+  test('预览 / 导入分别调 mode=preview / apply', () => {
+    const src = readFileSync(new URL('../../src/components/okr/OkrPlanImportDialog.vue', import.meta.url), 'utf8')
+    assert.match(src, /run\('preview'\)/)
+    assert.match(src, /run\('apply'\)/)
+    assert.match(src, /fde\.okr\.bulkImport\(\{ week: props\.week, text: text\.value, mode \}/)
+  })
+})
+
+describe('模板弹窗 + 我的 OKR 页头入口', () => {
+  const render = compileView('components/okr/OkrTemplateDialog.vue')
+  test('列表: 名称 + 使用 + 删除; 空态; 编辑器没内容时不能存', async () => {
+    const list = [{ id: '5', name: '常规交付周', contentMd: '## O1：a\n- k\n## O2：b\n- k' }]
+    const html = await renderView(render, { modelValue: true, list, loading: false, busy: '', name: '', currentMd: '## O1：a\n- k', countObjectives: () => 2, save() {}, remove() {} })
+    has(html, '常规交付周')
+    has(html, t('okr.plan.tpl_meta', { p0: 2 }))
+    assert.ok(html.includes('data-test="okr-tpl-use-5"') && html.includes('data-test="okr-tpl-del-5"'))
+    const empty = await renderView(render, { modelValue: true, list: [], loading: false, busy: '', name: '', currentMd: '', countObjectives: () => 0, save() {}, remove() {} })
+    assert.ok(empty.includes('data-test="okr-tpl-none"'))
+    has(empty, t('okr.plan.tpl_empty_plan'))
+  })
+  test('我的 OKR: 三个入口只在编辑模式下出; 复制调 copy-from-week(带代管 targetUserId)', () => {
+    const src = readFileSync(new URL('../../src/views/okr/MyOkr.vue', import.meta.url), 'utf8')
+    assert.match(src, /<div v-if="editorOpen" class="okr-plan-tools"/)
+    assert.match(src, /fde\.okr\.copyFromWeek\(\{ fromWeek: copy\.from, toWeek: weekKeyNow\.value \}, proxyTarget\.value \|\| undefined\)/)
+    assert.match(src, /:target-user-id="proxyTarget"/)
+    assert.match(src, /fde\.okr\.patchKr\(kr\.id, \{ currentValue: act\.value, milestones:/)
+  })
+})
