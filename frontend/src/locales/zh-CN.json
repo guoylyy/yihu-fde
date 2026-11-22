@@ -2471,6 +2471,24 @@
       "saved_at": "{p0} 已保存",
       "saved": "总结已保存",
       "empty": "这一天没有需要写总结的人"
+    },
+    "wstatus": {
+      "title": "本周进度",
+      "plan": "已提交 {p0}/{p1}",
+      "self": "已自评 {p0}/{p1}",
+      "mgr": "已打分 {p0}/{p1}",
+      "exempt_n": "免提交 {p0} 人",
+      "remind": "催交",
+      "col_plan": "计划",
+      "col_self": "自评",
+      "col_mgr": "主管分",
+      "col_daily": "本周总结",
+      "exempt": "免提交",
+      "exempt_hint": "不参与统计",
+      "reminded": "已提醒",
+      "reminded_n": "已提醒 {p0} 人",
+      "nobody": "没有需要催的人",
+      "recent_skipped": "（{p0} 人 2 小时内催过，这次跳过）"
     }
   },
   "assistant": {

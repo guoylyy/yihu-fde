@@ -13,6 +13,9 @@
       active="team" show-team @shift="shift"
     />
 
+    <!-- OKR 4.0: 本周进度 + 催交(仅 ADMIN/MANAGER) -->
+    <OkrWeekStatus v-if="lead" :key="weekKeyNow" :week="weekKeyNow" />
+
     <template v-if="data">
       <div class="okr-kpis">
         <div><b>{{ data.summary.expected }}</b><span>{{ $t('okr.expected') }}</span></div>
@@ -109,6 +112,8 @@ import { useIsMobile } from '@/composables/useResponsive.js'
 import OkrWeekBar from '@/components/okr/OkrWeekBar.vue'
 import OkrPersonPicker from '@/components/okr/OkrPersonPicker.vue'
 import OkrManagerScorePanel from '@/components/okr/OkrManagerScorePanel.vue'
+import OkrWeekStatus from '@/components/okr/OkrWeekStatus.vue'
+import { isLead } from './okrFe3.js'
 import { pct, shiftKey, parseKey, isoWeekOf, weekKey } from './okrUtils.js'
 import { initialOf, mayProxyRow, pickerPeople, currentUser, mayScoreManager, mayCloseWeek } from './okrPeople.js'
 
@@ -121,6 +126,7 @@ const me = currentUser()
 const canScore = mayScoreManager(me, can('okr.score.manager'))
 const canCloseWeek = mayCloseWeek(me)
 const meId = String(me.id || '')
+const lead = isLead(me)
 const people = computed(() => pickerPeople(data.value?.rows || [], me))
 const anyProxy = computed(() => (data.value?.rows || []).some(r => mayProxyRow(me, r.user)))
 

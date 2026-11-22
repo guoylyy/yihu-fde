@@ -5,7 +5,8 @@ import assert from 'node:assert/strict'
 import { compileView, renderView, t } from '../helpers/sfc-render.js'
 import {
   isLead, canEditProjectDoc, projectLabel, projectDocFileProblem, PROJECT_DOC_MAX,
-  todayKey, weekKeyOfDate, dailyMissingRows, dailyRemindText, summaryText
+  todayKey, weekKeyOfDate, dailyMissingRows, dailyRemindText, summaryText,
+  weekProgress, statusCells, mergeReminded, skippedByReason
 } from '../../src/views/okr/okrFe3.js'
 
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/'/g, '&#39;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -162,5 +163,68 @@ describe('每日总结页', () => {
     assert.ok(html.includes('data-test="dsum-save-38"'))
     has(html, t('okr.daily.no_progress'))
     lacks(html, t('okr.daily.summary_line', { p0: 0, p1: 0, p2: 0 }).slice(0, 6))
+  })
+})
+
+// ---------------------------------------------------------------- 三、周状态与催交
+
+const wrow = (id, name, over = {}) => ({
+  user: { id, name }, planSubmitted: true, lateSubmit: false, objectiveCount: 2,
+  selfScored: { done: 2, total: 2 }, managerScored: { done: 0, total: 2 }, exempt: false, dailySummaries: 3, missing: [], complete: true, ...over
+})
+
+describe('周状态: 纯函数', () => {
+  test('进度三个数取后端 summary(分母 = 应交人数, 免提交不算)', () => {
+    const p = weekProgress({ summary: { expected: 6, planSubmitted: 4, selfScoredAll: 3, managerScoredAll: 1, exempt: 1, incomplete: 2 } })
+    assert.deepEqual(p, { total: 6, plan: 4, self: 3, mgr: 1, exempt: 1, incomplete: 2 })
+    assert.deepEqual(weekProgress(null), { total: 0, plan: 0, self: 0, mgr: 0, exempt: 0, incomplete: 0 })
+  })
+  test('每格未完成标红; 计划没交时自评 / 主管分也算没完成; 免提交整行不标红', () => {
+    const c = statusCells(wrow('1', 'a'))
+    assert.deepEqual([c.plan.bad, c.self.bad, c.mgr.bad, c.daily.bad], [false, false, true, false])
+    assert.equal(c.self.text, '2/2')
+    assert.equal(c.mgr.text, '0/2')
+    const none = statusCells(wrow('2', 'b', { planSubmitted: false, objectiveCount: 0, selfScored: { done: 0, total: 0 }, managerScored: { done: 0, total: 0 }, dailySummaries: 0 }))
+    assert.deepEqual([none.plan.bad, none.self.bad, none.mgr.bad, none.daily.bad], [true, true, true, true])
+    assert.equal(none.self.text, '-')
+    const ex = statusCells(wrow('3', 'c', { exempt: true, planSubmitted: false, dailySummaries: 0 }))
+    assert.deepEqual([ex.plan.bad, ex.self.bad, ex.mgr.bad, ex.daily.bad], [false, false, false, false])
+    assert.equal(statusCells(wrow('4', 'd', { lateSubmit: true })).plan.late, true)
+  })
+  test('催交返回: 催到的人并进已提醒集合; 跳过的按原因计数', () => {
+    const res = { reminded: [{ user: { id: '1' } }, { user: { id: '2' } }], skipped: [{ user: { id: '3' }, reason: 'RECENTLY_REMINDED' }, { id: '9', reason: 'OUT_OF_SCOPE' }, { user: { id: '4' }, reason: 'RECENTLY_REMINDED' }] }
+    assert.deepEqual([...mergeReminded(new Set(['7']), res)].sort(), ['1', '2', '7'])
+    assert.deepEqual(skippedByReason(res), { RECENTLY_REMINDED: 2, OUT_OF_SCOPE: 1 })
+    assert.deepEqual([...mergeReminded(null, {})], [])
+  })
+})
+
+describe('周状态条(团队页顶部)', () => {
+  const render = compileView('components/okr/OkrWeekStatus.vue')
+  const status = {
+    cycle: { status: 'IN_PROGRESS' },
+    summary: { expected: 2, planSubmitted: 1, selfScoredAll: 1, managerScoredAll: 0, exempt: 1, incomplete: 1 },
+    rows: [wrow('1', '林晓', { planSubmitted: false, selfScored: { done: 0, total: 0 }, managerScored: { done: 0, total: 0 }, complete: false }), wrow('2', '周舟'), wrow('3', '老板', { exempt: true })]
+  }
+  const base = (over = {}) => ({ status, open: false, reminding: false, reminded: new Set(), prog: weekProgress(status), closed: false, cells: statusCells, remind: () => {}, ...over })
+
+  test('收起: 一条「已提交 1/2 · 已自评 1/2 · 已打分 0/2」+ 免提交人数 + 催交(带未完成人数)', async () => {
+    const html = await renderView(render, base())
+    has(html, `${t('okr.wstatus.plan', { p0: 1, p1: 2 })} · ${t('okr.wstatus.self', { p0: 1, p1: 2 })} · ${t('okr.wstatus.mgr', { p0: 0, p1: 2 })}`)
+    has(html, t('okr.wstatus.exempt_n', { p0: 1 }))
+    assert.match(html.replace(/<!--[^>]*-->/g, ''), new RegExp(`${t('okr.wstatus.remind')} \\(1\\)`))
+    lacks(html, 'data-test="wst-table"')
+  })
+
+  test('展开: 每人一行, 未完成格标红, 免提交行出灰标签不出数, 刚催过的行标「已提醒」', async () => {
+    const html = await renderView(render, base({ open: true, reminded: new Set(['1']) }))
+    assert.ok(html.includes('data-test="wst-table"'))
+    assert.ok(/data-test="wst-row-1"[^>]*/.test(html))
+    assert.match(html, /class="wst-row reminded"[^>]*data-test="wst-row-1"/)
+    assert.match(html, /class="wst-row exempt"[^>]*data-test="wst-row-3"/)
+    assert.equal((html.match(/data-test="wst-exempt"/g) || []).length, 1)
+    assert.equal((html.match(/data-test="wst-reminded"/g) || []).length, 1)
+    has(html, t('okr.wstatus.exempt_hint'))
+    assert.ok((html.match(/class="bad"/g) || []).length >= 3, '林晓的计划 / 自评 / 主管分标红')
   })
 })

@@ -2471,6 +2471,24 @@
       "saved_at": "Saved {p0}",
       "saved": "Summary saved",
       "empty": "Nobody needs to write a summary for this day"
+    },
+    "wstatus": {
+      "title": "This week",
+      "plan": "Submitted {p0}/{p1}",
+      "self": "Self-scored {p0}/{p1}",
+      "mgr": "Manager-scored {p0}/{p1}",
+      "exempt_n": "{p0} exempt",
+      "remind": "Remind",
+      "col_plan": "Plan",
+      "col_self": "Self score",
+      "col_mgr": "Manager score",
+      "col_daily": "Daily summaries",
+      "exempt": "Exempt",
+      "exempt_hint": "Not counted",
+      "reminded": "Reminded",
+      "reminded_n": "Reminded {p0} people",
+      "nobody": "Nobody needs a reminder",
+      "recent_skipped": " ({p0} reminded within the last 2 hours, skipped)"
     }
   },
   "assistant": {
