@@ -11,8 +11,12 @@
 //
 // hasOverdueBlocker: 看这条线「最新的那条 O」—— 当前周有就看当前周的, 否则看最近一个已结束周的。
 //
-//   免提交名单里的人不进预警。
+// 提醒(okrRiskReminder): 挂在每天一次的卡点到期任务后面跑(cron.js), 不另起调度。
+//   CRITICAL → 负责人 + 直属主管(负责人所在团队的负责人 leaderId; 团队没设负责人时取该团队里的 MANAGER); WARN → 只发负责人。
+//   去重: 通知 data 以 {"key":"okrRiskStreak:<objectiveId>:<当前周>:<level>" 开头, 同一 O 同一周同一档每人最多一条, 重启不重发。
+//   免提交名单里的人不进预警、不收提醒。
 import prisma from '../lib/prisma.js'
+import { pushNotification } from '../lib/notify.js'
 import { exemptIds } from './okrExempt.js'
 import { personSummary } from './okr.js'
 import { projectsByObjective } from './okrObjectiveProjects.js'
@@ -24,8 +28,11 @@ import {
 export const RISK_WEEKS_DEFAULT = 4
 export const RISK_WEEKS_MIN = 2
 export const RISK_WEEKS_MAX = 26
+export const STREAK_REMIND_TYPE = 'OKR_OBJECTIVE_STREAK'
 
 const r4 = n => (n == null ? null : Math.round(n * 10000) / 10000)
+const pct = n => Math.round((n || 0) * 100)
+const clip = (s, n) => (String(s ?? '').length > n ? `${String(s).slice(0, n)}…` : String(s ?? ''))
 
 /** weeks 参数: 缺省 4; 只收 2–26 的整数, 否则 400 */
 export function parseRiskWeeks(raw) {
@@ -258,3 +265,94 @@ function ymd(at) {
   const w = new Date(new Date(at).getTime() + TZ_OFFSET_MS)
   return [w.getUTCFullYear(), w.getUTCMonth(), w.getUTCDate()]
 }
+
+// ---------------------------------------------------------------- 每日提醒
+
+export const streakRemindKey = (objectiveId, week, level) => `okrRiskStreak:${objectiveId}:${week}:${level}`
+const dataPrefix = key => `{"key":${JSON.stringify(key)}`
+
+/** 文案模板(三句) */
+export function streakMessages({ title, n, rate, ownerName }) {
+  return {
+    WARN: `你的 O「${title}」已连续 ${n} 周未达成，本周目标 ${rate}%`,
+    CRITICAL: `「${title}」连续 ${n} 周未达成，已标红，请与主管对齐是否缩小范围`,
+    MANAGER: `${ownerName} 的 O「${title}」连续 ${n} 周未达成`
+  }
+}
+
+/**
+ * 直属主管: 负责人所在(启用、未删)团队的负责人 leaderId; 团队没设负责人时取该团队里 role=MANAGER 的成员。不含本人
+ * @returns Map<ownerId, string[]>
+ */
+export async function directManagers(ownerIds) {
+  const out = new Map(ownerIds.map(id => [String(id), new Set()]))
+  if (!ownerIds.length) return new Map()
+  const memberships = await prisma.teamMembership.findMany({
+    where: { userId: { in: ownerIds.map(BigInt) }, team: { deletedAt: null, status: 1 } },
+    select: { userId: true, team: { select: { id: true, leaderId: true } } }
+  })
+  const leaderless = [...new Set(memberships.filter(m => m.team.leaderId == null).map(m => String(m.team.id)))]
+  const teamManagers = new Map()
+  if (leaderless.length) {
+    const rows = await prisma.teamMembership.findMany({
+      where: { teamId: { in: leaderless.map(BigInt) }, user: { role: 'MANAGER', deletedAt: null, status: 1 } },
+      select: { teamId: true, userId: true }
+    })
+    for (const r of rows) {
+      const k = String(r.teamId)
+      if (!teamManagers.has(k)) teamManagers.set(k, [])
+      teamManagers.get(k).push(String(r.userId))
+    }
+  }
+  for (const m of memberships) {
+    const owner = String(m.userId)
+    const ms = m.team.leaderId != null ? [String(m.team.leaderId)] : (teamManagers.get(String(m.team.id)) || [])
+    for (const id of ms) if (id !== owner) out.get(owner).add(id)
+  }
+  return new Map([...out].map(([k, v]) => [k, [...v]]))
+}
+
+/**
+ * 每天一次: 按 objectiveRisk(全员、默认 4 周窗口)给 WARN 的负责人、CRITICAL 的负责人 + 直属主管发站内通知。
+ * 幂等, 可反复跑; dryRun=true 只算不发。返回 { week, warn, critical, notified, already, items }
+ */
+export async function okrRiskReminder(now = new Date(), { dryRun = false, weeks = RISK_WEEKS_DEFAULT } = {}) {
+  const risk = await objectiveRisk({ weeks, now })
+  const week = weekKey(isoWeekOf(now))
+  const managers = await directManagers([...new Set(risk.items.filter(i => i.level === 'CRITICAL').map(i => i.ownerId))])
+  const users = await loadActiveUsers([...risk.items.map(i => i.ownerId), ...[...managers.values()].flat()])
+  let notified = 0
+  let already = 0
+  const out = []
+  for (const it of risk.items) {
+    const owner = users.get(it.ownerId)
+    if (!owner?.active) continue
+    const recipients = [{ id: it.ownerId, role: 'OWNER' }]
+    if (it.level === 'CRITICAL') {
+      for (const m of managers.get(it.ownerId) || []) if (users.get(m)?.active) recipients.push({ id: m, role: 'MANAGER' })
+    }
+    const key = streakRemindKey(it.objectiveId, week, it.level)
+    const sent = new Set((await prisma.notification.findMany({
+      where: { type: STREAK_REMIND_TYPE, userId: { in: recipients.map(r => BigInt(r.id)) }, data: { startsWith: dataPrefix(key) } },
+      select: { userId: true }
+    })).map(n => String(n.userId)))
+    already += sent.size
+    const todo = recipients.filter(r => !sent.has(r.id))
+    out.push({ objectiveId: it.objectiveId, ownerId: it.ownerId, level: it.level, consecutiveMissedWeeks: it.consecutiveMissedWeeks, notify: todo.map(r => r.id) })
+    if (dryRun) continue
+    const msg = streakMessages({ title: clip(it.title, 80), n: it.consecutiveMissedWeeks, rate: pct(it.lastWeekRate), ownerName: clip(nameOf(owner), 20) })
+    const data = { key, objectiveId: it.objectiveId, week, level: it.level, consecutiveMissedWeeks: it.consecutiveMissedWeeks }
+    for (const r of todo) {
+      const isOwner = r.role === 'OWNER'
+      await pushNotification({
+        userId: r.id, type: STREAK_REMIND_TYPE, channels: ['site'], data,
+        title: it.level === 'CRITICAL' ? 'OKR 连续未达成(标红)' : 'OKR 连续未达成预警',
+        body: isOwner ? msg[it.level] : msg.MANAGER,
+        link: isOwner ? `/admin/okr?week=${week}` : `/admin/okr?week=${week}&ownerId=${it.ownerId}`
+      })
+      notified++
+    }
+  }
+  return { week, asOf: risk.asOf, warn: risk.summary.warn, critical: risk.summary.critical, notified, already, items: out }
+}
+

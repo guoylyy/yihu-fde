@@ -8,6 +8,7 @@ import { computeAllActivityScores } from '../services/projectActivity.js'
 import { runDailyDigest } from './notificationDigest.js'
 import { okrTick, okrMondayReminder } from '../services/okr.js'
 import { okrBlockerTick } from '../services/okrBlockers.js'
+import { okrRiskReminder } from '../services/okrRisk.js'
 
 let started = false
 
@@ -48,7 +49,9 @@ export function startCronJobs() {
 
   // OKR 6.0 卡点到期提醒: 启动 10 分钟后一次, 之后每 24 小时。扫依赖截止日 ≤ 今天且 O 未完成的, 通知负责人与卡点人;
   // 按通知表去重(同一 O 同一天每人最多一条), 重启不重发。顺带把阶段逾期的阶段型 KR 推成 AT_RISK
-  const blockerTick = () => okrBlockerTick().then(({ items, ...r }) => r)
+  // OKR 10.0: 同一个每日任务里接着跑连续未达成提醒(WARN → 负责人; CRITICAL → 负责人 + 直属主管), 同一 O 同一周同一档每人最多一条
+  const blockerTick = () => okrBlockerTick().then(({ items, ...r }) =>
+    okrRiskReminder().then(({ items: _, ...streak }) => ({ ...r, streak })))
   setTimeout(() => runWithCatch('okrBlockerTick', blockerTick), 10 * 60 * 1000)
   setInterval(() => runWithCatch('okrBlockerTick', blockerTick), 24 * 60 * 60 * 1000)
 

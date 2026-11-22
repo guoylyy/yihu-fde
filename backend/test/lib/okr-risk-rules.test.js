@@ -2,7 +2,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { isObjectiveMissedInWeek, isPersonMissedInWeek, trailingStreak, streakLevel } from '../../src/services/okrRules.js'
-import { chainKey, parseRiskWeeks, parseAsOf } from '../../src/services/okrRisk.js'
+import { chainKey, parseRiskWeeks, parseAsOf, streakMessages } from '../../src/services/okrRisk.js'
 
 // 2026-W46: 11-09(一) ~ 11-15(日)
 const W46 = { year: 2026, weekNo: 46 }
@@ -54,7 +54,7 @@ describe('连续周数与档位', () => {
   })
 })
 
-describe('参数', () => {
+describe('参数与文案', () => {
   test('同一个 O: 负责人 + 标题(空白 / 大小写不敏感)', () => {
     assert.equal(chainKey('1', '  HVR   落地 '), chainKey('1', 'hvr 落地'))
     assert.notEqual(chainKey('1', 'HVR'), chainKey('2', 'HVR'))
@@ -67,5 +67,11 @@ describe('参数', () => {
   test('asOf 是上海日期', () => {
     assert.equal(parseAsOf('2026-11-16').toISOString(), '2026-11-16T04:00:00.000Z')
     assert.throws(() => parseAsOf('2026-02-30'), e => e.code === 8100)
+  })
+  test('三句模板', () => {
+    const m = streakMessages({ title: 'HVR', n: 2, rate: 40, ownerName: '小毅' })
+    assert.equal(m.WARN, '你的 O「HVR」已连续 2 周未达成，本周目标 40%')
+    assert.equal(m.CRITICAL, '「HVR」连续 2 周未达成，已标红，请与主管对齐是否缩小范围')
+    assert.equal(m.MANAGER, '小毅 的 O「HVR」连续 2 周未达成')
   })
 })
