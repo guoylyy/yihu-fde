@@ -13,7 +13,7 @@ import {
   OkrRuleError, isoWeekOf, weekRange, weekKey, shiftWeek, compareWeek, nextStatus, timeStatus,
   isReopened, isEditable, isScorable, isLate, submitDeadline, normalizePlan, checkKrStatus,
   krProgress, objectiveProgress, personProgress, weightedScore, derivedObjectiveStatus,
-  validScore, personalStatus, equalWeights, LOW_COMPLETION, UPDATE_KINDS,
+  validScore, personalStatus, equalWeights, isPersonMissedInWeek, UPDATE_KINDS,
   creatableRange, isCreatableWeek, isPastWeek, planWritable, isProgressWritable, unhandledKrs,
   shanghaiDateKey, parseMilestones, milestonesWithDone, milestoneStatus, checkMilestoneValue
 } from './okrRules.js'
@@ -808,7 +808,8 @@ function weekStub(week) {
 
 /**
  * 连续两周完成率 < 60% 的人(不排名): 取截至该周、已进入复盘或归档的最近两周,
- * 两周都交了计划且完成率都低于阈值才算。进行中的周不参与, 免得周二就把所有人都标出来
+ * 两周都交了计划且完成率都低于阈值才算。进行中的周不参与, 免得周二就把所有人都标出来。
+ * 完整的人级预警(按最近 N 个已结束周数连续周数)见 GET /api/okr/risk/people(services/okrRisk.js)
  */
 async function lowStreak(week, ids, users, now) {
   const recent = await prisma.okrCycle.findMany({
@@ -830,7 +831,8 @@ async function lowStreak(week, ids, users, now) {
       const mine = objs.filter(o => String(o.ownerId) === id && o.cycleId === c.id)
       return personSummary(c, mine)
     })
-    if (per.every(p => p.submitted && p.completion != null && p.completion < LOW_COMPLETION) && users.has(id)) {
+    // 判定统一走 okrRules.isPersonMissedInWeek(10.0); 这里只取「已进入复盘或归档」的周, 视为已结束
+    if (per.every(p => isPersonMissedInWeek(p)) && users.has(id)) {
       people.push({ user: users.get(id), completions: per.map(p => p.completion) })
     }
   }

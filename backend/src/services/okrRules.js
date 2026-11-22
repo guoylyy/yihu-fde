@@ -579,3 +579,50 @@ export function weightsByKrCount(counts) {
 function equalIntWeights(n) {
   return weightsByKrCount(Array(n).fill(1))
 }
+
+// ---------------------------------------------------------------- 连续未达成预警(10.0)
+//
+// 「未达成」的判定只在这里: O 级 isObjectiveMissedInWeek, 人级 isPersonMissedInWeek。别处一律调这两个, 不另写条件。
+
+/** 连续未达成 ≥ 2 周 → WARN(黄); ≥ 3 周 → CRITICAL(红, 置顶); 有逾期卡点且 ≥ 2 周 → 升一档 */
+export const STREAK_WARN_WEEKS = 2
+export const STREAK_CRITICAL_WEEKS = 3
+export const STREAK_LEVELS = ['WARN', 'CRITICAL']
+
+/**
+ * 单个 O 在某一周是否「未达成」:
+ *   status = MISSED
+ *   或 status ≠ DONE 且 该周已过(周日早于 today) 且 完成率 < 60% 且 该周没有主管评分
+ * o: 带 keyResults 的 O(完成率按 objectiveProgress 现算); week: { year, weekNo }; today: 上海日期 YYYY-MM-DD
+ */
+export function isObjectiveMissedInWeek(o, week, today = shanghaiDateKey()) {
+  if (!o) return false
+  if (o.status === 'MISSED') return true
+  if (o.status === 'DONE') return false
+  const weekEndKey = shanghaiDateKey(weekRange(week.year, week.weekNo).end)
+  if (!(weekEndKey < today)) return false
+  if (o.managerScore != null) return false
+  return objectiveProgress(o) < LOW_COMPLETION
+}
+
+/**
+ * 人在某一周是否「完成率偏低」: 这周交了计划、周已结束(ended), 且完成率 < 60%。
+ * summary: personSummary 的结果(submitted / completion)
+ */
+export function isPersonMissedInWeek(summary, { ended = true } = {}) {
+  return !!(ended && summary?.submitted && summary.completion != null && summary.completion < LOW_COMPLETION)
+}
+
+/** 从最近一周往前数连续为 true 的个数; flags 按时间升序(最后一个是最近一周) */
+export function trailingStreak(flags) {
+  let n = 0
+  for (let i = flags.length - 1; i >= 0 && flags[i]; i--) n++
+  return n
+}
+
+/** 档位: < 2 周 → null; ≥ 3 → CRITICAL; ≥ 2 → WARN, 有逾期卡点升 CRITICAL */
+export function streakLevel(n, hasOverdueBlocker = false) {
+  if (n >= STREAK_CRITICAL_WEEKS) return 'CRITICAL'
+  if (n >= STREAK_WARN_WEEKS) return hasOverdueBlocker ? 'CRITICAL' : 'WARN'
+  return null
+}
