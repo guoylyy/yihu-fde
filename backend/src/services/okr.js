@@ -8,6 +8,7 @@ import {
   projectsByObjective, objectiveIdsOfProject
 } from './okrObjectiveProjects.js'
 import { blockerOwnerNames, riskFields, riskSummary, assertBlockerOwnersExist } from './okrBlockers.js'
+import { decisionBriefsByObjective, detachDecisions } from './okrDecisions.js'
 import {
   OkrRuleError, isoWeekOf, weekRange, weekKey, shiftWeek, compareWeek, nextStatus, timeStatus,
   isReopened, isEditable, isScorable, isLate, submitDeadline, normalizePlan, checkKrStatus,
@@ -197,8 +198,14 @@ export async function personWeek(cycle, ownerId, { detail = true, updatesPerObje
   const users = await loadUsers(userIds)
   const projects = await projectsByObjective(objectives.map(o => o.id))
   const blockerNames = await blockerOwnerNames(objectives)
+  // 9.0: 每个 O 最近 3 条决策
+  const decisions = await decisionBriefsByObjective(objectives.map(o => o.id))
   const today = shanghaiDateKey(now)
-  const views = objectives.map(o => ({ ...objectiveView(o, users, { detail, blockerNames, today }), projects: projects.get(String(o.id)) || [] }))
+  const views = objectives.map(o => ({
+    ...objectiveView(o, users, { detail, blockerNames, today }),
+    projects: projects.get(String(o.id)) || [],
+    decisions: decisions.get(String(o.id)) || []
+  }))
   const cv = cycleView(cycle, now)
   return {
     cycle: cv,
@@ -260,6 +267,8 @@ export async function savePlan({ ownerId, operatorId = null, week, objectives, s
       }
       await tx.okrKeyResult.deleteMany({ where: { objectiveId: old.id } })
       await deleteObjectiveProjects(tx, old.id)
+      // 9.0: 挂在这个 O 上的决策保留(objectiveId 置空 + detail 加「[原 O 已删除]」), 不级联删除
+      await detachDecisions(tx, old)
       await tx.okrObjective.delete({ where: { id: old.id } })
     }
 
@@ -729,14 +738,15 @@ export function personSummary(cycle, objs) {
 }
 
 /** 团队行里的一条 O(简版, 带项目) */
-function teamObjectiveView(o, projects, blockerNames, today) {
+function teamObjectiveView(o, projects, blockerNames, today, decisions) {
   const krs = [...(o.keyResults || [])].sort((a, b) => a.seq - b.seq)
   return {
     id: String(o.id), seq: o.seq, title: o.title, weight: o.weight, status: o.status,
     ...riskFields(o, blockerNames, today),
     submitted: !!o.submittedAt, progress: r4(objectiveProgress({ keyResults: krs })),
     selfScore: o.selfScore, managerScore: o.managerScore,
-    projects: projects.get(String(o.id)) || []
+    projects: projects.get(String(o.id)) || [],
+    decisions: decisions.get(String(o.id)) || []
   }
 }
 
@@ -762,6 +772,7 @@ export async function teamView(week, { now = new Date(), onlyUserIds = null, pro
   const projects = await projectsByObjective(objs.map(o => o.id))
   const inProject = projectId != null ? await objectiveIdsOfProject(projectId, objs.map(o => o.id)) : null
   const blockerNames = await blockerOwnerNames(objs)
+  const decisions = await decisionBriefsByObjective(objs.map(o => o.id))
   const today = shanghaiDateKey(now)
   const rows = ids.filter(id => users.has(id)).map(id => ({
     user: users.get(id),
@@ -771,7 +782,7 @@ export async function teamView(week, { now = new Date(), onlyUserIds = null, pro
     objectives: (byOwner.get(id) || [])
       .filter(o => !inProject || inProject.has(String(o.id)))
       .sort((a, b) => a.seq - b.seq)
-      .map(o => teamObjectiveView(o, projects, blockerNames, today))
+      .map(o => teamObjectiveView(o, projects, blockerNames, today, decisions))
   }))
   // 稳定排序: 未交的在前(主管先看到), 其余按名字
   const order = { NONE: 0, LATE: 1, ON_TIME: 2 }

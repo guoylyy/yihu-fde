@@ -31,6 +31,9 @@
 // /templates: 个人模板(只归本人, 存 Markdown, 用时交给 bulk-import)。
 //
 // OKR 8.0: GET /export 按周导出 Excel(明细 + 汇总) / Word。只读; 权限与口径见 services/okrExport.js。
+//
+// OKR 9.0: /decisions 决策记录(可挂 O / 项目 / 周期, 全员可读, 时间线回看)。写权限与 7 天窗口见 services/okrDecisions.js;
+// 每次写动作 await 留痕(okr.decision.create / update / supersede / delete)。/my /cycle /team 的 O 带最近 3 条 decisions。
 import express from 'express'
 import multer from 'multer'
 import mammoth from 'mammoth'
@@ -57,6 +60,7 @@ import { copyFromWeek, bulkImport } from '../services/okrPlanImport.js'
 import { listTemplates, createTemplate, deleteTemplate } from '../services/okrTemplates.js'
 import { exportData, exportFileNames, contentDisposition, EXPORT_FORMATS } from '../services/okrExport.js'
 import { renderXlsx, renderDocx, CONTENT_TYPES } from '../services/okrExportFormat.js'
+import { createDecision, listDecisions, getDecision, patchDecision, supersedeDecision, deleteDecision, decisionTimeline } from '../services/okrDecisions.js'
 
 const router = express.Router()
 router.use(internalAuth)
@@ -444,6 +448,72 @@ router.post('/templates', async (req, res) => {
 
 router.delete('/templates/:id', async (req, res) => {
   try { ok(res, await deleteTemplate(req.user.id, req.params.id)) } catch (e) { fail(res, e, 'templates delete') }
+})
+
+// ---------------------------------------------------------------- 决策记录(OKR 9.0)
+
+/** 审计里存的决策快照(不含长文本, 只留定位与状态) */
+const decisionAudit = d => ({
+  title: d.title, status: d.status, objectiveId: d.objectiveId != null ? String(d.objectiveId) : null,
+  projectId: d.projectId != null ? String(d.projectId) : null, cycleId: d.cycleId != null ? String(d.cycleId) : null
+})
+
+router.post('/decisions', async (req, res) => {
+  try {
+    const d = await createDecision(req.user, req.body || {})
+    await logInternalAction(req, 'okr.decision.create', { resourceType: 'okr_decision', resourceId: d.id, details: decisionAudit(d) })
+    ok(res, d)
+  } catch (e) { fail(res, e, 'decisions post') }
+})
+
+router.get('/decisions', async (req, res) => {
+  try {
+    let week = null
+    if (req.query.week != null && req.query.week !== '') {
+      week = weekOf(req, res)
+      if (!week) return
+    }
+    ok(res, await listDecisions(req.user, req.query, { week }))
+  } catch (e) { fail(res, e, 'decisions') }
+})
+
+// 放在 /decisions/:id 之前
+router.get('/decisions/timeline', async (req, res) => {
+  try { ok(res, await decisionTimeline(req.user, req.query)) } catch (e) { fail(res, e, 'decisions timeline') }
+})
+
+router.get('/decisions/:id', async (req, res) => {
+  try { ok(res, await getDecision(req.user, req.params.id)) } catch (e) { fail(res, e, 'decision') }
+})
+
+router.patch('/decisions/:id', async (req, res) => {
+  try {
+    const r = await patchDecision(req.user, req.params.id, req.body || {})
+    await logInternalAction(req, 'okr.decision.update', {
+      resourceType: 'okr_decision', resourceId: r.decision.id,
+      details: { changed: r.changed, statusBefore: r.before.status, ...decisionAudit(r.decision) }
+    })
+    ok(res, r.decision)
+  } catch (e) { fail(res, e, 'decision patch') }
+})
+
+router.post('/decisions/:id/supersede', async (req, res) => {
+  try {
+    const r = await supersedeDecision(req.user, req.params.id, req.body || {})
+    await logInternalAction(req, 'okr.decision.supersede', {
+      resourceType: 'okr_decision', resourceId: r.superseded.id,
+      details: { supersededBy: r.decision.id, ...decisionAudit(r.decision) }
+    })
+    ok(res, r)
+  } catch (e) { fail(res, e, 'decision supersede') }
+})
+
+router.delete('/decisions/:id', async (req, res) => {
+  try {
+    const r = await deleteDecision(req.user, req.params.id)
+    await logInternalAction(req, 'okr.decision.delete', { resourceType: 'okr_decision', resourceId: r.id, details: decisionAudit(r.before) })
+    ok(res, { id: r.id, deleted: true })
+  } catch (e) { fail(res, e, 'decision delete') }
 })
 
 // ---------------------------------------------------------------- 进展
