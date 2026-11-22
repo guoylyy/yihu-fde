@@ -269,7 +269,8 @@ router.get('/export', async (req, res) => {
     const scope = String(req.query.scope || 'person')
     const data = await exportData(req.user, { week, scope, userId: req.query.userId, projectId: req.query.projectId })
     const buf = format === 'xlsx' ? await renderXlsx(data) : await renderDocx(data)
-    logInternalAction(req, 'okr.export', {
+    // 等审计落库再回包: 导出了谁的数据要查得到
+    await logInternalAction(req, 'okr.export', {
       resourceType: 'okr_cycle',
       details: { week: data.week, scope, format, ...(data.subject ? { subjectId: data.subject.id } : {}), people: data.people.length }
     })
