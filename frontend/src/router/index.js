@@ -59,6 +59,8 @@ const routes = [
       { path: 'okr/projects', name: 'AdminOkrProjects', component: () => import('@/views/okr/ProjectOkr.vue') },
       // OKR 4.0 每日总结(我的 / 团队; 团队范围后端按 ADMIN 全部 / 其他人本团队)
       { path: 'okr/daily', name: 'AdminOkrDaily', component: () => import('@/views/okr/DailySummary.vue') },
+      // OKR 9.0 决策记录(全员可读; 写权限后端判: ADMIN / MANAGER 任意, 工程师只能挂自己的 O)
+      { path: 'okr/decisions', name: 'AdminOkrDecisions', component: () => import('@/views/okr/OkrDecisions.vue') },
       { path: 'customers', name: 'AdminCustomers', component: () => import('@/views/admin/Customers.vue'),
         meta: { requiredPerm: 'customer.view', requiredRoles: ['ADMIN', 'MANAGER'] } },
       { path: 'projects', name: 'AdminProjects', component: () => import('@/views/admin/Projects.vue'),

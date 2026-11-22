@@ -669,6 +669,16 @@ export const fde = {
     createTemplate: ({ name, contentMd }) => request('/api/okr/templates', { method: 'POST', body: JSON.stringify({ name, contentMd }) }),
     deleteTemplate: (id) => request(`/api/okr/templates/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     byProject: (week) => request('/api/okr/by-project?' + new URLSearchParams(clean({ week })).toString()),
+    // OKR 10.0 连续未达成预警(范围后端裁: ADMIN 全部 / MANAGER 本团队 / 工程师自己)
+    riskObjectives: (params = {}) => request('/api/okr/risk/objectives?' + new URLSearchParams(clean(params)).toString()),
+    riskPeople: (params = {}) => request('/api/okr/risk/people?' + new URLSearchParams(clean(params)).toString()),
+    // OKR 9.0 决策记录
+    decisions: (params = {}) => request('/api/okr/decisions?' + new URLSearchParams(clean(params)).toString()),
+    decisionTimeline: (params = {}) => request('/api/okr/decisions/timeline?' + new URLSearchParams(clean(params)).toString()),
+    decision: (id) => request(`/api/okr/decisions/${encodeURIComponent(id)}`),
+    createDecision: (data) => request('/api/okr/decisions', { method: 'POST', body: JSON.stringify(data) }),
+    patchDecision: (id, data) => request(`/api/okr/decisions/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    supersedeDecision: (id, data) => request(`/api/okr/decisions/${encodeURIComponent(id)}/supersede`, { method: 'POST', body: JSON.stringify(data) }),
     projectObjectives: (projectId, week) => request(`/api/okr/projects/${encodeURIComponent(projectId)}/objectives?` + new URLSearchParams(clean({ week })).toString())
   },
   reports: {

@@ -5,8 +5,15 @@
   <div class="okr-page" v-loading="loading">
     <div class="okr-top">
       <OkrPersonPicker :model-value="pickedId" :people="people" :me-id="meId" :compact="isMobile" @change="pickPerson" />
-      <router-link v-if="viewingOther" class="okr-top-link" data-test="okr-person-detail" :to="{ path: `/admin/okr/person/${ownerId}`, query: { week: weekKeyNow } }">{{ $t('okr.people.detail') }} ›</router-link>
+      <span class="okr-top-right">
+        <router-link v-if="viewingOther" class="okr-top-link" data-test="okr-person-detail" :to="{ path: `/admin/okr/person/${ownerId}`, query: { week: weekKeyNow } }">{{ $t('okr.people.detail') }} ›</router-link>
+        <!-- OKR 8.0 导出: 当前看的人(默认自己)这一周, scope=person -->
+        <OkrExportMenu :items="exportMenu" />
+      </span>
     </div>
+
+    <!-- OKR 10.0 连续未达成: 自己的 CRITICAL 红条 / WARN 黄条, 「看看」滚到那张 O 卡 -->
+    <OkrRiskBars :bars="riskBars" :compact="isMobile" @look="lookRisk" />
 
     <!-- 代管: 常驻提示条(不是弹窗), 用 warning 色 -->
     <div v-if="proxyMode" class="okr-proxy-bar" role="status" data-test="okr-proxy-bar">
@@ -91,7 +98,9 @@
       <template v-else-if="data.cycle">
         <div class="okr-list">
           <OkrObjectiveCard
-            v-for="o in data.objectives" :key="o.id + ':' + o.updatedKey" :obj="o"
+            v-for="o in data.objectives" :id="'okr-obj-' + o.id" :key="o.id + ':' + o.updatedKey" :obj="o"
+            :class="{ 'okr-flash': flashId === String(o.id) }"
+            :streak="streakOf(riskMap, o)"
             :can-edit="data.can.edit && !!o.submittedAt && o.status !== 'DROPPED'"
             :can-miss="canAct && data.cycle.status === 'REVIEW' && !['DONE', 'MISSED', 'DROPPED'].includes(o.status)"
             :can-manager-score="canScoreManager && data.can.managerScore && !!o.submittedAt"
@@ -196,7 +205,7 @@
 </template>
 
 <script setup>
-import { computed, h, reactive, ref, watch } from 'vue'
+import { computed, h, nextTick, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { $t } from '@/i18n'
@@ -211,6 +220,9 @@ import OkrReportDraftDialog from '@/components/okr/OkrReportDraftDialog.vue'
 import OkrManagerScorePanel from '@/components/okr/OkrManagerScorePanel.vue'
 import OkrPlanImportDialog from '@/components/okr/OkrPlanImportDialog.vue'
 import OkrTemplateDialog from '@/components/okr/OkrTemplateDialog.vue'
+import OkrExportMenu from '@/components/okr/OkrExportMenu.vue'
+import OkrRiskBars from '@/components/okr/OkrRiskBars.vue'
+import { exportItems, riskByObjective, streakOf, myRiskBars, findRiskTarget } from './okrFe5.js'
 import {
   milestoneClick, milestonesWithDone, applyMilestonePatch, blockerPatch, planWithPatch, blockerPeople,
   copySourceWeeks, copyResultText, planToMarkdown
@@ -384,6 +396,44 @@ async function saveBlocker({ objectiveId, form, done }) {
     done(false)
   }
 }
+
+// ---------------------------------------------------------------- OKR 8.0 导出 / 10.0 连续未达成
+const exportMenu = computed(() => exportItems({ page: 'mine', user: me, week: weekKeyNow.value, userId: ownerId.value || meId }))
+
+// 预警范围后端裁(工程师只拿到自己的); 这里再按「当前看的人」筛, 看别人时显示他的
+const riskItems = ref([])
+const riskMap = computed(() => riskByObjective(riskItems.value))
+const riskBars = computed(() => myRiskBars(riskItems.value, ownerId.value || meId))
+watch(() => ownerId.value, async () => {
+  try { riskItems.value = (await fde.okr.riskObjectives())?.items || [] } catch { riskItems.value = [] }
+}, { immediate: true })
+
+const flashId = ref('')
+let pendingLook = null
+/** 「看看」: 这一周有这个 O 就滚过去并闪一下; 没有就切到它最近未达成的那一周, 载完再滚 */
+function lookRisk(item) {
+  const id = findRiskTarget(data.value?.objectives || [], item)
+  if (id) return scrollToObjective(id)
+  if (item.week && item.week !== weekKeyNow.value) {
+    pendingLook = item
+    ElMessage.info($t('okr.fe5.risk_not_on_page', { p0: item.week }))
+    router.replace({ query: { ...route.query, week: item.week } })
+  }
+}
+function scrollToObjective(id) {
+  // 正在写计划时卡片不渲染: 不替人关编辑器(会丢没保存的改动), 找不到元素就不滚
+  nextTick(() => {
+    document.getElementById('okr-obj-' + id)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    flashId.value = String(id)
+    setTimeout(() => { if (flashId.value === String(id)) flashId.value = '' }, 2000)
+  })
+}
+watch(data, (d) => {
+  if (!pendingLook || !d) return
+  const id = findRiskTarget(d.objectives || [], pendingLook)
+  pendingLook = null
+  if (id) scrollToObjective(id)
+})
 
 // ---------------------------------------------------------------- OKR 7.0 编计划提效
 const copy = reactive({ visible: false, from: '' })
@@ -645,6 +695,8 @@ async function submitMiss() {
 <style scoped>
 .okr-page { max-width: 720px; margin: 0 auto; padding: 4px 0 24px; }
 .okr-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.okr-top-right { display: inline-flex; align-items: center; gap: 12px; flex: none; }
+.okr-flash :deep(.okr-card), .okr-flash.okr-card { box-shadow: 0 0 0 2px var(--el-color-danger-light-5); transition: box-shadow .3s; }
 .okr-top-link { font-size: 13px; color: var(--el-color-primary); text-decoration: none; padding: 12px 0; }
 .okr-proxy-bar { position: sticky; top: 0; z-index: 5; margin-bottom: 10px; padding: 10px 12px; border-radius: 8px; font-size: 13px; font-weight: 600;
   color: var(--el-color-warning-dark-2); background: var(--el-color-warning-light-9); border: 1px solid var(--el-color-warning-light-5); }

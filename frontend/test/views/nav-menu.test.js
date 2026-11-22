@@ -9,17 +9,17 @@ const allow = () => true
 const paths = (g) => g.items.map(i => i.path)
 const byKey = (groups) => Object.fromEntries(groups.map(g => [g.key, g]))
 
-test('ADMIN 看到五组, 团队 5 项(工时第五)、交付 7 项(OKR 4.0 加项目 OKR / 每日总结)、经验 3 项(创意中心排第一)', () => {
+test('ADMIN 看到五组, 团队 5 项(工时第五)、交付 8 项(OKR 4.0 加项目 OKR / 每日总结, OKR 9.0 加决策记录)、经验 3 项(创意中心排第一)', () => {
   const groups = buildNav({ can: allow, role: 'ADMIN' })
   assert.deepEqual(groups.map(g => g.key), ['today', 'team', 'delivery', 'experience', 'config'])
   const g = byKey(groups)
   assert.deepEqual(paths(g.today), ['/admin/workbench'])
   assert.equal(g.today.index, null, '今日是一级菜单项, 不是分组')
   assert.deepEqual(paths(g.team), ['/admin/team/members', '/admin/team/load', '/admin/okr', '/admin/team/skills', '/admin/timesheets'])
-  assert.deepEqual(paths(g.delivery), ['/admin/projects', '/admin/okr/projects', '/admin/okr/daily', '/admin/tasks', '/admin/customers', '/admin/knowledge', '/admin/onboarding'])
+  assert.deepEqual(paths(g.delivery), ['/admin/projects', '/admin/okr/projects', '/admin/okr/daily', '/admin/okr/decisions', '/admin/tasks', '/admin/customers', '/admin/knowledge', '/admin/onboarding'])
   assert.deepEqual(paths(g.experience), ['/admin/ideas', '/admin/experience', '/admin/conversations'])
   const second = ['team', 'delivery', 'experience'].reduce((n, k) => n + g[k].items.length, 0)
-  assert.ok(second <= 15, `业务二级菜单 ≤15 项(0.5.2 工时放回 +1, OKR 4.0 项目 OKR / 每日总结 +2), 实际 ${second}`)
+  assert.ok(second <= 16, `业务二级菜单 ≤16 项(0.5.2 工时放回 +1, OKR 4.0 项目 OKR / 每日总结 +2, OKR 9.0 决策记录 +1), 实际 ${second}`)
 })
 
 test('0.5.2 工时放回团队组, 顺序第五(成员/负载/周 OKR/能力矩阵/工时), 按 timesheet.view 显示', () => {
@@ -98,4 +98,21 @@ test('OKR 4.0 交付组「项目 OKR / 每日总结」: 全员可见(模块开�
   assert.equal(activeMenuPath('/admin/okr/person/3'), '/admin/okr')
   const layout = readFileSync(new URL('../../src/views/admin/AdminLayout.vue', import.meta.url), 'utf8')
   assert.match(layout, /const NAV_ICONS = \{[^}]*\bFlag\b[^}]*\bNotebook\b/, 'Flag / Notebook 图标已注册')
+})
+
+test('OKR 9.0 交付组「决策记录」: 全员可见(模块开着), 排在每日总结后; 高亮不被周 OKR 前缀吃掉', () => {
+  for (const role of ['ADMIN', 'MANAGER', 'FDE_ENGINEER']) {
+    const d = byKey(buildNav({ can: allow, role })).delivery
+    const i = paths(d).indexOf('/admin/okr/decisions')
+    assert.equal(paths(d)[i - 1], '/admin/okr/daily', role)
+    assert.equal(d.items[i].title, 'nav.decisions')
+    assert.equal(d.items[i].icon, 'Stamp')
+  }
+  const off = buildNav({ can: allow, role: 'ADMIN', moduleEnabled: m => m !== 'okr' }).flatMap(paths)
+  assert.ok(!off.includes('/admin/okr/decisions'), 'OKR 模块关了不出现')
+  assert.equal(activeMenuPath('/admin/okr/decisions'), '/admin/okr/decisions')
+  const layout = readFileSync(new URL('../../src/views/admin/AdminLayout.vue', import.meta.url), 'utf8')
+  assert.match(layout, /const NAV_ICONS = \{[^}]*\bStamp\b/, 'Stamp 图标已注册')
+  const router = readFileSync(new URL('../../src/router/index.js', import.meta.url), 'utf8')
+  assert.match(router, /path: 'okr\/decisions'.*OkrDecisions\.vue/)
 })

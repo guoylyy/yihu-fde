@@ -12,6 +12,13 @@
       <span class="okr-seq">O{{ obj.seq }}</span>
       <h3 class="okr-title">{{ obj.title }}</h3>
       <span class="okr-weight">{{ round(obj.weight) }}%</span>
+      <!-- OKR 10.0: 连续未达成 ≥2 周 —— CRITICAL 红点 / WARN 黄点 + 悬浮提示 -->
+      <el-tooltip v-if="streak" :content="$t('okr.fe5.risk_dot', { p0: streak.n })" placement="top">
+        <span
+          class="okr-streak" :class="'lv-' + streak.level" role="img" tabindex="0"
+          :aria-label="$t('okr.fe5.risk_dot', { p0: streak.n })" :title="$t('okr.fe5.risk_dot', { p0: streak.n })" :data-test="'okr-streak-' + streak.level"
+        />
+      </el-tooltip>
     </header>
     <div class="okr-meta">
       <el-tag size="small" :type="OBJ_TAG[obj.status]" effect="light">{{ $t('okr.obj_status.' + obj.status) }}</el-tag>
@@ -156,6 +163,18 @@
 
       <button v-if="canMiss" type="button" class="okr-link warn" @click="$emit('miss', obj)">{{ $t('okr.mark_missed') }}</button>
     </div>
+    <!-- OKR 9.0: 挂在这个 O 上的决策(O 视图带最近 3 条), 折叠区: 标题 + 日期 + 决策人 -->
+    <div v-if="decisions.length" class="okr-decs" data-test="okr-card-decisions">
+      <button type="button" class="okr-decs-head" :aria-expanded="decOpen" data-test="okr-decs-toggle" @click="decOpen = !decOpen">
+        {{ $t('okr.fe5.dec_card_n', { p0: decisions.length }) }} <span aria-hidden="true">{{ decOpen ? '▾' : '▸' }}</span>
+      </button>
+      <ul v-if="decOpen" class="okr-decs-list">
+        <li v-for="d in decisions" :key="d.id" :class="{ off: d.status !== 'ACTIVE' }">
+          <router-link :to="{ path: '/admin/okr/decisions', query: { focus: d.id, from: d.date } }" class="okr-decs-title">{{ d.title }}</router-link>
+          <span class="okr-decs-meta">{{ d.date }} · {{ d.decidedByName || '-' }}</span>
+        </li>
+      </ul>
+    </div>
     <p v-if="obj.managerComment" class="okr-mcomment">{{ $t('okr.manager_said', { p0: obj.managerComment }) }}</p>
   </section>
 </template>
@@ -166,6 +185,7 @@ import { $t } from '@/i18n'
 import { OBJ_TAG, pct, krValueText, shDate } from '@/views/okr/okrUtils.js'
 import { todayKey } from '@/views/okr/okrFe3.js'
 import { RISK_LEVELS, milestoneRows, overdueDays, blockerForm, blockerFormState } from '@/views/okr/okrFe4.js'
+import { decisionBriefs } from '@/views/okr/okrFe5.js'
 
 const props = defineProps({
   obj: { type: Object, required: true },
@@ -184,11 +204,15 @@ const props = defineProps({
   /** 卡点人候选(选人) */
   people: { type: Array, default: () => [] },
   /** 手机窄屏: 卡点人名折叠 */
-  compact: Boolean
+  compact: Boolean,
+  /** OKR 10.0 连续未达成: { n, level } | null(okrFe5.streakOf) */
+  streak: { type: Object, default: null }
 })
 const emit = defineEmits(['add-update', 'miss', 'manager-score', 'complete', 'milestone', 'save-blocker'])
 
 const today = todayKey()
+const decisions = computed(() => decisionBriefs(props.obj))
+const decOpen = ref(false)
 /** 阶段可点: 和完成开关同一套条件 */
 const msClickable = computed(() => props.canComplete && !props.closed && !props.krBusy && !!props.obj.submittedAt && props.obj.status !== 'DROPPED')
 function clickMilestone(kr, index) {
@@ -272,6 +296,17 @@ function send() {
 </script>
 
 <style scoped>
+.okr-streak { flex: none; align-self: center; width: 10px; height: 10px; border-radius: 50%; margin-left: 2px; cursor: help; }
+.okr-streak.lv-CRITICAL { background: var(--el-color-danger); box-shadow: 0 0 0 3px var(--el-color-danger-light-8); }
+.okr-streak.lv-WARN { background: #d9a400; box-shadow: 0 0 0 3px #f6e7a6; }
+.okr-decs { margin-top: 8px; border-top: 1px dashed var(--el-border-color-lighter); padding-top: 6px; }
+.okr-decs-head { border: 0; background: none; padding: 4px 0; font: inherit; font-size: 12px; color: var(--el-text-color-secondary); cursor: pointer; }
+.okr-decs-list { list-style: none; margin: 2px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.okr-decs-list li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
+.okr-decs-title { color: var(--el-color-primary); text-decoration: none; font-weight: 600; overflow-wrap: anywhere; }
+.okr-decs-list li.off .okr-decs-title { color: var(--el-text-color-placeholder); text-decoration: line-through; }
+.okr-decs-meta { color: var(--el-text-color-secondary); }
+@media (max-width: 640px) { .okr-decs-head { min-height: 44px; } }
 .okr-card { background: var(--el-bg-color); border: 1px solid var(--el-border-color-lighter); border-radius: 10px; padding: 12px 14px; }
 .okr-card.st-DROPPED { opacity: .55; }
 .okr-card-head { display: flex; align-items: baseline; gap: 8px; }

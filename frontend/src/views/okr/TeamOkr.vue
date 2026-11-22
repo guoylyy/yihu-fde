@@ -10,6 +10,8 @@
         <el-radio-button value="person">{{ $t('okr.byproj.by_person') }}</el-radio-button>
         <el-radio-button value="project">{{ $t('okr.byproj.by_project') }}</el-radio-button>
       </el-radio-group>
+      <!-- OKR 8.0 导出: Excel 明细 / Word 汇报(自己); ADMIN / MANAGER 多「团队 Excel」; 按项目视图时每个项目块头另有导出 -->
+      <OkrExportMenu :items="exportMenu" class="okr-team-export" />
     </div>
     <OkrWeekBar
       :year="weekParts.year" :week-no="weekParts.weekNo" :week-key="weekKeyNow"
@@ -17,6 +19,9 @@
       :tag-text="data?.cycle?.status ? $t('okr.cycle_status.' + data.cycle.status) : ''" :tag-type="cycleTag"
       active="team" show-team @shift="shift"
     />
+
+    <!-- OKR 10.0: 连续未达成(仅 ADMIN/MANAGER, 在周进度条上方); 数字 = /risk/objectives 的 summary -->
+    <OkrRiskPanel v-if="lead" :risk="risk" @open="openRisk" />
 
     <!-- OKR 4.0: 本周进度 + 催交(仅 ADMIN/MANAGER) -->
     <OkrWeekStatus v-if="lead" :key="weekKeyNow" :week="weekKeyNow" />
@@ -31,6 +36,7 @@
               {{ $t('okr.byproj.head', { p0: g.head.ownerCount, p1: g.head.objectiveCount }) }}
               · {{ $t('okr.byproj.avg', { p0: g.head.completion == null ? '-' : pct(g.head.completion) + '%' }) }}
             </span>
+            <OkrExportMenu v-if="projectExport(g.head).length" :items="projectExport(g.head)" class="okr-group-export" :data-test="'okr-group-export-' + g.head.key" />
           </header>
           <div v-for="seg in g.owners" :key="seg.owner.id" class="okr-group-owner">
             <button type="button" class="okr-group-who" @click="openPerson(seg.owner.id)">
@@ -38,7 +44,7 @@
               {{ seg.owner.name }}
             </button>
             <div class="okr-group-cards">
-              <OkrObjectiveCard v-for="o in seg.objectives" :key="o.id" :obj="o" />
+              <OkrObjectiveCard v-for="o in seg.objectives" :key="o.id" :obj="o" :streak="streakOf(riskMap, o)" />
             </div>
           </div>
         </section>
@@ -144,6 +150,9 @@ import OkrPersonPicker from '@/components/okr/OkrPersonPicker.vue'
 import OkrManagerScorePanel from '@/components/okr/OkrManagerScorePanel.vue'
 import OkrWeekStatus from '@/components/okr/OkrWeekStatus.vue'
 import OkrObjectiveCard from '@/components/okr/OkrObjectiveCard.vue'
+import OkrExportMenu from '@/components/okr/OkrExportMenu.vue'
+import OkrRiskPanel from '@/components/okr/OkrRiskPanel.vue'
+import { exportItems, projectExportItems, riskByObjective, streakOf } from './okrFe5.js'
 import { isLead, groupHead, orderGroups, byOwner } from './okrFe3.js'
 import { pct, shiftKey, parseKey, isoWeekOf, weekKey } from './okrUtils.js'
 import { initialOf, mayProxyRow, pickerPeople, currentUser, mayScoreManager, mayCloseWeek } from './okrPeople.js'
@@ -178,6 +187,21 @@ async function load() {
   }
 }
 watch(() => route.query.week, load, { immediate: true })
+
+// ---------------------------------------------------------------- OKR 8.0 导出 / 10.0 连续未达成
+const exportMenu = computed(() => exportItems({ page: 'team', user: me, week: weekKeyNow.value, userId: meId }))
+const projectExport = (head) => projectExportItems({ user: me, week: weekKeyNow.value, project: head.unassigned ? null : { id: head.key, name: head.name } })
+const risk = ref(null)
+const riskMap = computed(() => riskByObjective(risk.value?.items || []))
+async function loadRisk() {
+  if (!lead) return
+  try { risk.value = await fde.okr.riskObjectives() } catch { risk.value = null }
+}
+loadRisk()
+/** 点预警里的 O: 进负责人的周 OKR 页(本周), 卡片右上同样有红 / 黄点 */
+function openRisk(it) {
+  router.push({ path: '/admin/okr', query: { week: weekKeyNow.value, userId: it.ownerId } })
+}
 
 // ---------------------------------------------------------------- 按项目(OKR 5.0)
 const mode = computed(() => (route.query.view === 'project' ? 'project' : 'person'))
@@ -234,6 +258,8 @@ function subClass(row) {
 .okr-kpis small { font-size: 13px; }
 .okr-kpis span { font-size: 12px; color: var(--el-text-color-secondary); text-align: center; }
 .okr-kpis em { font-style: normal; color: var(--el-color-warning); margin-left: 4px; }
+.okr-team-export { margin-left: auto; }
+.okr-group-export { margin-left: auto; }
 .okr-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
 .okr-groups { display: flex; flex-direction: column; gap: 14px; }
 .okr-group { border: 1px solid var(--el-border-color-lighter); border-radius: 12px; background: var(--el-fill-color-lighter); padding: 12px; }

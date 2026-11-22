@@ -23,9 +23,17 @@ const STUBS = ['el-input', 'el-button', 'el-tag', 'el-progress', 'el-avatar', 'e
   'el-dialog', 'el-radio-group', 'el-radio-button', 'el-select', 'el-option', 'el-form', 'el-form-item', 'el-icon',
   'LoadError', 'router-link', 'TaskDetailDialog', 'el-date-picker', 'el-checkbox', 'el-switch']
 
+// OKR 前端第五批(导出 / 决策 / 连续未达成)在 MyOkr / TeamOkr / O 卡里加的 setup 名字: 给「什么都没有」的缺省值,
+// 老用例手给的 state 不用逐个补; 新用例自己传值覆盖
+export const FE5_DEFAULTS = {
+  exportMenu: [], riskBars: [], riskMap: new Map(), streakOf: () => null, flashId: '', lookRisk() {},
+  risk: null, openRisk() {}, projectExport: () => [],
+  decisions: [], decOpen: false
+}
+
 /** 渲染; el-table 把 data 逐行喂给列的默认插槽, 列头插槽也渲染(看 tooltip 文案) */
 export async function renderView(render, state, extra = {}) {
-  const app = Vue.createSSRApp({ render, setup: () => state })
+  const app = Vue.createSSRApp({ render, setup: () => ({ ...FE5_DEFAULTS, ...state }) })
   app.use(i18n) // 测试环境语言为 en(Node 没有中文浏览器语言)
   for (const name of STUBS) app.component(name, passthrough)
   // extra: { 组件名: 组件 | true(透传 div) }, 给页面里自带的子组件(如 OkrWeekBar)用
