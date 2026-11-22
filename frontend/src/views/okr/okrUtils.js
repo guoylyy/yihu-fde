@@ -393,7 +393,7 @@ export function scoresComplete(rows) {
   return rows.length > 0 && rows.every(r => Number.isInteger(r.score) && r.score >= 0 && r.score <= 100)
 }
 
-/** 主管评分面板: 需要真的发请求的行(分数有变, 或写了新评语); 没自评 / 是自己的跳过 */
+/** 主管评分面板: 需要真的发请求的行(分数有变, 或写了新评语); 自己的 O(locked)跳过。0.6.3 起没自评的 O 照常发 */
 export function managerScoreChanges(rows) {
   return rows.filter(r => !r.locked && r.score != null && (r.score !== r.original || String(r.comment || '').trim()))
 }

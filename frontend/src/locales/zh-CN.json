@@ -2683,7 +2683,8 @@
       "pending_self_title": "未交自评 · {p0}",
       "pending_self_empty": "本周没有未交自评的人",
       "pending_self_os": "{p0} 个 O 没自评",
-      "self_missing": "未交"
+      "self_missing": "未交",
+      "saved_score": "已评 {p0}"
     }
   },
   "assistant": {

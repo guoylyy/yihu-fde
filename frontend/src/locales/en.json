@@ -2683,7 +2683,8 @@
       "pending_self_title": "No self-score · {p0}",
       "pending_self_empty": "Everyone self-scored this week",
       "pending_self_os": "{p0} O(s) not self-scored",
-      "self_missing": "Missing"
+      "self_missing": "Missing",
+      "saved_score": "Saved {p0}"
     }
   },
   "assistant": {

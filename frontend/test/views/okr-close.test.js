@@ -3,7 +3,9 @@
 import { test, describe, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import * as Vue from 'vue'
 import { compileView, renderView, t } from '../helpers/sfc-render.js'
+import { managerScoreChanges } from '../../src/views/okr/okrUtils.js'
 import {
   CLOSE_MISSING_CODE, shortWeek, nameList, parseCloseError, groupMissing, unscoredSelfCount,
   pendingSelfFromGroups, closedNoticeText, pendingSelfFromStatus, noticeDismissed, dismissNotice
@@ -179,6 +181,60 @@ describe('主管评分面板: 完成本周接线', () => {
     assert.match(fn, /const miss = parseCloseError\(e\)[\s\S]*?phase: 'missing', missing: miss\.missing, pendingSelf: miss\.pendingSelfScore\.length \? miss\.pendingSelfScore/)
     assert.match(fn, /closedNoticeText\(\$t, props\.week, pending\)/)
     assert.match(fn, /emit\('closed', res\)/)
+  })
+})
+
+describe('主管评分面板: 未交自评的 O 可直接打分', () => {
+  const render = compileView('components/okr/OkrManagerScorePanel.vue')
+  const withFooter = { setup: (_, { slots }) => () => Vue.h('div', [slots.default?.(), slots.footer?.()]) }
+  const EX = { 'el-drawer': withFooter, 'el-input-number': { props: ['disabled', 'modelValue'], setup: p => () => Vue.h('input', { class: 'num', disabled: p.disabled || undefined, value: p.modelValue ?? '' }) }, OkrCloseWeekDialog: true }
+  const groups = () => [
+    { user: { id: '38', name: '张三' }, rows: [{ id: '1', seq: 1, title: 'O-没自评', selfScore: null, original: null, score: null, comment: '', locked: null }] },
+    { user: { id: '39', name: '周舟' }, rows: [{ id: '2', seq: 1, title: 'O-有自评', selfScore: 80, original: 85, score: 85, comment: '', locked: null }] },
+    { user: { id: '188', name: 'Boss' }, rows: [{ id: '9', seq: 1, title: 'O-自己', selfScore: null, original: null, score: null, comment: '', locked: 'own' }] }
+  ]
+  const state = (over = {}) => {
+    const st = { modelValue: true, week: '2026-W47', closed: false, canClose: true, mobile: false, loading: false, busy: '', error: '', groups: groups(), load() {}, saveOnly() {}, saveAndClose() {}, ...over }
+    st.allRows = st.groups.flatMap(g => g.rows)
+    st.scoredCount = st.allRows.filter(r => r.original != null).length
+    return st
+  }
+  const rowHtml = (html, id) => html.split(`data-test="okr-mgr-row-${id}"`)[1].split('data-test="okr-mgr-row-')[0]
+
+  test('没自评: 输入框可用 + 灰字「员工未自评，可直接评分」; 不再有禁用态', async () => {
+    const html = await renderView(render, state(), EX)
+    const r1 = rowHtml(html, '1')
+    assert.ok(r1.includes('data-test="okr-mgr-noself-1"'))
+    assert.ok(r1.includes(esc(t('okr.close.no_self_hint'))))
+    assert.doesNotMatch(r1, /<input class="num[^"]*" disabled/)
+    assert.ok(!/okr-mp-row locked[^"]*" data-test="okr-mgr-row-1"/.test(html))
+    assert.equal(zh.okr.close.no_self_hint, '员工未自评，可直接评分')
+  })
+  test('有自评: 显示自评分作参考 + 已评分标记; 自己的 O 仍禁用', async () => {
+    const html = await renderView(render, state(), EX)
+    const r2 = rowHtml(html, '2')
+    assert.ok(r2.includes('>80<'), '自评分')
+    assert.ok(r2.includes(esc(t('okr.close.saved_score', { p0: 85 }))))
+    assert.ok(!r2.includes('okr-mgr-noself-2'))
+    const r9 = rowHtml(html, '9')
+    assert.match(r9, /<input class="num[^"]*" disabled/)
+    assert.ok(r9.includes(esc(t('okr.v3.mgr_own'))) && !r9.includes('okr-mgr-noself-9'))
+  })
+  test('load: 只有自己的 O 锁定; 没自评不再锁', () => {
+    const s = src('components/okr/OkrManagerScorePanel.vue')
+    assert.match(s, /locked: sameId\(u\.id, props\.meId\) \? 'own' : null/)
+    assert.ok(!s.includes("'noself'"))
+  })
+  test('保存后以后端返回刷新这一行的主管分(输入框 + 已评标记 + 计数)', () => {
+    const fn = src('components/okr/OkrManagerScorePanel.vue').split('async function saveScores()')[1].split('async function saveOnly()')[0]
+    assert.match(fn, /r\.original = res\.score\s+r\.score = res\.score/)
+  })
+  test('managerScoreChanges: 没自评、改了分的行照常发', () => {
+    const rows = [
+      { id: 'a', selfScore: null, score: 70, original: null, comment: '', locked: null },
+      { id: 'b', selfScore: null, score: 70, original: null, comment: '', locked: 'own' }
+    ]
+    assert.deepEqual(managerScoreChanges(rows).map(r => r.id), ['a'])
   })
 })
 

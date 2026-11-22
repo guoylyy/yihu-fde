@@ -5,7 +5,7 @@
        「保存评分」逐个调 /manager-score; 「保存并完成本周」先弹二次确认(OkrCloseWeekDialog), 再保存、调 /cycle/close-by-score 归档。
        0.6.3: 8116 只拦「交了自评还差主管分」的 O → 同一个弹窗换成缺项列表 + 灰字点名没交自评的人;
        成功但有人没交自评 → 提示「已归档 W47；张三 未交自评，本周按未评归档」。
-       员工没自评的 O 后端不让打主管分(8115), 这里直接置灰; 自己的 O 也不能自己打(8109) -->
+       0.6.3: 员工没自评的 O 也能直接打分(后端不再抛 8115), 旁边灰字提示; 自己的 O 不能自己打(8109), 仍置灰 -->
   <el-drawer
     :model-value="modelValue" :title="$t('okr.v3.mgr_panel_title', { p0: week })"
     :direction="mobile ? 'btt' : 'rtl'" :size="mobile ? '90%' : '640px'" append-to-body class="okr-mgr-drawer"
@@ -25,7 +25,8 @@
             <span class="okr-mp-self">
               <small>{{ $t('okr.v3.mgr_self') }}</small>
               <b v-if="r.selfScore != null">{{ r.selfScore }}</b>
-              <em v-else>{{ $t('okr.v3.mgr_no_self') }}</em>
+              <em v-else-if="r.locked === 'own'">{{ $t('okr.v3.mgr_no_self') }}</em>
+              <em v-else class="okr-mp-noself" :data-test="'okr-mgr-noself-' + r.id">{{ $t('okr.close.no_self_hint') }}</em>
             </span>
             <label class="okr-mp-score">
               <small>{{ $t('okr.v3.mgr_score') }}</small>
@@ -34,6 +35,7 @@
                 :placeholder="r.locked === 'own' ? '—' : '0–100'" class="okr-mp-num"
               />
             </label>
+            <span v-if="r.original != null" class="okr-mp-saved" :data-test="'okr-mgr-saved-' + r.id">{{ $t('okr.close.saved_score', { p0: r.original }) }}</span>
             <el-input v-model="r.comment" maxlength="200" :disabled="!!r.locked || closed" :placeholder="$t('okr.one_line_comment')" class="okr-mp-comment" />
           </div>
           <p v-if="r.locked === 'own'" class="okr-mp-lock">{{ $t('okr.v3.mgr_own') }}</p>
@@ -101,7 +103,7 @@ async function load() {
         const rows = (d.objectives || []).filter(o => o.submittedAt && o.status !== 'DROPPED').map(o => ({
           id: String(o.id), seq: o.seq, title: o.title, selfScore: o.selfScore ?? null,
           original: o.managerScore ?? null, score: o.managerScore ?? null, comment: '',
-          locked: sameId(u.id, props.meId) ? 'own' : o.selfScore == null ? 'noself' : null
+          locked: sameId(u.id, props.meId) ? 'own' : null
         }))
         if (rows.length) out.push({ user: d.owner || u, rows })
       }
@@ -122,7 +124,9 @@ async function saveScores() {
     for (const r of managerScoreChanges(g.rows)) {
       try {
         const res = await fde.okr.managerScore({ objectiveId: r.id, score: r.score, comment: r.comment.trim() })
+        // 以后端返回为准, 立刻刷新这一行的「主管分」(输入框 + 已评分标记 + 顶部已评计数)
         r.original = res.score
+        r.score = res.score
         r.comment = ''
         saved++
       } catch (e) {
@@ -215,6 +219,8 @@ defineExpose({ load })
 .okr-mp-self small, .okr-mp-score small { font-size: 12px; color: var(--el-text-color-secondary); }
 .okr-mp-self b { font-size: 15px; min-width: 24px; }
 .okr-mp-self em { font-style: normal; font-size: 12px; color: var(--el-color-warning-dark-2); }
+.okr-mp-self em.okr-mp-noself { color: var(--el-text-color-secondary); white-space: nowrap; }
+.okr-mp-saved { flex: none; font-size: 12px; color: var(--el-color-success); white-space: nowrap; }
 .okr-mp-num { width: 72px; }
 .okr-mp-comment { flex: 1; min-width: 0; }
 .okr-mp-lock { margin: 4px 0 0; font-size: 12px; color: var(--el-text-color-secondary); }

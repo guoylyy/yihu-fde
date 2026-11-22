@@ -298,7 +298,7 @@ describe('主管评分面板 OkrManagerScorePanel', () => {
   const groups = [
     { user: { id: '38', name: '林晓' }, rows: [
       { id: '1', seq: 1, title: 'O-上线', selfScore: 80, original: null, score: 85, comment: '', locked: null },
-      { id: '2', seq: 2, title: 'O-文档', selfScore: null, original: null, score: null, comment: '', locked: 'noself' }
+      { id: '2', seq: 2, title: 'O-文档', selfScore: null, original: null, score: null, comment: '', locked: null }
     ] },
     { user: { id: '188', name: 'Boss' }, rows: [{ id: '9', seq: 1, title: 'O-自己', selfScore: 70, original: null, score: null, comment: '', locked: 'own' }] }
   ]
@@ -314,7 +314,7 @@ describe('主管评分面板 OkrManagerScorePanel', () => {
     const html = await renderView(render, state(), EX)
     assert.ok(html.includes('林晓') && html.includes('O-上线') && html.includes('O-文档'))
     assert.ok(html.includes('>80<'), '自评分')
-    assert.ok(html.includes(esc(t('okr.v3.mgr_no_self'))))
+    assert.ok(html.includes(esc(t('okr.close.no_self_hint'))), '0.6.3: 没自评的 O 可直接打分, 灰字提示')
     assert.ok(html.includes(esc(t('okr.v3.mgr_own'))))
     assert.ok(html.includes(esc(t('okr.v3.mgr_save'))) && html.includes(esc(t('okr.v3.mgr_save_close'))))
     assert.ok(html.includes(esc(t('okr.v3.mgr_progress', { p0: 0, p1: 3 }))))
