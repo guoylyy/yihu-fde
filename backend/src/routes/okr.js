@@ -46,6 +46,7 @@ import { weekStatus, remindWeek, pendingPlanUsers } from '../services/okrWeekSta
 import { listProjectDocs, getProjectDoc, loadProject, canWriteProjectDoc, saveProjectDoc } from '../services/okrProjectDocs.js'
 import { projectBrief } from '../services/okrObjectiveProjects.js'
 import { byProject, projectObjectives } from '../services/okrByProject.js'
+import { okrBlockerTick } from '../services/okrBlockers.js'
 
 const router = express.Router()
 router.use(internalAuth)
@@ -644,6 +645,18 @@ router.post('/cycle/reopen', humanOnly('重开周期'), requirePermission('okr.c
     await logInternalAction(req, 'okr.cycle.reopen', { resourceType: 'okr_cycle', resourceId: cycle.id, details: { week: weekKey(week), from: before, reason: reason.slice(0, 500) } })
     ok(res, { week: weekKey(week), status: cycle.status, from: before })
   } catch (e) { fail(res, e, 'cycle/reopen') }
+})
+
+// ---------------------------------------------------------------- 卡点到期提醒(OKR 6.0)
+// 定时任务每天跑一次; 这里给 ADMIN 手动触发一次(测试 / 排查)。幂等: 同一 O 同一天每人最多一条。?dryRun=1 只算不发
+router.post('/admin/blocker-tick', humanOnly('触发卡点到期提醒'), async (req, res) => {
+  try {
+    if (!isBoss(req)) return res.status(403).json({ code: 8121, message: '只有管理员能手动触发卡点到期提醒' })
+    const dryRun = ['1', 'true'].includes(String(req.query.dryRun ?? req.body?.dryRun ?? ''))
+    const r = await okrBlockerTick(new Date(), { dryRun })
+    if (!dryRun && r.notified) logInternalAction(req, 'okr.blocker.tick', { resourceType: 'okr_objective', details: { date: r.date, due: r.due, notified: r.notified } })
+    ok(res, { ...r, dryRun })
+  } catch (e) { fail(res, e, 'admin/blocker-tick') }
 })
 
 export default router

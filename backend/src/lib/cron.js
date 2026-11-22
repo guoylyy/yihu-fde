@@ -7,6 +7,7 @@ import { syncAllRepositories } from '../services/repoSync.js'
 import { computeAllActivityScores } from '../services/projectActivity.js'
 import { runDailyDigest } from './notificationDigest.js'
 import { okrTick, okrMondayReminder } from '../services/okr.js'
+import { okrBlockerTick } from '../services/okrBlockers.js'
 
 let started = false
 
@@ -44,6 +45,12 @@ export function startCronJobs() {
   const okrHourly = () => okrTick().then(t => okrMondayReminder().then(r => ({ ...t, remind: r })))
   setTimeout(() => runWithCatch('okrTick', okrHourly), 20 * 1000)
   setInterval(() => runWithCatch('okrTick', okrHourly), 60 * 60 * 1000)
+
+  // OKR 6.0 卡点到期提醒: 启动 10 分钟后一次, 之后每 24 小时。扫依赖截止日 ≤ 今天且 O 未完成的, 通知负责人与卡点人;
+  // 按通知表去重(同一 O 同一天每人最多一条), 重启不重发。顺带把阶段逾期的阶段型 KR 推成 AT_RISK
+  const blockerTick = () => okrBlockerTick().then(({ items, ...r }) => r)
+  setTimeout(() => runWithCatch('okrBlockerTick', blockerTick), 10 * 60 * 1000)
+  setInterval(() => runWithCatch('okrBlockerTick', blockerTick), 24 * 60 * 60 * 1000)
 
   // v1.4.x 项目活跃度评分: 启动 45s 后算一次, 之后每小时重算(基于已同步提交数据)
   setTimeout(() => runWithCatch('activityScore', () => computeAllActivityScores()), 45 * 1000)

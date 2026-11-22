@@ -41,6 +41,7 @@ export const NOTIFICATION_CATALOG = {
   OKR_NOT_SUBMITTED:    M('本周 OKR 还没提交(周一提醒)', '任务协作', '周一 10:00 一次, 只发给还没交的人; 要本人去交'),
   OKR_NOT_SUBMITTED_SUMMARY: M('本周 OKR 未提交汇总(老板)', '任务协作', '周一 10:00 一条, 列出没交的人, 老板决定要不要追'),
   OKR_REMIND:           M('请补充本周 OKR(主管催交)', '任务协作', '主管在周评分进度里点「催交」才发, 只发给计划未交或自评没做完的人, 同一周 2 小时内不重复'),
+  OKR_BLOCKER_DUE:      M('OKR 卡点到期(负责人 + 卡点人)', '任务协作', 'O 的依赖截止日到了还没完成时每天一条, 同一 O 同一天每人最多一条; 卡点要有人去推'),
   DAILY_DIGEST:         M('每日动态摘要', '任务协作', '噪音类合并后的唯一出口, 每天最多一条'),
   // 通道矩阵里的旧别名(代码里已改用 *_CHANGED / MENTIONED, 登记只为不漏)
   PROJECT_STATUS:       N('项目状态变更(旧别名)', '任务协作', '同 PROJECT_STATUS_CHANGED, 进摘要'),
