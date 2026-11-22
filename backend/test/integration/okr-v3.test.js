@@ -5,7 +5,7 @@
 import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import prisma from '../../src/lib/prisma.js'
-import { createTestUser, api } from './helpers.js'
+import { createTestUser, api, acquireTestLock } from './helpers.js'
 import { weekRange, weekKey } from '../../src/services/okrRules.js'
 import { okrMondayReminder } from '../../src/services/okr.js'
 import { EXEMPT_KEY } from '../../src/services/okrExempt.js'
@@ -259,11 +259,13 @@ describe('OKR 3.0 /api/okr', () => {
 })
 
 describe('OKR 免提交白名单 /api/okr/settings/exempt', () => {
-  let A, X, O, a, x, boss, saved
+  let A, X, O, a, x, boss, saved, unlock
   const WK = W(5)
 
   before(async () => {
-    // 白名单是全局设置(共享库): 先存下原值, 只往里加本用例的人, 结束时原样还回去
+    // 白名单是全局设置(共享库): 先存下原值, 只往里加本用例的人, 结束时原样还回去。
+    // okr-v4 也会往里加人: 两边用同一把锁串行, 免得「原值」被对方改掉
+    unlock = await acquireTestLock('okr-exempt')
     saved = await prisma.appSetting.findUnique({ where: { key: EXEMPT_KEY } })
     A = await createTestUser('FDE_ENGINEER', { name: 'unit-test-v3-要交的' })
     X = await createTestUser('FDE_ENGINEER', { name: 'unit-test-v3-免提交' })
@@ -272,10 +274,14 @@ describe('OKR 免提交白名单 /api/okr/settings/exempt', () => {
   })
 
   after(async () => {
-    if (saved) await prisma.appSetting.update({ where: { key: EXEMPT_KEY }, data: { value: saved.value, updatedBy: saved.updatedBy } })
-    else await prisma.appSetting.deleteMany({ where: { key: EXEMPT_KEY } })
-    await dropCycles(createdCycles)
-    for (const u of [A, X, O]) await u?.cleanup()
+    try {
+      if (saved) await prisma.appSetting.update({ where: { key: EXEMPT_KEY }, data: { value: saved.value, updatedBy: saved.updatedBy } })
+      else await prisma.appSetting.deleteMany({ where: { key: EXEMPT_KEY } })
+      await dropCycles(createdCycles)
+      for (const u of [A, X, O]) await u?.cleanup()
+    } finally {
+      unlock?.()
+    }
   })
 
   const current = async () => (await boss.get('/api/okr/settings/exempt')).data.userIds

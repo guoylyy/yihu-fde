@@ -4,12 +4,13 @@
 // 每日总结 / 周状态 / 催交 / 归档用 2024 年随机一周(过去的周 —— 每日总结不能写以后的日期), 周期现建现删, 绝不碰真实周。
 // 人物: 团队 T = 经理 M + 工程师 A(交了、有进展、自评完、写总结) / B(交了、没进展、没自评) / C(没交) / E(免提交, 交了);
 //       外组工程师 X; 老板 O(ADMIN)。账号、团队、项目、客户都现建现删。
-// 免提交名单是全局设置: 只往里加 E, 结束时只把 E 拿掉(不整份覆盖, 免得和 okr-v3 的白名单用例互相踩)。
+// 免提交名单是全局设置: 只往里加 E, 结束时只把 E 拿掉(不整份覆盖); 整个 describe 持有 okr-exempt 测试锁,
+// 与 okr-v3 的白名单用例串行(两个文件并行跑时, 对方会在「读原值 → 写回」之间看到 E)。
 import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import JSZip from 'jszip'
 import prisma from '../../src/lib/prisma.js'
-import { createTestUser, api, uniqName, sleep, BASE } from './helpers.js'
+import { createTestUser, api, uniqName, sleep, BASE, acquireTestLock } from './helpers.js'
 import { weekRange, weekKey } from '../../src/services/okrRules.js'
 import { EXEMPT_KEY } from '../../src/services/okrExempt.js'
 
@@ -92,8 +93,10 @@ describe('OKR 4.0 项目周 OKR / 每日总结 / 周评分进度与催交', () =
   let customer, P1, P2
   const teams = []
   const objs = {}
+  let unlock
 
   before(async () => {
+    unlock = await acquireTestLock('okr-exempt')
     M = await createTestUser('MANAGER', { name: 'unit-test-v4-经理M' })
     A = await createTestUser('FDE_ENGINEER', { name: 'unit-test-v4-工程师A' })
     B = await createTestUser('FDE_ENGINEER', { name: 'unit-test-v4-工程师B' })
@@ -139,19 +142,23 @@ describe('OKR 4.0 项目周 OKR / 每日总结 / 周评分进度与催交', () =
   })
 
   after(async () => {
-    await setExemptMember(E?.id, false).catch(() => {})
-    await dropCycle(WEEK)
-    const uids = [M, A, B, C, E, X, O].filter(Boolean).map(u => BigInt(u.id))
-    await prisma.okrDailySummary.deleteMany({ where: { userId: { in: uids } } })
-    const pids = [P1, P2].filter(Boolean).map(p => p.id)
-    await prisma.okrProjectDoc.deleteMany({ where: { projectId: { in: pids } } })
-    await prisma.projectMember.deleteMany({ where: { projectId: { in: pids } } })
-    await prisma.project.deleteMany({ where: { id: { in: pids } } })
-    if (customer) await prisma.customer.delete({ where: { id: customer.id } }).catch(() => {})
-    await prisma.auditLog.deleteMany({ where: { userId: { in: uids } } }).catch(() => {})
-    await prisma.teamMembership.deleteMany({ where: { teamId: { in: teams } } })
-    await prisma.team.deleteMany({ where: { id: { in: teams } } })
-    for (const u of [M, A, B, C, E, X, O]) await u?.cleanup()
+    try {
+      await setExemptMember(E?.id, false).catch(() => {})
+      await dropCycle(WEEK)
+      const uids = [M, A, B, C, E, X, O].filter(Boolean).map(u => BigInt(u.id))
+      await prisma.okrDailySummary.deleteMany({ where: { userId: { in: uids } } })
+      const pids = [P1, P2].filter(Boolean).map(p => p.id)
+      await prisma.okrProjectDoc.deleteMany({ where: { projectId: { in: pids } } })
+      await prisma.projectMember.deleteMany({ where: { projectId: { in: pids } } })
+      await prisma.project.deleteMany({ where: { id: { in: pids } } })
+      if (customer) await prisma.customer.delete({ where: { id: customer.id } }).catch(() => {})
+      await prisma.auditLog.deleteMany({ where: { userId: { in: uids } } }).catch(() => {})
+      await prisma.teamMembership.deleteMany({ where: { teamId: { in: teams } } })
+      await prisma.team.deleteMany({ where: { id: { in: teams } } })
+      for (const u of [M, A, B, C, E, X, O]) await u?.cleanup()
+    } finally {
+      unlock?.()
+    }
   })
 
   // ---------------------------------------------------------------- 项目周 OKR 文档

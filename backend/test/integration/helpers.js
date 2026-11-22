@@ -5,7 +5,9 @@
 // 测试数据用 'unit-test-' 前缀，最后清理
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { readFileSync } from 'node:fs'
+import { readFileSync, mkdirSync, rmSync, statSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import prisma from '../../src/lib/prisma.js'
 
 function portFromDotenv() {
@@ -125,6 +127,27 @@ export function uniqName(prefix = 'item') {
  * 等待 helper
  */
 export const sleep = (ms) => new Promise(r => setTimeout(r, ms))
+
+/**
+ * 跨测试文件的互斥锁(各测试文件是并行的子进程)。给改全局设置的用例用, 比如 OKR 免提交名单
+ * (okr.exemptUserIds): 一个文件读「原值」、另一个文件同时改, 断言就会互相踩。
+ * mkdir 原子建锁目录; 超过 staleMs 没释放的锁(进程崩了)视为过期。返回 release()
+ */
+export async function acquireTestLock(name, { timeoutMs = 60000, staleMs = 120000 } = {}) {
+  const dir = join(tmpdir(), `fde-test-lock-${name}`)
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    try {
+      mkdirSync(dir)
+      return () => rmSync(dir, { recursive: true, force: true })
+    } catch (e) {
+      if (e.code !== 'EEXIST') throw e
+      try { if (Date.now() - statSync(dir).mtimeMs > staleMs) rmSync(dir, { recursive: true, force: true }) } catch {}
+      if (Date.now() > deadline) throw new Error(`等测试锁 ${name} 超时(${dir})`)
+      await sleep(50)
+    }
+  }
+}
 
 export { BASE }
 
