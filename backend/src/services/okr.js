@@ -654,8 +654,23 @@ export function personSummary(cycle, objs) {
   }
 }
 
-/** onlyUserIds: 可见范围(Set<string>), null = 全部(老板) */
-export async function teamView(week, { now = new Date(), onlyUserIds = null } = {}) {
+/** 团队行里的一条 O(简版, 带项目) */
+function teamObjectiveView(o, projects) {
+  const krs = [...(o.keyResults || [])].sort((a, b) => a.seq - b.seq)
+  return {
+    id: String(o.id), seq: o.seq, title: o.title, weight: o.weight, status: o.status,
+    submitted: !!o.submittedAt, progress: r4(objectiveProgress({ keyResults: krs })),
+    selfScore: o.selfScore, managerScore: o.managerScore,
+    projects: projects.get(String(o.id)) || []
+  }
+}
+
+/**
+ * onlyUserIds: 可见范围(Set<string>), null = 全部(老板)
+ * projectId(5.0): 只在每行的 objectives 里留挂了该项目的 O; 人照样全列(没挂的人 objectives 为空)。
+ * 每行的汇总(提交 / 完成度 / 评分)仍按人算, 不因筛选改变口径
+ */
+export async function teamView(week, { now = new Date(), onlyUserIds = null, projectId = null } = {}) {
   const cur = isoWeekOf(now)
   const cycle = await getCycle(week, { create: compareWeek(week, cur) >= 0 && compareWeek(week, cur) <= 1, now })
   const ids = (await participants(cycle?.id)).filter(id => !onlyUserIds || onlyUserIds.has(id))
@@ -669,9 +684,15 @@ export async function teamView(week, { now = new Date(), onlyUserIds = null } = 
     if (!byOwner.has(k)) byOwner.set(k, [])
     byOwner.get(k).push(o)
   }
+  const projects = await projectsByObjective(objs.map(o => o.id))
+  const inProject = projectId != null ? await objectiveIdsOfProject(projectId, objs.map(o => o.id)) : null
   const rows = ids.filter(id => users.has(id)).map(id => ({
     user: users.get(id),
-    ...(cycle ? personSummary(cycle, byOwner.get(id) || []) : { submitted: false, submission: 'NONE', objectiveCount: 0, krTotal: 0, krDone: 0, completion: null, selfScore: null, managerScore: null, personalStatus: 'NOT_SUBMITTED' })
+    ...(cycle ? personSummary(cycle, byOwner.get(id) || []) : { submitted: false, submission: 'NONE', objectiveCount: 0, krTotal: 0, krDone: 0, completion: null, selfScore: null, managerScore: null, personalStatus: 'NOT_SUBMITTED' }),
+    objectives: (byOwner.get(id) || [])
+      .filter(o => !inProject || inProject.has(String(o.id)))
+      .sort((a, b) => a.seq - b.seq)
+      .map(o => teamObjectiveView(o, projects))
   }))
   // 稳定排序: 未交的在前(主管先看到), 其余按名字
   const order = { NONE: 0, LATE: 1, ON_TIME: 2 }

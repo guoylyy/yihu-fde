@@ -40,6 +40,7 @@ import { describeExempt, setExempt, isExempt } from '../services/okrExempt.js'
 import { dailyView, dailyMissing, saveDailySummary } from '../services/okrDaily.js'
 import { weekStatus, remindWeek, pendingPlanUsers } from '../services/okrWeekStatus.js'
 import { listProjectDocs, getProjectDoc, loadProject, canWriteProjectDoc, saveProjectDoc } from '../services/okrProjectDocs.js'
+import { projectBrief } from '../services/okrObjectiveProjects.js'
 
 const router = express.Router()
 router.use(internalAuth)
@@ -161,13 +162,17 @@ router.get('/my', async (req, res) => {
   try { await weekPayload(req, res, { detail: false }) } catch (e) { fail(res, e, 'my') }
 })
 
-// 团队本周 OKR: 登录即可看。ADMIN 看全部; 其他人看自己所在团队的成员(没挂团队就只有自己)。
+// 团队本周 OKR: 登录即可看。每行带 objectives(简版, 含 projects)。ADMIN 看全部; 其他人看自己所在团队的成员(没挂团队就只有自己)。
 // 主管分只留给评分范围覆盖的行(ADMIN 全部, MANAGER 本团队成员); 其余行 —— 包括自己那一行(自己的主管评分在 /my 里看) —— 不出现这个字段
 router.get('/team', async (req, res) => {
   try {
     const week = weekOf(req, res)
     if (!week) return
-    const data = await teamView(week, { onlyUserIds: await teamListScope(req.user) })
+    // 5.0: ?projectId= 只留挂了该项目的 O(人照样全列); 项目不存在 / 已删 → 404
+    const rawPid = req.query.projectId
+    const project = rawPid == null || rawPid === '' ? null : await loadProject(rawPid)
+    const data = await teamView(week, { onlyUserIds: await teamListScope(req.user), projectId: project ? project.id : null })
+    if (project) data.project = projectBrief(project)
     ok(res, teamForViewer(data, await managerScoreScope(req.user)))
   } catch (e) { fail(res, e, 'team') }
 })

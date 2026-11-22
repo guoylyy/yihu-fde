@@ -6,6 +6,7 @@ import prisma from '../lib/prisma.js'
 import { OkrRuleError, isoWeekOf, shiftWeek, weekKey, krProgress, objectiveProgress } from './okrRules.js'
 import { personSummary, cycleView } from './okr.js'
 import { isExempt } from './okrExempt.js'
+import { projectsByObjective } from './okrObjectiveProjects.js'
 
 const r2 = n => (n == null ? null : Math.round(n * 100) / 100)
 const r4 = n => (n == null ? null : Math.round(n * 10000) / 10000)
@@ -160,6 +161,8 @@ export async function weekStats(userId, week) {
   const cycle = await prisma.okrCycle.findUnique({ where: { year_weekNo: { year: week.year, weekNo: week.weekNo } } })
   if (!cycle || exempt) return { user, exempt, scope: 'week', week: weekKey(week), cycle: cycle ? cycleView(cycle) : null, summary: emptyWeek(week), objectives: [] }
   const objs = (await objectivesByCycle(userId, [cycle.id])).get(String(cycle.id)) || []
+  // 5.0: 每个 O 带项目名称(统计口径不变, 仍按人)
+  const projects = await projectsByObjective(objs.map(o => o.id))
   return {
     user,
     exempt,
@@ -175,6 +178,7 @@ export async function weekStats(userId, week) {
         selfScore: o.selfScore, managerScore: o.managerScore,
         progress: r4(objectiveProgress({ keyResults: krs })),
         updateCount: o._count?.updates || 0,
+        projects: (projects.get(String(o.id)) || []).map(p => p.name),
         keyResults: krs.map(k => ({
           id: String(k.id), seq: k.seq, title: k.title, metricType: k.metricType, unit: k.unit,
           currentValue: k.currentValue, targetValue: k.targetValue, weight: k.weight, status: k.status,
