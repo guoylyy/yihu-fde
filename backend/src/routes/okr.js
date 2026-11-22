@@ -29,6 +29,8 @@
 // OKR 7.0: 编计划提效(人点才做, 只写草稿, 不提交): /plan/copy-from-week 从某周复制 O/KR、/plan/bulk-import 粘贴 Markdown
 // 批量建(preview 不落库)。目标周已提交 → 400(8171)。代管同 /plan(targetUserId)。不改上面任何权重 / 提交校验。
 // /templates: 个人模板(只归本人, 存 Markdown, 用时交给 bulk-import)。
+//
+// OKR 8.0: GET /export 按周导出 Excel(明细 + 汇总) / Word。只读; 权限与口径见 services/okrExport.js。
 import express from 'express'
 import multer from 'multer'
 import mammoth from 'mammoth'
@@ -53,6 +55,8 @@ import { byProject, projectObjectives } from '../services/okrByProject.js'
 import { okrBlockerTick } from '../services/okrBlockers.js'
 import { copyFromWeek, bulkImport } from '../services/okrPlanImport.js'
 import { listTemplates, createTemplate, deleteTemplate } from '../services/okrTemplates.js'
+import { exportData, exportFileNames, contentDisposition, EXPORT_FORMATS } from '../services/okrExport.js'
+import { renderXlsx, renderDocx, CONTENT_TYPES } from '../services/okrExportFormat.js'
 
 const router = express.Router()
 router.use(internalAuth)
@@ -251,6 +255,29 @@ router.get('/stats', async (req, res) => {
     }
     res.status(400).json({ code: 8100, message: 'scope 只能是 week / year' })
   } catch (e) { fail(res, e, 'stats') }
+})
+
+// ---------------------------------------------------------------- 导出(OKR 8.0)
+// ?week=&scope=team|person|project&format=xlsx|docx&userId=&projectId=; 文件名中文走 filename*=UTF-8'', ASCII 兜底
+
+router.get('/export', async (req, res) => {
+  try {
+    const week = weekOf(req, res)
+    if (!week) return
+    const format = String(req.query.format || 'xlsx')
+    if (!EXPORT_FORMATS.includes(format)) return res.status(400).json({ code: 8100, message: 'format 只能是 xlsx / docx' })
+    const scope = String(req.query.scope || 'person')
+    const data = await exportData(req.user, { week, scope, userId: req.query.userId, projectId: req.query.projectId })
+    const buf = format === 'xlsx' ? await renderXlsx(data) : await renderDocx(data)
+    logInternalAction(req, 'okr.export', {
+      resourceType: 'okr_cycle',
+      details: { week: data.week, scope, format, ...(data.subject ? { subjectId: data.subject.id } : {}), people: data.people.length }
+    })
+    res.setHeader('Content-Type', CONTENT_TYPES[format])
+    res.setHeader('Content-Disposition', contentDisposition(exportFileNames(data, format)))
+    res.setHeader('Content-Length', buf.length)
+    res.end(buf)
+  } catch (e) { fail(res, e, 'export') }
 })
 
 // ---------------------------------------------------------------- 计划
