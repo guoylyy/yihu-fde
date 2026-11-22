@@ -278,7 +278,7 @@ describe('周 OKR 页 MyOkr: 看别人 / 代管', () => {
   const base = (over = {}) => withDerived({
     loading: false, isMobile: false, busy: '', editing: false, draftInit: [], editorRef: null, reportOpen: false, reportSource: 'text',
     empty: null, nav: { prev: true, next: true }, weekDates: {}, backfillTag: '', isPastWeek: false, deadlinePassed: false, weekLabel: '', startBackfill() {},
-    self: { visible: false, rows: [] }, handling: { total: 0, handled: 0, missing: [] }, scoresComplete: () => false, miss: { visible: false, reason: '' }, selfObj: null, scorable: [obj], selfDone: 0,
+    self: { visible: false, rows: [] }, handling: { total: 0, handled: 0, missing: [] }, scoresComplete: () => false, miss: { visible: false, reason: '' }, copy: { visible: false, from: '' }, imp: { visible: false, text: '' }, tpl: { visible: false, md: '' }, copyWeeks: [], copyWeekLabel: w => w, blockerPeople: () => [], blkUsers: [], selfObj: null, scorable: [obj], selfDone: 0,
     pickedId: '5', people: [], meId: '3', meName: 'Boss', ownerId: '5', ownerName: '林晓',
     viewingOther: true, proxyMode: false, proxyTarget: '', canAct: false, canEditPlan: false, canScoreManager: false, showSelfScore: false,
     submittedOnce: true, canTeam: true, tagText: '', tagType: 'info', weekKeyNow: '2026-W47', weekParts: { year: 2026, weekNo: 47 },

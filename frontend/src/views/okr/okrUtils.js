@@ -43,6 +43,12 @@ export function weightsOk(items) {
 /** KR 的值展示: 是/否型显示 完成/未完成, 数值型 3/4 个 */
 export function krValueText(kr, t = (k) => k) {
   if (kr.metricType === 'BINARY') return kr.status === 'DONE' ? t('okr.done') : kr.status === 'MISSED' ? t('okr.missed') : t('okr.not_done')
+  // 阶段型: 阶段 2/3(明细为准)
+  if (kr.metricType === 'MILESTONE') {
+    const list = kr.milestones || []
+    const done = list.length ? list.filter(m => m.done).length : Number(kr.currentValue) || 0
+    return t('okr.ms.progress', { p0: done, p1: list.length || fmtNum(kr.targetValue) })
+  }
   const unit = kr.metricType === 'PERCENT' ? '%' : (kr.unit || '')
   return `${fmtNum(kr.currentValue)}/${fmtNum(kr.targetValue)}${unit}`
 }
@@ -64,7 +70,10 @@ export function toDraft(objectives) {
     projectIds: (o.projects || []).map(p => String(p.id)),
     projects: o.projects || [],
     keyResults: (o.keyResults || []).map(k => ({
-      id: k.id, title: k.title, metricType: k.metricType, unit: k.unit || '', targetValue: k.targetValue, weight: k.weight
+      id: k.id, title: k.title, metricType: k.metricType, unit: k.unit || '', targetValue: k.targetValue, weight: k.weight,
+      // OKR 6.0: KR 卡点说明 + 阶段型的阶段明细(编辑器里能改阶段; done 由服务器按已完成数回写)
+      blockers: k.blockers || '',
+      milestones: k.metricType === 'MILESTONE' ? (k.milestones || []).map(m => ({ name: m.name, dueDate: m.dueDate || null, done: !!m.done })) : []
     }))
   }))
 }
@@ -90,6 +99,13 @@ export function planProblems(draft, t = (k, p) => (p ? `${k} ${JSON.stringify(p)
       if (!String(k.title || '').trim()) out.push(t('okr.kr_needs_title', { p0: o.title || '?' }))
       // 与后端同口径: 数值型要有大于 0 的目标值; 百分比不填默认 100
       else if (k.metricType === 'NUMBER' && !(Number(k.targetValue) > 0)) out.push(t('okr.kr_needs_target', { p0: k.title }))
+      // 阶段型: 至少 1 个阶段, 每个阶段有名字, 最多 20 个(同后端 normalizeMilestones)
+      else if (k.metricType === 'MILESTONE') {
+        const ms = k.milestones || []
+        if (!ms.length) out.push(t('okr.ms.need_one', { p0: k.title }))
+        else if (ms.length > 20) out.push(t('okr.ms.too_many', { p0: k.title, p1: 20 }))
+        else if (ms.some(m => !String(m.name || '').trim())) out.push(t('okr.ms.need_name', { p0: k.title }))
+      }
     }
   }
   if (live.length && !weightsOk(live)) out.push(t('okr.objective_weight_sum', { p0: weightSum(live) }))
@@ -351,6 +367,7 @@ export function parseProgress(input, kr) {
   const s = String(input ?? '').trim()
   if (!s || !/^\d+(\.\d+)?$/.test(s)) return null
   const n = Number(s)
+  if (kr.metricType === 'MILESTONE' && !Number.isInteger(n)) return null
   return n >= 0 && n <= progressMax(kr) ? n : null
 }
 

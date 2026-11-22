@@ -106,7 +106,7 @@ describe('MyOkr 页面渲染: 空态按钮 / 补录提示条', () => {
   const EXTRA = { OkrPersonPicker: true, OkrWeekBar: true, OkrObjectiveCard: true, OkrPlanEditor: { setup: () => () => Vue.h('div', { class: 'editor-stub' }) }, OkrReportDraftDialog: true, 'el-checkbox': true, 'el-input-number': true }
   const state = (over = {}) => ({
     loading: false, isMobile: false, busy: '', editing: false, draftInit: [], editorRef: null, reportOpen: false, reportSource: 'text',
-    self: { visible: false, rows: [] }, handling: { total: 0, handled: 0, missing: [] }, scoresComplete: () => false, miss: { visible: false, reason: '' }, selfObj: null, scorable: [], selfDone: 0,
+    self: { visible: false, rows: [] }, handling: { total: 0, handled: 0, missing: [] }, scoresComplete: () => false, miss: { visible: false, reason: '' }, copy: { visible: false, from: '' }, imp: { visible: false, text: '' }, tpl: { visible: false, md: '' }, copyWeeks: [], copyWeekLabel: w => w, blockerPeople: () => [], blkUsers: [], selfObj: null, scorable: [], selfDone: 0,
     pickedId: '3', people: [], meId: '3', meName: 'Me', ownerId: '', ownerName: '',
     viewingOther: false, proxyMode: false, proxyTarget: '', canAct: true, canEditPlan: false, canScoreManager: false, showSelfScore: false,
     submittedOnce: false, canTeam: true, tagText: '', tagType: 'info', weekKeyNow: '2026-W44', weekParts: { year: 2026, weekNo: 44 },

@@ -170,7 +170,7 @@ function myState(over = {}) {
   const closed = over.closed || false
   const st = {
     loading: false, isMobile: false, busy: '', editing: false, draftInit: [], editorRef: null, reportOpen: false, reportSource: 'text',
-    miss: { visible: false, reason: '' }, pickedId: '3', people: [], meId: '3', meName: 'Me', ownerId: '', ownerName: '',
+    miss: { visible: false, reason: '' }, copy: { visible: false, from: '' }, imp: { visible: false, text: '' }, tpl: { visible: false, md: '' }, copyWeeks: [], copyWeekLabel: w => w, blockerPeople: () => [], blkUsers: [], pickedId: '3', people: [], meId: '3', meName: 'Me', ownerId: '', ownerName: '',
     viewingOther: false, proxyMode: false, proxyTarget: '', canAct: true, canEditPlan: false, canScoreManager: false,
     submittedOnce: true, canTeam: true, tagText: '', tagType: 'info', weekKeyNow: '2026-W47', weekParts: { year: 2026, weekNo: 47 },
     nav: { prev: true, next: true }, weekDates: {}, backfillTag: '', isPastWeek: false, deadlinePassed: false, weekLabel: '', editorOpen: false, empty: null,

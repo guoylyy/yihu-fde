@@ -4,6 +4,11 @@
        记进展 / 时间线 / 未达成 / 主管评分仍收在展开面板里 -->
   <section class="okr-card" :class="'st-' + obj.status">
     <header class="okr-card-head">
+      <!-- OKR 6.0: 风险等级 红 / 黄 / 绿 圆点 -->
+      <span
+        v-if="obj.riskLevel" class="okr-risk" :class="'r-' + obj.riskLevel" role="img"
+        :aria-label="$t('okr.blk.risk.' + obj.riskLevel)" :title="$t('okr.blk.risk.' + obj.riskLevel)" :data-test="'okr-risk-' + obj.riskLevel"
+      />
       <span class="okr-seq">O{{ obj.seq }}</span>
       <h3 class="okr-title">{{ obj.title }}</h3>
       <span class="okr-weight">{{ round(obj.weight) }}%</span>
@@ -28,6 +33,20 @@
         <span class="okr-kr-title">{{ kr.title }}</span>
         <span class="okr-kr-val" :class="{ done: kr.status === 'DONE', missed: kr.status === 'MISSED' }" data-test="okr-kr-val">{{ krValueText(kr, $t) }}</span>
         <span class="okr-bar"><i :style="{ width: pct(kr.progress) + '%' }" /></span>
+        <!-- OKR 6.0 阶段型: 阶段列表(完成打勾 / 未完成灰 / 逾期红日期); 能动手时点一下就推进或取消 -->
+        <ol v-if="kr.metricType === 'MILESTONE' && kr.milestones?.length" class="okr-ms" :data-test="'okr-ms-' + kr.id">
+          <li v-for="m in milestoneRows(kr, today)" :key="m.index">
+            <button
+              type="button" class="okr-ms-item" :class="{ done: m.done, overdue: m.overdue }" :disabled="!msClickable"
+              :aria-pressed="m.done" :data-test="`okr-ms-${kr.id}-${m.index}`" @click="clickMilestone(kr, m.index)"
+            >
+              <span class="okr-ms-box" aria-hidden="true">{{ m.done ? '✓' : '' }}</span>
+              <span class="okr-ms-name">{{ m.name }}</span>
+              <span v-if="m.dueDate" class="okr-ms-due" :data-test="m.overdue ? 'okr-ms-overdue' : undefined">{{ m.overdue ? $t('okr.ms.overdue', { p0: m.dueDate.slice(5) }) : m.dueDate.slice(5) }}</span>
+            </button>
+          </li>
+        </ol>
+        <p v-if="kr.blockers" class="okr-kr-blk" :data-test="'okr-kr-blk-' + kr.id">{{ $t('okr.blk.kr_line', { p0: kr.blockers }) }}</p>
         <el-tooltip v-if="showActs" :disabled="!closed" :content="$t('okr.v3.closed_tip')" placement="top">
           <span class="okr-kr-acts" role="group" :aria-label="$t('okr.v3.kr_actions')" :title="closed ? $t('okr.v3.closed_tip') : undefined">
             <button
@@ -42,6 +61,55 @@
         </el-tooltip>
       </li>
     </ul>
+
+    <!-- OKR 6.0 卡点: 对全员可见; 逾期时顶部红条; 本人 / 代管可改(说明 / 卡在谁 / 截止日 三项要么都空要么都填) -->
+    <div v-if="obj.blocker || canEditBlocker" class="okr-blk" :class="{ has: !!obj.blocker }" data-test="okr-blocker">
+      <p v-if="obj.blocker?.overdue" class="okr-blk-overdue" role="alert" data-test="okr-blocker-overdue">{{ $t('okr.blk.overdue', { p0: overdueDays(obj.blocker.dueDate, today) || 1 }) }}</p>
+      <button type="button" class="okr-blk-head" :aria-expanded="blkOpen" data-test="okr-blocker-toggle" @click="blkOpen = !blkOpen">
+        <span class="okr-blk-label">{{ $t('okr.blk.title') }}</span>
+        <span v-if="obj.blocker" class="okr-blk-sum">{{ obj.blocker.text }}</span>
+        <span v-else class="okr-blk-none">{{ $t('okr.blk.none') }}</span>
+        <span aria-hidden="true">{{ blkOpen ? '▾' : '▸' }}</span>
+      </button>
+      <div v-if="blkOpen" class="okr-blk-body">
+        <template v-if="!blkEditing">
+          <dl v-if="obj.blocker" class="okr-blk-dl">
+            <dt>{{ $t('okr.blk.text') }}</dt><dd class="okr-blk-text">{{ obj.blocker.text }}</dd>
+            <dt>{{ $t('okr.blk.owner') }}</dt>
+            <dd>
+              <!-- 手机窄屏: 人名折叠, 点开才看 -->
+              <details v-if="compact" class="okr-blk-who" data-test="okr-blocker-owner-fold">
+                <summary>{{ $t('okr.blk.show_owner') }}</summary>{{ obj.blocker.ownerName || '-' }}
+              </details>
+              <span v-else data-test="okr-blocker-owner">{{ obj.blocker.ownerName || '-' }}</span>
+            </dd>
+            <dt>{{ $t('okr.blk.due') }}</dt><dd :class="{ bad: obj.blocker.overdue }">{{ obj.blocker.dueDate || '-' }}</dd>
+          </dl>
+          <button v-if="canEditBlocker" type="button" class="okr-link" data-test="okr-blocker-edit" @click="startBlk">{{ obj.blocker ? $t('okr.blk.edit') : $t('okr.blk.add') }}</button>
+        </template>
+        <form v-else class="okr-blk-form" @submit.prevent="saveBlk">
+          <el-input v-model="blk.blockers" type="textarea" :autosize="{ minRows: 2, maxRows: 5 }" maxlength="2000" :placeholder="$t('okr.blk.text_ph')" data-test="okr-blocker-text" />
+          <div class="okr-blk-row">
+            <el-select v-model="blk.blockerOwnerId" filterable clearable :placeholder="$t('okr.blk.owner_ph')" class="okr-blk-owner" data-test="okr-blocker-owner-pick">
+              <el-option v-for="p in people" :key="p.id" :value="String(p.id)" :label="p.name || p.username" />
+            </el-select>
+            <el-date-picker v-model="blk.blockerDueDate" type="date" value-format="YYYY-MM-DD" :placeholder="$t('okr.blk.due_ph')" class="okr-blk-date" data-test="okr-blocker-due" />
+          </div>
+          <div class="okr-blk-risk" role="radiogroup" :aria-label="$t('okr.blk.risk_label')">
+            <span>{{ $t('okr.blk.risk_label') }}</span>
+            <button
+              v-for="r in RISK_LEVELS" :key="r" type="button" role="radio" class="okr-risk-btn" :class="['r-' + r, { on: blk.riskLevel === r }]"
+              :aria-checked="blk.riskLevel === r" :data-test="'okr-risk-pick-' + r" @click="blk.riskLevel = r"
+            ><i class="okr-risk" :class="'r-' + r" />{{ $t('okr.blk.risk.' + r) }}</button>
+          </div>
+          <p v-if="blkState === 'partial'" class="okr-blk-warn" role="alert" data-test="okr-blocker-partial">{{ $t('okr.blk.incomplete') }}</p>
+          <div class="okr-blk-acts">
+            <el-button @click="blkEditing = false">{{ $t('common.cancel') }}</el-button>
+            <el-button type="primary" native-type="submit" :disabled="blkState === 'partial'" :loading="blkBusy" data-test="okr-blocker-save">{{ $t('okr.blk.save') }}</el-button>
+          </div>
+        </form>
+      </div>
+    </div>
 
     <button v-if="hasPanel" type="button" class="okr-toggle" :aria-expanded="open" @click="toggle">
       {{ toggleText }} <span aria-hidden="true">{{ open ? '▾' : '▸' }}</span>
@@ -96,6 +164,8 @@
 import { computed, reactive, ref } from 'vue'
 import { $t } from '@/i18n'
 import { OBJ_TAG, pct, krValueText, shDate } from '@/views/okr/okrUtils.js'
+import { todayKey } from '@/views/okr/okrFe3.js'
+import { RISK_LEVELS, milestoneRows, overdueDays, blockerForm, blockerFormState } from '@/views/okr/okrFe4.js'
 
 const props = defineProps({
   obj: { type: Object, required: true },
@@ -108,9 +178,42 @@ const props = defineProps({
   closed: Boolean,
   /** 正在提交完成开关的 KR id(该卡整组按钮暂时不可点) */
   krBusy: { type: String, default: '' },
-  busy: Boolean
+  busy: Boolean,
+  /** OKR 6.0: 能改卡点 / 风险(本人或代管、计划可改) */
+  canEditBlocker: Boolean,
+  /** 卡点人候选(选人) */
+  people: { type: Array, default: () => [] },
+  /** 手机窄屏: 卡点人名折叠 */
+  compact: Boolean
 })
-const emit = defineEmits(['add-update', 'miss', 'manager-score', 'complete'])
+const emit = defineEmits(['add-update', 'miss', 'manager-score', 'complete', 'milestone', 'save-blocker'])
+
+const today = todayKey()
+/** 阶段可点: 和完成开关同一套条件 */
+const msClickable = computed(() => props.canComplete && !props.closed && !props.krBusy && !!props.obj.submittedAt && props.obj.status !== 'DROPPED')
+function clickMilestone(kr, index) {
+  if (!msClickable.value) return
+  emit('milestone', { kr, index, objectiveId: props.obj.id })
+}
+
+// 卡点编辑
+const blkOpen = ref(!!props.obj.blocker?.overdue)
+const blkEditing = ref(false)
+const blkBusy = ref(false)
+const blk = reactive(blockerForm(props.obj))
+const blkState = computed(() => blockerFormState(blk))
+function startBlk() {
+  Object.assign(blk, blockerForm(props.obj))
+  blkEditing.value = true
+}
+function saveBlk() {
+  if (blkState.value === 'partial') return
+  blkBusy.value = true
+  emit('save-blocker', {
+    objectiveId: props.obj.id, form: { ...blk },
+    done: (ok) => { blkBusy.value = false; if (ok) blkEditing.value = false }
+  })
+}
 
 const open = ref(false)
 const form = reactive({ krId: '', content: '', value: null, done: false })
@@ -225,5 +328,52 @@ function send() {
 .okr-ai { display: inline-block; margin-left: 6px; padding: 0 5px; border-radius: 4px; font-size: 11px; line-height: 16px; background: var(--el-color-primary-light-9); color: var(--el-color-primary); }
 .okr-quote { display: block; margin-top: 2px; color: var(--el-text-color-secondary); font-size: 11px; }
 .okr-none { margin: 0; font-size: 12px; color: var(--el-text-color-secondary); }
+.okr-risk { display: inline-block; width: 10px; height: 10px; border-radius: 50%; flex: none; align-self: center; background: var(--el-color-success); }
+.okr-risk.r-MEDIUM { background: var(--el-color-warning); }
+.okr-risk.r-HIGH { background: var(--el-color-danger); }
+/* 阶段型 */
+.okr-ms { grid-column: 1 / -1; list-style: none; margin: 2px 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.okr-ms-item { width: 100%; display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 2px 4px; border: 0; border-radius: 6px; background: none; font: inherit; font-size: 13px; text-align: left; color: var(--el-text-color-secondary); cursor: pointer; }
+.okr-ms-item:hover:not(:disabled) { background: var(--el-fill-color); }
+.okr-ms-item:disabled { cursor: default; }
+.okr-ms-box { width: 16px; height: 16px; flex: none; border: 1px solid var(--el-border-color); border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; line-height: 1; background: var(--el-bg-color); }
+.okr-ms-item.done { color: var(--el-text-color-primary); }
+.okr-ms-item.done .okr-ms-box { background: var(--el-color-success); border-color: var(--el-color-success); color: #fff; }
+.okr-ms-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.okr-ms-due { flex: none; font-size: 12px; color: var(--el-text-color-secondary); }
+.okr-ms-item.overdue .okr-ms-due { color: var(--el-color-danger); font-weight: 600; }
+.okr-kr-blk { grid-column: 1 / -1; margin: 0; font-size: 12px; color: var(--el-color-warning-dark-2); overflow-wrap: anywhere; }
+@media (max-width: 640px) { .okr-ms-item { min-height: 44px; } }
+/* 卡点 */
+.okr-blk { margin-top: 8px; border: 1px solid var(--el-border-color-lighter); border-radius: 8px; overflow: hidden; }
+.okr-blk.has { border-color: var(--el-color-warning-light-5); }
+.okr-blk-overdue { margin: 0; padding: 6px 10px; background: var(--el-color-danger); color: #fff; font-size: 12px; font-weight: 600; }
+.okr-blk-head { width: 100%; display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 4px 10px; border: 0; background: var(--el-fill-color-lighter); font: inherit; font-size: 13px; text-align: left; cursor: pointer; color: var(--el-text-color-regular); }
+.okr-blk.has .okr-blk-head { background: var(--el-color-warning-light-9); }
+.okr-blk-label { font-weight: 600; flex: none; }
+.okr-blk-sum { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.okr-blk-none { flex: 1; color: var(--el-text-color-placeholder); font-size: 12px; }
+.okr-blk-body { padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
+.okr-blk-dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; font-size: 13px; }
+.okr-blk-dl dt { color: var(--el-text-color-secondary); }
+.okr-blk-dl dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.okr-blk-dl dd.bad { color: var(--el-color-danger); font-weight: 600; }
+.okr-blk-text { white-space: pre-wrap; }
+.okr-blk-who summary { cursor: pointer; color: var(--el-color-primary); min-height: 32px; }
+.okr-blk-form { display: flex; flex-direction: column; gap: 8px; }
+.okr-blk-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.okr-blk-owner { flex: 1 1 160px; min-width: 0; }
+.okr-blk-date { flex: 1 1 140px; width: auto !important; }
+.okr-blk-risk { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; color: var(--el-text-color-secondary); }
+.okr-risk-btn { display: inline-flex; align-items: center; gap: 4px; min-height: 32px; padding: 0 10px; border: 1px solid var(--el-border-color); border-radius: 16px; background: var(--el-bg-color); font: inherit; font-size: 12px; cursor: pointer; color: var(--el-text-color-regular); }
+.okr-risk-btn.on { border-color: var(--el-color-primary); color: var(--el-color-primary); font-weight: 600; }
+.okr-blk-warn { margin: 0; font-size: 12px; color: var(--el-color-danger); }
+.okr-blk-acts { display: flex; justify-content: flex-end; gap: 8px; }
+.okr-blk-acts .el-button { margin-left: 0; }
+@media (max-width: 640px) {
+  .okr-blk-head { min-height: 44px; }
+  .okr-risk-btn { min-height: 44px; }
+  .okr-blk-acts .el-button { min-height: 44px; flex: 1 1 0; }
+}
 .okr-mcomment { margin: 6px 0 0; font-size: 12px; color: var(--el-color-success); }
 </style>

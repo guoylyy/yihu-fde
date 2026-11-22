@@ -2154,7 +2154,8 @@
     "metric": {
       "BINARY": "是/否",
       "PERCENT": "百分比",
-      "NUMBER": "数值"
+      "NUMBER": "数值",
+      "MILESTONE": "阶段型"
     },
     "completion": "完成度",
     "self_score": "自评",
@@ -2499,6 +2500,47 @@
       "empty": "本周还没有 O",
       "kr_sum": "KR 完成 {p0}/{p1}",
       "pick_projects": "所属项目（可多选，可不选）"
+    },
+    "ms": {
+      "progress": "阶段 {p0}/{p1}",
+      "need_one": "「{p0}」是阶段型 KR，至少要有 1 个阶段",
+      "too_many": "「{p0}」的阶段超过 {p1} 个",
+      "need_name": "「{p0}」有阶段没写名称",
+      "name_ph": "阶段 {p0} 名称",
+      "due_ph": "计划日期",
+      "add": "阶段",
+      "remove": "删除阶段",
+      "done_label": "阶段 {p0} 已完成",
+      "done_on_card": "已保存的 KR 在 O 卡片上点阶段勾选",
+      "overdue": "{p0} 逾期",
+      "saved": "已完成 {p0}/{p1} 个阶段",
+      "all_done": "全部阶段完成"
+    },
+    "blk": {
+      "title": "卡点",
+      "none": "没有卡点",
+      "text": "卡点说明",
+      "owner": "卡在谁",
+      "due": "截止日",
+      "show_owner": "查看",
+      "add": "填卡点 / 风险",
+      "edit": "修改卡点 / 风险",
+      "text_ph": "卡在什么事上、需要谁做什么",
+      "owner_ph": "卡在谁(选人)",
+      "due_ph": "依赖截止日",
+      "risk_label": "风险",
+      "risk": {
+        "LOW": "低风险",
+        "MEDIUM": "中风险",
+        "HIGH": "高风险"
+      },
+      "incomplete": "填了卡点就要写清卡在谁、什么时候要",
+      "save": "保存卡点",
+      "saved": "卡点已保存",
+      "overdue": "依赖已逾期 {p0} 天",
+      "kr_add": "卡点",
+      "kr_ph": "这条 KR 卡在什么上(一行, 可不填)",
+      "kr_line": "卡点：{p0}"
     }
   },
   "assistant": {

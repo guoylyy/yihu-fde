@@ -2154,7 +2154,8 @@
     "metric": {
       "BINARY": "Yes/no",
       "PERCENT": "Percent",
-      "NUMBER": "Number"
+      "NUMBER": "Number",
+      "MILESTONE": "Milestones"
     },
     "completion": "Completion",
     "self_score": "Self",
@@ -2499,6 +2500,47 @@
       "empty": "No objectives this week",
       "kr_sum": "KRs done {p0}/{p1}",
       "pick_projects": "Projects (optional, multiple)"
+    },
+    "ms": {
+      "progress": "Stage {p0}/{p1}",
+      "need_one": "\"{p0}\" is a milestone KR and needs at least 1 stage",
+      "too_many": "\"{p0}\" has more than {p1} stages",
+      "need_name": "\"{p0}\" has a stage without a name",
+      "name_ph": "Stage {p0} name",
+      "due_ph": "Planned date",
+      "add": "Stage",
+      "remove": "Remove stage",
+      "done_label": "Stage {p0} done",
+      "done_on_card": "For saved KRs, tick stages on the objective card",
+      "overdue": "{p0} overdue",
+      "saved": "{p0}/{p1} stages done",
+      "all_done": "All stages done"
+    },
+    "blk": {
+      "title": "Blocker",
+      "none": "No blocker",
+      "text": "Blocker",
+      "owner": "Waiting on",
+      "due": "Due",
+      "show_owner": "Show",
+      "add": "Add blocker / risk",
+      "edit": "Edit blocker / risk",
+      "text_ph": "What is blocked and what you need from whom",
+      "owner_ph": "Waiting on (pick a person)",
+      "due_ph": "Dependency due date",
+      "risk_label": "Risk",
+      "risk": {
+        "LOW": "Low risk",
+        "MEDIUM": "Medium risk",
+        "HIGH": "High risk"
+      },
+      "incomplete": "A blocker needs who it is waiting on and when it is due",
+      "save": "Save blocker",
+      "saved": "Blocker saved",
+      "overdue": "Dependency overdue by {p0} day(s)",
+      "kr_add": "Blocker",
+      "kr_ph": "What this KR is blocked on (one line, optional)",
+      "kr_line": "Blocker: {p0}"
     }
   },
   "assistant": {

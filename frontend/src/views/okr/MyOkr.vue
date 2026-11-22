@@ -92,7 +92,11 @@
             :closed="canAct && isClosed"
             :kr-busy="krBusy"
             :busy="busy === 'update'"
+            :can-edit-blocker="!!canEditPlan && !isClosed"
+            :people="blockerPeople(blkUsers, o.blocker)"
+            :compact="isMobile"
             @add-update="addUpdate" @miss="openMiss" @manager-score="managerScore" @complete="completeKr"
+            @milestone="clickMilestone" @save-blocker="saveBlocker"
           />
         </div>
 
@@ -180,6 +184,9 @@ import OkrObjectiveCard from '@/components/okr/OkrObjectiveCard.vue'
 import OkrPlanEditor from '@/components/okr/OkrPlanEditor.vue'
 import OkrReportDraftDialog from '@/components/okr/OkrReportDraftDialog.vue'
 import OkrManagerScorePanel from '@/components/okr/OkrManagerScorePanel.vue'
+import {
+  milestoneClick, milestonesWithDone, applyMilestonePatch, blockerPatch, planWithPatch, blockerPeople
+} from './okrFe4.js'
 import {
   PERSONAL_TAG, pct, toDraft, shiftKey, parseKey, isoWeekOf, weekKey, weekStart,
   weekWindow, weekNav, isPastKey, shortWeekLabel, emptyState, isBackfilledPlan,
@@ -299,6 +306,54 @@ async function completeKr({ kr, done }) {
     ElMessage.error(e.message)
   } finally {
     krBusy.value = ''
+  }
+}
+
+/**
+ * OKR 6.0 阶段型 KR: 点某个阶段 → 推进到它(或取消它及之后)。全部完成走 /complete(done=true),
+ * 其余 PATCH /krs/:id 改已完成阶段数(附带期望的阶段明细, 后端按数量回写 done); 成功后就地更新这一行和完成度
+ */
+async function clickMilestone({ kr, index }) {
+  const act = milestoneClick(kr, index)
+  if (!act) return
+  krBusy.value = kr.id
+  try {
+    const t = proxyTarget.value || undefined
+    if (act.kind === 'complete') {
+      applyKrComplete(data.value, await fde.okr.completeKr(kr.id, { done: true }, t))
+      ElMessage.success($t('okr.ms.all_done'))
+    } else {
+      const r = await fde.okr.patchKr(kr.id, { currentValue: act.value, milestones: milestonesWithDone(kr.milestones, act.value) }, t)
+      applyMilestonePatch(data.value, kr.id, r)
+      ElMessage.success($t('okr.ms.saved', { p0: act.value, p1: kr.milestones.length }))
+    }
+  } catch (e) {
+    ElMessage.error(e.message)
+  } finally {
+    krBusy.value = ''
+  }
+}
+
+// OKR 6.0 卡点: 卡在谁可以选全公司在职的人(/users/mentionable, 登录即可); 能改卡点时才拉
+const blkUsers = ref([])
+let blkUsersLoaded = false
+watch(() => !!canEditPlan.value, async (v) => {
+  if (!v || blkUsersLoaded) return
+  blkUsersLoaded = true
+  try { blkUsers.value = (await fde.users.mentionable())?.list || [] } catch { blkUsers.value = [] }
+}, { immediate: true })
+
+/** 改某个 O 的卡点 / 风险: /plan 是整份覆盖, 其他 O 原样带上(不带卡点字段 = 不动)。后端 8120 的文案原样提示 */
+async function saveBlocker({ objectiveId, form, done }) {
+  try {
+    const plan = planWithPatch(data.value.objectives, objectiveId, blockerPatch(form))
+    await fde.okr.savePlan(weekKeyNow.value, plan, proxyTarget.value || undefined)
+    ElMessage.success($t('okr.blk.saved'))
+    done(true)
+    await load()
+  } catch (e) {
+    ElMessage.error({ message: e.message, duration: 6000 })
+    done(false)
   }
 }
 
