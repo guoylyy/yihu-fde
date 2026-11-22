@@ -84,7 +84,8 @@ export function buildAutoItems(updates) {
     const notes = [...new Set(list.map(u => String(u.content || '').trim()).filter(c => c && !isAutoContent(kr, c)))]
     const change = kr ? changeText(kr, first, last) : null
     const head = `O${o.seq}「${o.title}」` + (kr ? ` · KR${kr.seq}「${kr.title}」` : '')
-    const body = [change, notes.length ? `（${notes.join('；')}）` : ''].filter(Boolean).join('')
+    // 挂 KR 的: 变化（说明）; 没挂 KR 的进展本身就是说明, 不加括号
+    const body = kr ? [change, notes.length ? `（${notes.join('；')}）` : ''].filter(Boolean).join('') : notes.join('；')
     items.push({
       objectiveId: String(o.id), objectiveSeq: o.seq, objectiveTitle: o.title,
       krId: kr ? String(kr.id) : null, krSeq: kr?.seq ?? null, krTitle: kr?.title ?? null,
