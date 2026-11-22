@@ -397,8 +397,6 @@ export const fde = {
   team: {
     overview: () => request('/api/fde/team/overview'),
     members: () => request('/api/team/members', { full: true }),
-    load: (week) => request('/api/team/load?' + new URLSearchParams(clean({ week })).toString(), { full: true }),
-    promise: (week) => request('/api/team/promise?' + new URLSearchParams(clean({ week })).toString(), { full: true }),
     skills: () => request('/api/team/skills', { full: true }),
     setSkill: (engineerId, data) => request(`/api/team/skills/${engineerId}`, { method: 'POST', body: JSON.stringify(data) }),
     confirmSkill: (data) => request('/api/team/skills/confirm', { method: 'POST', body: JSON.stringify(data) })
@@ -644,42 +642,30 @@ export const fde = {
     saveExempt: (userIds) => request('/api/okr/settings/exempt', { method: 'PUT', body: JSON.stringify({ userIds }) }),
     close: (week) => request('/api/okr/cycle/close', { method: 'POST', body: JSON.stringify(week ? { week } : {}) }),
     reopen: (week, reason) => request('/api/okr/cycle/reopen', { method: 'POST', body: JSON.stringify({ week, reason }) }),
-    // OKR 4.0: 项目周 OKR 文档(一周一项目一份 Markdown; 全员可读, ADMIN/MANAGER/项目成员可写)
-    projectDocs: (week) => request('/api/okr/projects?' + new URLSearchParams(clean({ week })).toString()),
-    projectDoc: (projectId, week) => request(`/api/okr/projects/${encodeURIComponent(projectId)}?` + new URLSearchParams(clean({ week })).toString()),
-    saveProjectDoc: (projectId, { week, title, contentMd }) => request(`/api/okr/projects/${encodeURIComponent(projectId)}`, { method: 'PUT', body: JSON.stringify({ week, title, contentMd }) }),
-    importProjectDoc: (projectId, week, file, title) => {
+    // 精简第二轮: 本周项目整体计划(一周一份 Markdown, 全员可读, ADMIN / MANAGER 可写; 取代按项目拆分的项目周 OKR)
+    weekPlan: (week) => request('/api/okr/week-plan?' + new URLSearchParams(clean({ week })).toString()),
+    saveWeekPlan: (week, { title, contentMd }) => request(`/api/okr/week-plan?week=${encodeURIComponent(week)}`, { method: 'PUT', body: JSON.stringify({ title, contentMd }) }),
+    // 上传 .md/.txt/.docx 只解析出正文(不落库), 前端填进文本框, 点保存才 PUT
+    importWeekPlan: (file) => {
       const fd = new FormData()
       fd.append('file', file)
-      if (title) fd.append('title', title)
-      return request(`/api/okr/projects/${encodeURIComponent(projectId)}/import?week=${encodeURIComponent(week)}`, { method: 'POST', body: fd, timeout: 60000 })
+      return request('/api/okr/week-plan/import', { method: 'POST', body: fd, timeout: 60000 })
     },
-    // OKR 4.0: 每日总结(autoItems 自动归并 + 人补一句); 主管代写带 targetUserId
+    // OKR 4.0: 每日总结(autoItems 自动归并 + 人补一句)。精简第二轮起只在「我的今日」卡片里用(scope=me)
     daily: (date, scope) => request('/api/okr/daily?' + new URLSearchParams(clean({ date, scope })).toString()),
-    saveDaily: (date, summaryMd, targetUserId) => request('/api/okr/daily', { method: 'PUT', body: JSON.stringify(withTarget({ date, summaryMd }, targetUserId)) }),
-    dailyMissing: (date) => request('/api/okr/daily/missing?' + new URLSearchParams(clean({ date })).toString()),
+    saveDaily: (date, summaryMd) => request('/api/okr/daily', { method: 'PUT', body: JSON.stringify({ date, summaryMd }) }),
     // OKR 4.0: 周评分进度 + 催交(ADMIN/MANAGER)
     weekStatus: (week) => request('/api/okr/week/status?' + new URLSearchParams(clean({ week })).toString()),
     remindWeek: (week, userIds) => request('/api/okr/week/remind', { method: 'POST', body: JSON.stringify(userIds ? { week, userIds } : { week }) }),
-    // OKR 5.0: 按项目分组看 O
     // OKR 7.0: 编计划提效(只写草稿, 不提交)
     copyFromWeek: ({ fromWeek, toWeek, objectiveIds }, targetUserId) => request('/api/okr/plan/copy-from-week', { method: 'POST', body: JSON.stringify(withTarget(clean({ fromWeek, toWeek, objectiveIds }), targetUserId)) }),
     bulkImport: ({ week, text, mode }, targetUserId) => request('/api/okr/plan/bulk-import', { method: 'POST', body: JSON.stringify(withTarget({ week, text, mode }, targetUserId)) }),
     templates: () => request('/api/okr/templates'),
     createTemplate: ({ name, contentMd }) => request('/api/okr/templates', { method: 'POST', body: JSON.stringify({ name, contentMd }) }),
     deleteTemplate: (id) => request(`/api/okr/templates/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-    byProject: (week) => request('/api/okr/by-project?' + new URLSearchParams(clean({ week })).toString()),
     // OKR 10.0 连续未达成预警(范围后端裁: ADMIN 全部 / MANAGER 本团队 / 工程师自己)
     riskObjectives: (params = {}) => request('/api/okr/risk/objectives?' + new URLSearchParams(clean(params)).toString()),
-    riskPeople: (params = {}) => request('/api/okr/risk/people?' + new URLSearchParams(clean(params)).toString()),
-    // OKR 9.0 决策记录
-    decisions: (params = {}) => request('/api/okr/decisions?' + new URLSearchParams(clean(params)).toString()),
-    decisionTimeline: (params = {}) => request('/api/okr/decisions/timeline?' + new URLSearchParams(clean(params)).toString()),
-    decision: (id) => request(`/api/okr/decisions/${encodeURIComponent(id)}`),
-    createDecision: (data) => request('/api/okr/decisions', { method: 'POST', body: JSON.stringify(data) }),
-    patchDecision: (id, data) => request(`/api/okr/decisions/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
-    supersedeDecision: (id, data) => request(`/api/okr/decisions/${encodeURIComponent(id)}/supersede`, { method: 'POST', body: JSON.stringify(data) }),
-    projectObjectives: (projectId, week) => request(`/api/okr/projects/${encodeURIComponent(projectId)}/objectives?` + new URLSearchParams(clean({ week })).toString())
+    riskPeople: (params = {}) => request('/api/okr/risk/people?' + new URLSearchParams(clean(params)).toString())
   },
   reports: {
     projects: (params = {}) => {

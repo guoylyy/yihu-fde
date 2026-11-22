@@ -1,16 +1,12 @@
 <template>
   <!-- 团队视图: 本周矩阵 + 三个数 + 连续两周完成率偏低(不排名、不做红黑榜)。
        OKR 2.0: 登录即可看(ADMIN 全部, 其他人本团队); 点行进个人详情; 有代管权限的行多一个「代操作」;
-       主管分列只给 okr.score.manager(ADMIN), 其他人不出这一列 -->
+       主管分列只给 okr.score.manager(ADMIN), 其他人不出这一列。
+       精简第二轮: 只按人(按项目切换、项目块、连续未达成面板都已下线; 我的 OKR 顶部红条 OkrRiskBars 仍在) -->
   <div class="okr-team" v-loading="loading">
     <div class="okr-top">
       <OkrPersonPicker :model-value="meId" :people="people" :me-id="meId" :compact="isMobile" @change="openPerson" />
-      <!-- OKR 5.0: 按人 / 按项目 -->
-      <el-radio-group :model-value="mode" class="okr-mode" data-test="okr-team-mode" @update:model-value="setMode">
-        <el-radio-button value="person">{{ $t('okr.byproj.by_person') }}</el-radio-button>
-        <el-radio-button value="project">{{ $t('okr.byproj.by_project') }}</el-radio-button>
-      </el-radio-group>
-      <!-- OKR 8.0 导出: Excel 明细 / Word 汇报(自己); ADMIN / MANAGER 多「团队 Excel」; 按项目视图时每个项目块头另有导出 -->
+      <!-- OKR 8.0 导出: Excel 明细 / Word 汇报(自己); ADMIN / MANAGER 多「团队 Excel」。精简第二轮起只按人, 没有项目导出 -->
       <OkrExportMenu :items="exportMenu" class="okr-team-export" />
     </div>
     <OkrWeekBar
@@ -20,39 +16,10 @@
       active="team" show-team @shift="shift"
     />
 
-    <!-- OKR 10.0: 连续未达成(仅 ADMIN/MANAGER, 在周进度条上方); 数字 = /risk/objectives 的 summary -->
-    <OkrRiskPanel v-if="lead" :risk="risk" @open="openRisk" />
-
     <!-- OKR 4.0: 本周进度 + 催交(仅 ADMIN/MANAGER) -->
     <OkrWeekStatus v-if="lead" :key="weekKeyNow" :week="weekKeyNow" />
 
-    <!-- 按项目: 每个项目一块(块头 项目名 + 有 O 的人数 + 平均完成度), 块内按人列 O 卡; 「未挂项目」垫底 -->
-    <template v-if="mode === 'project'">
-      <div v-if="groups && groups.length" class="okr-groups" data-test="okr-by-project">
-        <section v-for="g in groups" :key="g.head.key" class="okr-group" :class="{ unassigned: g.head.unassigned }" :data-test="'okr-group-' + g.head.key">
-          <header class="okr-group-head">
-            <h3>{{ g.head.unassigned ? $t('okr.byproj.unassigned') : g.head.name }}<small v-if="g.head.code">{{ g.head.code }}</small></h3>
-            <span class="okr-group-meta" data-test="okr-group-meta">
-              {{ $t('okr.byproj.head', { p0: g.head.ownerCount, p1: g.head.objectiveCount }) }}
-              · {{ $t('okr.byproj.avg', { p0: g.head.completion == null ? '-' : pct(g.head.completion) + '%' }) }}
-            </span>
-            <OkrExportMenu v-if="projectExport(g.head).length" :items="projectExport(g.head)" class="okr-group-export" :data-test="'okr-group-export-' + g.head.key" />
-          </header>
-          <div v-for="seg in g.owners" :key="seg.owner.id" class="okr-group-owner">
-            <button type="button" class="okr-group-who" @click="openPerson(seg.owner.id)">
-              <el-avatar :size="22" :src="seg.owner.avatarUrl || undefined" class="okr-who-av">{{ initialOf(seg.owner.name) }}</el-avatar>
-              {{ seg.owner.name }}
-            </button>
-            <div class="okr-group-cards">
-              <OkrObjectiveCard v-for="o in seg.objectives" :key="o.id" :obj="o" :streak="streakOf(riskMap, o)" />
-            </div>
-          </div>
-        </section>
-      </div>
-      <el-empty v-else-if="groups" :description="$t('okr.byproj.empty')" />
-    </template>
-
-    <template v-else-if="data">
+    <template v-if="data">
       <div class="okr-kpis">
         <div><b>{{ data.summary.expected }}</b><span>{{ $t('okr.expected') }}</span></div>
         <div><b>{{ data.summary.submitted }}</b><span>{{ $t('okr.submitted_count') }}<em v-if="data.summary.late">{{ $t('okr.late_n', { p0: data.summary.late }) }}</em></span></div>
@@ -149,11 +116,9 @@ import OkrWeekBar from '@/components/okr/OkrWeekBar.vue'
 import OkrPersonPicker from '@/components/okr/OkrPersonPicker.vue'
 import OkrManagerScorePanel from '@/components/okr/OkrManagerScorePanel.vue'
 import OkrWeekStatus from '@/components/okr/OkrWeekStatus.vue'
-import OkrObjectiveCard from '@/components/okr/OkrObjectiveCard.vue'
 import OkrExportMenu from '@/components/okr/OkrExportMenu.vue'
-import OkrRiskPanel from '@/components/okr/OkrRiskPanel.vue'
-import { exportItems, projectExportItems, riskByObjective, streakOf } from './okrFe5.js'
-import { isLead, groupHead, orderGroups, byOwner } from './okrFe3.js'
+import { exportItems } from './okrFe5.js'
+import { isLead } from './okrFe3.js'
 import { pct, shiftKey, parseKey, isoWeekOf, weekKey } from './okrUtils.js'
 import { initialOf, mayProxyRow, pickerPeople, currentUser, mayScoreManager, mayCloseWeek } from './okrPeople.js'
 
@@ -188,41 +153,8 @@ async function load() {
 }
 watch(() => route.query.week, load, { immediate: true })
 
-// ---------------------------------------------------------------- OKR 8.0 导出 / 10.0 连续未达成
+// ---------------------------------------------------------------- OKR 8.0 导出
 const exportMenu = computed(() => exportItems({ page: 'team', user: me, week: weekKeyNow.value, userId: meId }))
-const projectExport = (head) => projectExportItems({ user: me, week: weekKeyNow.value, project: head.unassigned ? null : { id: head.key, name: head.name } })
-const risk = ref(null)
-const riskMap = computed(() => riskByObjective(risk.value?.items || []))
-async function loadRisk() {
-  if (!lead) return
-  try { risk.value = await fde.okr.riskObjectives() } catch { risk.value = null }
-}
-loadRisk()
-/** 点预警里的 O: 进负责人的周 OKR 页(本周), 卡片右上同样有红 / 黄点 */
-function openRisk(it) {
-  router.push({ path: '/admin/okr', query: { week: weekKeyNow.value, userId: it.ownerId } })
-}
-
-// ---------------------------------------------------------------- 按项目(OKR 5.0)
-const mode = computed(() => (route.query.view === 'project' ? 'project' : 'person'))
-const byProjectRaw = ref(null)
-const groups = computed(() => (byProjectRaw.value ? orderGroups(byProjectRaw.value).map(g => ({ head: groupHead(g), owners: byOwner(g.objectives) })) : null))
-async function loadByProject() {
-  if (mode.value !== 'project') return
-  loading.value = true
-  try {
-    byProjectRaw.value = await fde.okr.byProject(route.query.week || weekKeyNow.value)
-  } catch (e) {
-    byProjectRaw.value = null
-    ElMessage.error(e.message)
-  } finally {
-    loading.value = false
-  }
-}
-watch([mode, () => route.query.week], loadByProject, { immediate: true })
-function setMode(v) {
-  router.replace({ query: { ...route.query, view: v === 'project' ? 'project' : undefined } })
-}
 
 function shift(delta) {
   router.replace({ query: { ...route.query, week: shiftKey(weekKeyNow.value, delta) } })
@@ -259,25 +191,7 @@ function subClass(row) {
 .okr-kpis span { font-size: 12px; color: var(--el-text-color-secondary); text-align: center; }
 .okr-kpis em { font-style: normal; color: var(--el-color-warning); margin-left: 4px; }
 .okr-team-export { margin-left: auto; }
-.okr-group-export { margin-left: auto; }
 .okr-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
-.okr-groups { display: flex; flex-direction: column; gap: 14px; }
-.okr-group { border: 1px solid var(--el-border-color-lighter); border-radius: 12px; background: var(--el-fill-color-lighter); padding: 12px; }
-.okr-group.unassigned { border-style: dashed; }
-.okr-group-head { display: flex; align-items: baseline; justify-content: space-between; gap: 4px 12px; flex-wrap: wrap; margin-bottom: 8px; }
-.okr-group-head h3 { margin: 0; font-size: 15px; overflow-wrap: anywhere; }
-.okr-group-head small { margin-left: 6px; font-size: 12px; font-weight: 400; color: var(--el-text-color-secondary); }
-.okr-group-meta { font-size: 12px; color: var(--el-text-color-secondary); }
-.okr-group-owner + .okr-group-owner { margin-top: 10px; }
-.okr-group-who { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0; border: 0; background: none; font: inherit; font-size: 13px; font-weight: 600; color: var(--el-text-color-primary); cursor: pointer; }
-.okr-group-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 8px; margin-top: 4px; }
-@media (max-width: 768px) {
-  .okr-mode { display: flex; width: 100%; }
-  .okr-mode :deep(.el-radio-button) { flex: 1; }
-  .okr-mode :deep(.el-radio-button__inner) { width: 100%; min-height: 44px; line-height: 20px; padding-top: 12px; padding-bottom: 12px; }
-  .okr-group-who { min-height: 44px; }
-  .okr-group-cards { grid-template-columns: minmax(0, 1fr); }
-}
 .okr-who { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
 .okr-who-av { flex: none; font-size: 12px; vertical-align: middle; }
 .okr-who-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -4,7 +4,8 @@
 // 可见性约定:
 //   - 团队组: team.view(组长 + 老板); 周 OKR 仍只给 ADMIN
 //   - 工时(0.5.2 放回, 团队组最后一项): timesheet.view; 任务上的「实际工时」仍是主入口, 工时页是按人按周汇总 + 报工/审批看板
-//   - 「承诺 vs 交付」(team.view.all) 不单占菜单(业务二级菜单 ≤12 项), 从负载页顶部的切换进, 侧栏高亮负载
+//   - 精简第二轮(老板: 团队小, 不要搞复杂): 负载 / 承诺 vs 交付 / 项目 OKR / 每日总结 / 决策记录 下线。
+//     周项目计划在周 OKR 页里, 每日总结并进我的今日
 //   - 经验组的经验库/会话: can('projects') 兜底
 //   - 资产库并在「经验库」里(页内切换), 路径仍是 /admin/assets, 侧栏高亮经验库
 
@@ -31,7 +32,6 @@ export function buildNav({ can, moduleEnabled = () => true, role } = {}) {
       key: 'team', index: NAV_GROUPS.team, title: 'nav.team',
       items: [
         { path: '/admin/team/members', title: 'nav.team_members', icon: 'Avatar', show: can('team.view') },
-        { path: '/admin/team/load', title: 'nav.team_load', icon: 'TrendCharts', show: can('team.view') },
         { path: '/admin/okr', title: 'okr.menu', icon: 'Aim', show: isAdmin && moduleEnabled('okr') },
         { path: '/admin/team/skills', title: 'nav.team_skills', icon: 'DataAnalysis', show: can('team.view') },
         { path: '/admin/timesheets', title: 'common.hours', icon: 'Timer', show: can('timesheet.view') }
@@ -41,11 +41,6 @@ export function buildNav({ can, moduleEnabled = () => true, role } = {}) {
       key: 'delivery', index: NAV_GROUPS.delivery, title: 'nav.delivery',
       items: [
         { path: '/admin/projects', title: 'common.projects', icon: 'Document', show: can('projects') },
-        // OKR 4.0: 项目周 OKR 全员可读(写权限在页内判断)
-        { path: '/admin/okr/projects', title: 'nav.project_okr', icon: 'Flag', show: moduleEnabled('okr') },
-        { path: '/admin/okr/daily', title: 'nav.daily_summary', icon: 'Notebook', show: moduleEnabled('okr') },
-        // OKR 9.0: 决策记录全员可读(写权限后端判)
-        { path: '/admin/okr/decisions', title: 'nav.decisions', icon: 'Stamp', show: moduleEnabled('okr') },
         { path: '/admin/tasks', title: 'common.tasks', icon: 'List', show: can('project.view') || role === 'FDE_ENGINEER' },
         { path: '/admin/customers', title: 'common.customers', icon: 'User', show: can('customers') },
         { path: '/admin/knowledge', title: 'common.knowledge_base', icon: 'Reading', show: can('knowledge') },
@@ -86,11 +81,6 @@ export function activeMenuPath(path) {
   const p = String(path || '')
   if (p === '/admin/assets' || p.startsWith('/admin/assets/')) {
     return '/admin/experience'
-  }
-  if (p === '/admin/team/promise') return '/admin/team/load'
-  // 交付组里的 OKR 页先认, 免得被下面的 /admin/okr 前缀吃掉
-  for (const pre of ['/admin/okr/projects', '/admin/okr/daily', '/admin/okr/decisions']) {
-    if (p === pre || p.startsWith(pre + '/')) return pre
   }
   const prefixes = ['/admin/team/members', '/admin/projects', '/admin/knowledge', '/admin/conversations', '/admin/experience', '/admin/okr', '/admin/timesheets']
   for (const pre of prefixes) {

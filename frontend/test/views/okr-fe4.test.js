@@ -168,7 +168,7 @@ describe('卡点: 纯函数', () => {
     assert.equal(overdueDays('2026-11-30', '2026-11-21'), 0)
     assert.equal(overdueDays(null, '2026-11-21'), 0)
   })
-  test('只改一个 O 的卡点: 整份计划里只有它带卡点字段; KR 带阶段明细 / 卡点说明, 去掉只读的 projects', () => {
+  test('只改一个 O 的卡点: 整份计划里只有它带卡点字段; KR 带阶段明细 / 卡点说明; 不带 projects / projectIds(精简第二轮: 后端不动已有关联)', () => {
     const objs = [
       sobj({ id: '1', projects: [{ id: 7, name: '园区' }], keyResults: [msKr(1, { blockers: '等客户' })] }),
       sobj({ id: '2', title: 'B', blocker: { text: '旧卡点', ownerId: '9', dueDate: '2026-11-01' }, keyResults: [{ id: '21', title: 'b', metricType: 'BINARY', weight: 100, status: null }] })
@@ -176,8 +176,7 @@ describe('卡点: 纯函数', () => {
     const plan = planWithPatch(objs, '1', { blockers: '等硬件', blockerOwnerId: '39', blockerDueDate: '2026-11-25', riskLevel: 'HIGH' })
     assert.equal(plan[0].blockers, '等硬件')
     assert.equal(plan[0].riskLevel, 'HIGH')
-    assert.deepEqual(plan[0].projectIds, ['7'])
-    assert.equal(plan[0].projects, undefined)
+    assert.ok(!('projectIds' in plan[0]) && !('projects' in plan[0]), '不带项目字段')
     assert.ok(!('blockers' in plan[1]) && !('riskLevel' in plan[1]), '其他 O 不带 = 后端不动')
     assert.equal(plan[0].keyResults[0].milestones.length, 3)
     assert.equal(plan[0].keyResults[0].blockers, '等客户')
@@ -248,7 +247,7 @@ describe('O 卡: 风险圆点 + 卡点区', () => {
 describe('编辑器: 阶段型 + KR 卡点', () => {
   const render = compileView('components/okr/OkrPlanEditor.vue')
   const st = (krs) => ({
-    draft: [{ _k: 1, title: 'A', description: '', weight: 100, projectIds: [], keyResults: krs }],
+    draft: [{ _k: 1, title: 'A', description: '', weight: 100, keyResults: krs }],
     manualWeights: false, problems: [], MAX_KRS: 10, MAX_MILESTONES: 20, busy: '', submitted: false, cancellable: false, lateHint: false, submitLabel: '',
     bulk: { visible: false, obj: null }, roomFor: () => 10, projOptions: [], projectLabel: p => p.name,
     addObjective() {}, addKr() {}, removeObjective() {}, removeKr() {}, openBulk() {}, insertBulk() {}, emitPlan() {},

@@ -28,6 +28,9 @@
       @shift="shift"
     />
 
+    <!-- 精简第二轮: 本周项目计划(一周一份, 整体, 不分项目), 随顶部周切换 -->
+    <OkrWeekPlanCard :week="weekKeyNow" />
+
     <div v-if="viewingOther && data?.owner" class="okr-owner">
       <router-link :to="{ path: '/admin/okr/team', query: { week: weekKeyNow } }">‹ {{ $t('okr.tab_team') }}</router-link>
       <!-- 人名已在顶部筛选器里, 这里不再重复 -->
@@ -222,6 +225,7 @@ import OkrPlanImportDialog from '@/components/okr/OkrPlanImportDialog.vue'
 import OkrTemplateDialog from '@/components/okr/OkrTemplateDialog.vue'
 import OkrExportMenu from '@/components/okr/OkrExportMenu.vue'
 import OkrRiskBars from '@/components/okr/OkrRiskBars.vue'
+import OkrWeekPlanCard from '@/components/okr/OkrWeekPlanCard.vue'
 import { exportItems, riskByObjective, streakOf, myRiskBars, findRiskTarget } from './okrFe5.js'
 import {
   milestoneClick, milestonesWithDone, applyMilestonePatch, blockerPatch, planWithPatch, blockerPeople,

@@ -1,5 +1,5 @@
 <template>
-  <!-- 0.5.0 我的今日: 一屏回答「我今天该干什么」。四块各自取数, 一块失败不拖垮整页;
+  <!-- 0.5.0 我的今日: 一屏回答「我今天该干什么」。最上面「今天的总结」(精简第二轮), 下面四块各自取数, 一块失败不拖垮整页;
        手机上单列, 顶部压得很矮, 让「我的任务」「等我处理」在首屏内 -->
   <div class="today">
     <header class="today-head">
@@ -11,6 +11,9 @@
         {{ $t('today.okr_week') }} · {{ $t('today.okr_state.' + okrState) }}
       </router-link>
     </header>
+
+    <!-- 精简第二轮: 每日总结并进来, 放最上面(只有自己; 今日 KR 进展只读 + 一句话) -->
+    <OkrTodaySummary v-if="okrOn" />
 
     <div class="grid">
       <!-- 区块 1: 我的任务 -->
@@ -137,6 +140,7 @@ import { useAssistant } from '@/composables/useAssistant.js'
 import TaskDetailDialog from '@/components/admin/TaskDetailDialog.vue'
 import QuickActions from '@/components/admin/workbench/QuickActions.vue'
 import PasteConversationDialog from '@/components/devlog/PasteConversationDialog.vue'
+import OkrTodaySummary from '@/components/okr/OkrTodaySummary.vue'
 import { pickTodayTasks, dueDay, dueState, okrSubmitState, pct100, firstSentence, ymd } from './today/todayUtils.js'
 import { convTime } from './conversations/conversationUtils.js'
 

@@ -1,9 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { compileView, renderView, t } from '../helpers/sfc-render.js'
-import { takeTop, relativeTime, skillName, loadBand, loadColor, loadBarPct, promiseFlagsOf, PROMISE_FLAG_TONE, totalWeight, buildSkillMatrix, levelDots } from '../../src/views/admin/team/teamUtils.js'
+import { takeTop, relativeTime, skillName, loadBand, loadColor, loadBarPct, buildSkillMatrix, levelDots } from '../../src/views/admin/team/teamUtils.js'
 
-// 0.5.0 R4b 团队四屏: 用真实模板 + /api/team/* 的返回结构渲染, 看画出来的字
+// 0.5.0 R4b 团队屏(精简第二轮后剩成员卡 + 能力矩阵): 用真实模板 + /api/team/* 的返回结构渲染, 看画出来的字
 
 // ---------------------------------------------------------------- 1. 成员卡片
 
@@ -77,57 +77,20 @@ test('负载阈值色: <100 绿, ≥100 黄, ≥150 红(与后端 loadBand 同�
   assert.equal(loadBarPct(null), 0)
 })
 
-const loadRender = compileView('views/admin/team/TeamLoad.vue')
-test('负载表: 色块 + 数字, 表头写清口径, 计划工时没有就写 —', async () => {
-  const rows = [
-    { engineerId: '1', name: '甲', activeTaskCount: 8, plannedHours: null, committedWeight: 100, conversationCount: 2, loadPct: 160, level: 'OVER' },
-    { engineerId: '2', name: '乙', activeTaskCount: 5, plannedHours: null, committedWeight: 0, conversationCount: 0, loadPct: 100, level: 'WARN' },
-    { engineerId: '3', name: '丙', activeTaskCount: 1, plannedHours: null, committedWeight: 0, conversationCount: 0, loadPct: 20, level: 'OK' }
-  ]
-  const html = await renderView(loadRender, { rows, meta: { week: null }, loading: false, error: '', threshold: 5, loadBand, loadColor, load() {}, TeamWeekHeader: {} })
-  assert.ok(html.includes(t('team.load_formula', { n: 5 })), '表头 tooltip 口径')
-  assert.ok(html.includes('Load = open tasks ÷ 5'))
-  for (const [band, color] of [['OVER', '#c2362b'], ['WARN', '#d99a1e'], ['OK', '#2e7d4f']]) {
-    assert.ok(html.includes(`band-${band}`), band)
-    assert.ok(html.includes(`background:${color}`), color)
+test('精简第二轮: 负载页 / 承诺 vs 交付页下线, 成员卡上的负载% 仍在(阈值色同一套)', async () => {
+  const { existsSync } = await import('node:fs')
+  for (const f of ['TeamLoad.vue', 'TeamPromise.vue', 'TeamWeekHeader.vue']) {
+    assert.ok(!existsSync(new URL(`../../src/views/admin/team/${f}`, import.meta.url)), f)
   }
-  assert.match(html, /160%/)
-  assert.ok(html.includes('—'))
-})
-
-// ---------------------------------------------------------------- 3. 承诺 vs 交付
-
-test('promise 标记文案与色调: 只在嘴上=黄 / 可能在别处干=灰 / 方向漂移=红', async () => {
+  const utils = await import('../../src/views/admin/team/teamUtils.js')
+  for (const k of ['promiseFlagsOf', 'PROMISE_FLAG_TONE', 'totalWeight', 'shiftWeek']) assert.equal(utils[k], undefined, k)
   const zh = (await import('../../src/locales/zh-CN.json', { with: { type: 'json' } })).default
-  assert.deepEqual(zh.team.promise.flags, { ONLY_WORDS: '只在嘴上', ELSEWHERE: '可能在别处干', DRIFT: '方向漂移' })
-  assert.equal(zh.team.promise.hint, '三个数摆在一起看差异，不排名、不打分')
-  assert.deepEqual(PROMISE_FLAG_TONE, { ONLY_WORDS: 'warning', ELSEWHERE: 'info', DRIFT: 'danger' })
-  assert.deepEqual(promiseFlagsOf({ flag: 'DRIFT', flags: ['DRIFT', 'ONLY_WORDS'] }), ['DRIFT', 'ONLY_WORDS'])
-  assert.deepEqual(promiseFlagsOf({ flag: 'ELSEWHERE' }), ['ELSEWHERE'], '只给 flag 也认')
-  assert.deepEqual(promiseFlagsOf({ flags: ['SCORE_LOW'] }), [], '未知标记丢掉')
-  assert.equal(totalWeight([{ weight: 60 }, { weight: 40 }, { weight: null }]), 100)
+  assert.equal(zh.team.promise, undefined)
+  assert.equal(zh.team.load_page, undefined)
+  assert.equal(zh.nav.team_load, undefined)
 })
 
-const promiseRender = compileView('views/admin/team/TeamPromise.vue')
-test('promise 页: 一行一人四列, 标记出文案, 页面上没有分数/排名字样', async () => {
-  const rows = [
-    { engineerId: '1', name: '甲', objectives: [{ title: 'O1', weight: 60 }, { title: 'O2', weight: 40 }], completedTasks: 0, conversationCount: 4, projectCount: 2, flag: 'DRIFT', flags: ['DRIFT', 'ONLY_WORDS'] },
-    { engineerId: '2', name: '乙', objectives: [], completedTasks: 2, conversationCount: 0, projectCount: 1, flag: 'ELSEWHERE', flags: ['ELSEWHERE'] },
-    { engineerId: '3', name: '丙', objectives: [], completedTasks: 0, conversationCount: 0, projectCount: 0, flag: null, flags: [] }
-  ]
-  const html = await renderView(promiseRender, { rows, meta: {}, loading: false, error: '', promiseFlagsOf, PROMISE_FLAG_TONE, totalWeight, load() {} })
-  assert.equal((html.match(/data-test="promise-row"/g) || []).length, 3)
-  for (const s of ['Drifting', 'Words only', 'Maybe working elsewhere', '2 objectives', 'weight 100', '2 tasks completed', '4 conversations', '2 projects', t('team.promise.hint')]) {
-    assert.ok(html.includes(s), s)
-  }
-  assert.match(html, /type="danger"[^>]*flag-DRIFT|flag-DRIFT[^>]*type="danger"/)
-  assert.match(html, /type="warning"[^>]*flag-ONLY_WORDS|flag-ONLY_WORDS[^>]*type="warning"/)
-  assert.match(html, /type="info"[^>]*flag-ELSEWHERE|flag-ELSEWHERE[^>]*type="info"/)
-  assert.doesNotMatch(html.slice(html.indexOf('role="table"')), /score|rank|分数|排名/i, '表格里不出分数/排名')
-  assert.ok(html.indexOf('甲') < html.indexOf('乙') && html.indexOf('乙') < html.indexOf('丙'), '保持接口顺序, 不排序')
-})
-
-// ---------------------------------------------------------------- 4. 能力矩阵
+// ---------------------------------------------------------------- 3. 能力矩阵
 
 const SKILLS = {
   skills: [{ id: '1', name: 'Go' }, { id: '2', name: 'Vue' }, { id: '3', name: 'Rust' }],

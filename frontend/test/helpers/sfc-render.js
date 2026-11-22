@@ -23,12 +23,10 @@ const STUBS = ['el-input', 'el-button', 'el-tag', 'el-progress', 'el-avatar', 'e
   'el-dialog', 'el-radio-group', 'el-radio-button', 'el-select', 'el-option', 'el-form', 'el-form-item', 'el-icon',
   'LoadError', 'router-link', 'TaskDetailDialog', 'el-date-picker', 'el-checkbox', 'el-switch']
 
-// OKR 前端第五批(导出 / 决策 / 连续未达成)在 MyOkr / TeamOkr / O 卡里加的 setup 名字: 给「什么都没有」的缺省值,
-// 老用例手给的 state 不用逐个补; 新用例自己传值覆盖
+// OKR 前端第五批(导出 / 连续未达成)在 MyOkr / TeamOkr / O 卡里加的 setup 名字: 给「什么都没有」的缺省值,
+// 老用例手给的 state 不用逐个补; 新用例自己传值覆盖(决策 / 团队风险面板 / 项目导出已在精简第二轮下线)
 export const FE5_DEFAULTS = {
-  exportMenu: [], riskBars: [], riskMap: new Map(), streakOf: () => null, flashId: '', lookRisk() {},
-  risk: null, openRisk() {}, projectExport: () => [],
-  decisions: [], decOpen: false
+  exportMenu: [], riskBars: [], riskMap: new Map(), streakOf: () => null, flashId: '', lookRisk() {}
 }
 
 /** 渲染; el-table 把 data 逐行喂给列的默认插槽, 列头插槽也渲染(看 tooltip 文案) */

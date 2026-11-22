@@ -9,13 +9,6 @@
         <el-button text :aria-label="$t('okr.delete_objective')" @click="removeObjective(i)">✕</el-button>
       </div>
       <el-input v-model="o.description" type="textarea" :autosize="{ minRows: 1, maxRows: 4 }" maxlength="2000" :placeholder="$t('okr.description_placeholder')" class="okr-ed-desc" />
-      <!-- OKR 5.0: 所属项目(多选, 可不选) -->
-      <el-select
-        v-model="o.projectIds" multiple filterable collapse-tags collapse-tags-tooltip :max-collapse-tags="3"
-        :placeholder="$t('okr.byproj.pick_projects')" class="okr-ed-projs" :data-test="'okr-ed-projects-' + i"
-      >
-        <el-option v-for="p in projOptions" :key="p.id" :value="p.id" :label="projectLabel(p)" />
-      </el-select>
       <div v-for="(k, j) in o.keyResults" :key="k._k" class="okr-ed-kr">
         <span class="okr-kr-no">KR{{ j + 1 }}</span>
         <div class="okr-ed-kr-main">
@@ -81,13 +74,11 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { $t } from '@/i18n'
-import { fde } from '@/api/index.js'
 import { rebalance, planProblems, insertKrs } from '@/views/okr/okrUtils.js'
 import { MAX_MILESTONES, blankMilestone, setMilestoneDone, editorKrPayload, planSnapshot } from '@/views/okr/okrFe4.js'
-import { projectOptions, projectLabel } from '@/views/okr/okrFe3.js'
 import OkrBulkKrDialog from './OkrBulkKrDialog.vue'
 
 const MAX_KRS = 10
@@ -106,7 +97,7 @@ const emit = defineEmits(['save', 'submit', 'cancel'])
 let seq = 0
 const key = () => ++seq
 const blankKr = () => ({ _k: key(), title: '', metricType: 'BINARY', unit: '', targetValue: null, weight: 100, blockers: '', milestones: [], _blk: false })
-const blankObj = () => ({ _k: key(), title: '', description: '', weight: 100, status: 'ON_TRACK', projectIds: [], keyResults: [blankKr()] })
+const blankObj = () => ({ _k: key(), title: '', description: '', weight: 100, status: 'ON_TRACK', keyResults: [blankKr()] })
 
 const draft = ref([])
 const manualWeights = ref(false)
@@ -115,7 +106,7 @@ let snapshot = '[]'
 watch(() => props.initial, (v) => {
   draft.value = v.length
     ? v.map(o => ({
-      ...o, projectIds: [...(o.projectIds || [])], _k: key(),
+      ...o, _k: key(),
       keyResults: o.keyResults.map(k => ({ ...k, blockers: k.blockers || '', milestones: (k.milestones || []).map(m => ({ ...m })), _blk: false, _k: key() }))
     }))
     : [blankObj()]
@@ -131,12 +122,6 @@ function isEven(objs) {
 
 const problems = computed(() => planProblems(draft.value, $t))
 
-// 所属项目下拉: 我数据范围内的项目(GET /api/fde/projects) + 这份计划里已挂但不在范围内的
-const projList = ref([])
-const projOptions = computed(() => projectOptions(projList.value, props.initial))
-onMounted(async () => {
-  try { projList.value = (await fde.projects.list({ page: 1, page_size: 200 })).list || [] } catch { projList.value = [] }
-})
 
 function addObjective() {
   draft.value.push(blankObj())
@@ -211,11 +196,11 @@ function insertBulk(titles) {
 function hasContent() {
   return draft.value.some(o => String(o.title || '').trim() || String(o.description || '').trim() || o.keyResults.some(k => String(k.title || '').trim()))
 }
-/** 当前编辑器里的计划(去掉内部 key), 「追加」草稿时用 */
+/** 当前编辑器里的计划(去掉内部 key), 「追加」草稿时用。
+ *  精简第二轮: 不再带 projectIds(后端没收到 = 不动 O 已有的项目关联) */
 function getPlan() {
-  return draft.value.map(({ _k, projects: _p, ...o }) => ({
+  return draft.value.map(({ _k, ...o }) => ({
     ...o,
-    projectIds: [...(o.projectIds || [])],
     keyResults: o.keyResults.map(editorKrPayload)
   }))
 }
@@ -234,7 +219,6 @@ function emitPlan(kind) {
 .okr-editor { display: flex; flex-direction: column; gap: 12px; }
 .okr-ed-card { background: var(--el-bg-color); border: 1px solid var(--el-border-color-lighter); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
 .okr-ed-row { display: flex; align-items: center; gap: 6px; }
-.okr-ed-projs { width: 100%; }
 .okr-seq, .okr-kr-no { font-size: 12px; font-weight: 600; color: var(--el-color-primary); flex: none; }
 .okr-kr-no { color: var(--el-text-color-secondary); padding-top: 6px; width: 30px; }
 .okr-ed-kr { display: flex; align-items: flex-start; gap: 6px; padding-left: 4px; }

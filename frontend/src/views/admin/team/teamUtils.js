@@ -52,17 +52,10 @@ export function relativeTime(at, now = Date.now()) {
   return { unit: 'date', date: ymdLocal(new Date(t)) }
 }
 
-// ---------------------------------------------------------------- 周切换
+// ---------------------------------------------------------------- 周
 
 const pad = (n) => String(n).padStart(2, '0')
 function ymdLocal(d) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` }
-
-/** 'YYYY-MM-DD' 前后挪 n 周; 不传起点就是今天 */
-export function shiftWeek(dateStr, n) {
-  const base = dateStr ? new Date(`${dateStr}T12:00:00`) : new Date()
-  base.setDate(base.getDate() + n * 7)
-  return ymdLocal(base)
-}
 
 /** 后端 meta.week 的起止(上海时区的周一 0 点 ~ 周日 24 点) → '11/16–11/22' */
 export function weekRangeText(week) {
@@ -74,20 +67,6 @@ export function weekRangeText(week) {
   }
   return `${md(week.start)}–${md(week.end)}`
 }
-
-// ---------------------------------------------------------------- 承诺 vs 实际
-
-/** 标记 → 色调(只做提示, 不打分不排名): 只在嘴上=黄, 可能在别处干=灰, 方向漂移=红 */
-export const PROMISE_FLAG_TONE = { ONLY_WORDS: 'warning', ELSEWHERE: 'info', DRIFT: 'danger' }
-export const PROMISE_FLAGS = Object.keys(PROMISE_FLAG_TONE)
-
-/** 行上要显示的标记: flags 优先, 兼容只给 flag 的老返回; 未知标记丢掉 */
-export function promiseFlagsOf(row) {
-  const list = Array.isArray(row?.flags) && row.flags.length ? row.flags : (row?.flag ? [row.flag] : [])
-  return [...new Set(list)].filter(f => PROMISE_FLAG_TONE[f])
-}
-
-export const totalWeight = (objectives) => (objectives || []).reduce((s, o) => s + (Number(o.weight) || 0), 0)
 
 // ---------------------------------------------------------------- 能力矩阵
 

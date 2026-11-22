@@ -66,9 +66,6 @@ export function toDraft(objectives) {
     description: o.description || '',
     weight: o.weight,
     status: o.status,
-    // OKR 5.0: 所属项目(多选); projects 只给下拉显示名字用, 提交时去掉
-    projectIds: (o.projects || []).map(p => String(p.id)),
-    projects: o.projects || [],
     keyResults: (o.keyResults || []).map(k => ({
       id: k.id, title: k.title, metricType: k.metricType, unit: k.unit || '', targetValue: k.targetValue, weight: k.weight,
       // OKR 6.0: KR 卡点说明 + 阶段型的阶段明细(编辑器里能改阶段; done 由服务器按已完成数回写)

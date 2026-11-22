@@ -30,16 +30,12 @@ const routes = [
       // 个人工作台: 登录后的默认落地页。不设权限点 —— 这里只有"我自己的事"
       // (后端 /api/fde/me/* 同样只要登录), 且它是越权访问的兜底目标, 加权限会把只读角色转晕
       { path: 'workbench', name: 'AdminWorkbench', component: () => import('@/views/admin/Workbench.vue') },
-      // 0.5.0 团队组(R4): team.view = 组长 + 老板; 「承诺 vs 交付」只给老板(team.view.all)。
+      // 0.5.0 团队组(R4): team.view = 组长 + 老板。
       // 工程师直达 → 守卫弹回今日页; 后端 /api/team/* 同样按这两个权限点拦
       { path: 'team/members', name: 'AdminTeamMembers', component: () => import('@/views/admin/team/TeamMembers.vue'),
         meta: { requiredPerm: 'team.view', requiredRoles: ['ADMIN', 'TEAM_LEAD'] } },
       { path: 'team/members/:engineerId(\\d+)', name: 'AdminTeamMemberDetail', component: () => import('@/views/admin/team/TeamMemberDetail.vue'),
         meta: { requiredPerm: 'team.view', requiredRoles: ['ADMIN', 'TEAM_LEAD'] } },
-      { path: 'team/load', name: 'AdminTeamLoad', component: () => import('@/views/admin/team/TeamLoad.vue'),
-        meta: { requiredPerm: 'team.view', requiredRoles: ['ADMIN', 'TEAM_LEAD'] } },
-      { path: 'team/promise', name: 'AdminTeamPromise', component: () => import('@/views/admin/team/TeamPromise.vue'),
-        meta: { requiredPerm: 'team.view.all', requiredRoles: ['ADMIN'] } },
       { path: 'team/skills', name: 'AdminTeamSkills', component: () => import('@/views/admin/team/TeamSkills.vue'),
         meta: { requiredPerm: 'team.view', requiredRoles: ['ADMIN', 'TEAM_LEAD'] } },
       // 0.5.0 经验组: 经验库 / 开发会话(后端按数据范围过滤, 前端先用 project.view 兜底)
@@ -55,12 +51,8 @@ const routes = [
       { path: 'okr/history', name: 'AdminOkrHistory', component: () => import('@/views/okr/OkrHistory.vue') },
       { path: 'okr/team', name: 'AdminOkrTeam', component: () => import('@/views/okr/TeamOkr.vue') },
       { path: 'okr/person/:userId(\\d+)', name: 'AdminOkrPerson', component: () => import('@/views/okr/OkrPerson.vue') },
-      // OKR 4.0 项目周 OKR(全员可读, 写权限页内按 ADMIN/MANAGER/项目成员判断)
-      { path: 'okr/projects', name: 'AdminOkrProjects', component: () => import('@/views/okr/ProjectOkr.vue') },
-      // OKR 4.0 每日总结(我的 / 团队; 团队范围后端按 ADMIN 全部 / 其他人本团队)
-      { path: 'okr/daily', name: 'AdminOkrDaily', component: () => import('@/views/okr/DailySummary.vue') },
-      // OKR 9.0 决策记录(全员可读; 写权限后端判: ADMIN / MANAGER 任意, 工程师只能挂自己的 O)
-      { path: 'okr/decisions', name: 'AdminOkrDecisions', component: () => import('@/views/okr/OkrDecisions.vue') },
+      // 精简第二轮: 项目 OKR / 每日总结 / 决策记录 / 负载 / 承诺 vs 交付 已下线(页面一并删除)。
+      // 周项目计划并进周 OKR 页, 每日总结并进我的今日; 旧地址落到下面的兜底 → 我的今日
       { path: 'customers', name: 'AdminCustomers', component: () => import('@/views/admin/Customers.vue'),
         meta: { requiredPerm: 'customer.view', requiredRoles: ['ADMIN', 'MANAGER'] } },
       { path: 'projects', name: 'AdminProjects', component: () => import('@/views/admin/Projects.vue'),

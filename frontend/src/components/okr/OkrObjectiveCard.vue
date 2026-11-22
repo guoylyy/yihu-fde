@@ -26,12 +26,6 @@
       <span v-if="obj.selfScore != null" class="okr-score">{{ $t('okr.self_short') }} {{ obj.selfScore }}</span>
       <span v-if="obj.managerScore != null" class="okr-score mgr">{{ $t('okr.manager_short') }} {{ obj.managerScore }}</span>
       <span v-if="obj.lateSubmit" class="okr-late">{{ $t('okr.late') }}</span>
-      <!-- 按项目视图的 O 不带 KR 明细, 只给 KR 完成数 -->
-      <span v-if="!obj.keyResults && obj.krTotal != null" class="okr-krsum" data-test="okr-kr-sum">{{ $t('okr.byproj.kr_sum', { p0: obj.krDone, p1: obj.krTotal }) }}</span>
-    </div>
-    <!-- OKR 5.0: O 挂的项目 -->
-    <div v-if="obj.projects?.length" class="okr-projs" data-test="okr-card-projects">
-      <span v-for="p in obj.projects" :key="p.id" class="okr-proj" :title="p.code || undefined">{{ p.name }}</span>
     </div>
     <p v-if="obj.description" class="okr-desc">{{ obj.description }}</p>
 
@@ -163,18 +157,6 @@
 
       <button v-if="canMiss" type="button" class="okr-link warn" @click="$emit('miss', obj)">{{ $t('okr.mark_missed') }}</button>
     </div>
-    <!-- OKR 9.0: 挂在这个 O 上的决策(O 视图带最近 3 条), 折叠区: 标题 + 日期 + 决策人 -->
-    <div v-if="decisions.length" class="okr-decs" data-test="okr-card-decisions">
-      <button type="button" class="okr-decs-head" :aria-expanded="decOpen" data-test="okr-decs-toggle" @click="decOpen = !decOpen">
-        {{ $t('okr.fe5.dec_card_n', { p0: decisions.length }) }} <span aria-hidden="true">{{ decOpen ? '▾' : '▸' }}</span>
-      </button>
-      <ul v-if="decOpen" class="okr-decs-list">
-        <li v-for="d in decisions" :key="d.id" :class="{ off: d.status !== 'ACTIVE' }">
-          <router-link :to="{ path: '/admin/okr/decisions', query: { focus: d.id, from: d.date } }" class="okr-decs-title">{{ d.title }}</router-link>
-          <span class="okr-decs-meta">{{ d.date }} · {{ d.decidedByName || '-' }}</span>
-        </li>
-      </ul>
-    </div>
     <p v-if="obj.managerComment" class="okr-mcomment">{{ $t('okr.manager_said', { p0: obj.managerComment }) }}</p>
   </section>
 </template>
@@ -185,7 +167,6 @@ import { $t } from '@/i18n'
 import { OBJ_TAG, pct, krValueText, shDate } from '@/views/okr/okrUtils.js'
 import { todayKey } from '@/views/okr/okrFe3.js'
 import { RISK_LEVELS, milestoneRows, overdueDays, blockerForm, blockerFormState } from '@/views/okr/okrFe4.js'
-import { decisionBriefs } from '@/views/okr/okrFe5.js'
 
 const props = defineProps({
   obj: { type: Object, required: true },
@@ -211,8 +192,6 @@ const props = defineProps({
 const emit = defineEmits(['add-update', 'miss', 'manager-score', 'complete', 'milestone', 'save-blocker'])
 
 const today = todayKey()
-const decisions = computed(() => decisionBriefs(props.obj))
-const decOpen = ref(false)
 /** 阶段可点: 和完成开关同一套条件 */
 const msClickable = computed(() => props.canComplete && !props.closed && !props.krBusy && !!props.obj.submittedAt && props.obj.status !== 'DROPPED')
 function clickMilestone(kr, index) {
@@ -299,14 +278,6 @@ function send() {
 .okr-streak { flex: none; align-self: center; width: 10px; height: 10px; border-radius: 50%; margin-left: 2px; cursor: help; }
 .okr-streak.lv-CRITICAL { background: var(--el-color-danger); box-shadow: 0 0 0 3px var(--el-color-danger-light-8); }
 .okr-streak.lv-WARN { background: #d9a400; box-shadow: 0 0 0 3px #f6e7a6; }
-.okr-decs { margin-top: 8px; border-top: 1px dashed var(--el-border-color-lighter); padding-top: 6px; }
-.okr-decs-head { border: 0; background: none; padding: 4px 0; font: inherit; font-size: 12px; color: var(--el-text-color-secondary); cursor: pointer; }
-.okr-decs-list { list-style: none; margin: 2px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
-.okr-decs-list li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
-.okr-decs-title { color: var(--el-color-primary); text-decoration: none; font-weight: 600; overflow-wrap: anywhere; }
-.okr-decs-list li.off .okr-decs-title { color: var(--el-text-color-placeholder); text-decoration: line-through; }
-.okr-decs-meta { color: var(--el-text-color-secondary); }
-@media (max-width: 640px) { .okr-decs-head { min-height: 44px; } }
 .okr-card { background: var(--el-bg-color); border: 1px solid var(--el-border-color-lighter); border-radius: 10px; padding: 12px 14px; }
 .okr-card.st-DROPPED { opacity: .55; }
 .okr-card-head { display: flex; align-items: baseline; gap: 8px; }
@@ -317,9 +288,6 @@ function send() {
 .okr-pct { font-weight: 600; color: var(--el-text-color-primary); }
 .okr-score.mgr { color: var(--el-color-success); }
 .okr-late { color: var(--el-color-danger); }
-.okr-krsum { color: var(--el-text-color-secondary); }
-.okr-projs { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
-.okr-proj { font-size: 11px; line-height: 18px; padding: 0 7px; border-radius: 9px; background: var(--el-color-primary-light-9); color: var(--el-color-primary); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .okr-desc { margin: 6px 0 0; font-size: 13px; color: var(--el-text-color-regular); white-space: pre-wrap; overflow-wrap: anywhere; }
 .okr-krs { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .okr-kr { display: grid; grid-template-columns: 1fr auto; grid-template-rows: auto 4px; column-gap: 8px; row-gap: 4px; padding: 8px 10px; border-radius: 8px; background: var(--el-fill-color-light); }

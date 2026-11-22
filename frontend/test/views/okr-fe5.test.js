@@ -1,18 +1,17 @@
-// OKR 前端第五批: 导出 / 决策记录 / 连续未达成预警。
+// OKR 前端第五批: 导出 / 连续未达成预警(决策记录、按项目导出、团队页风险面板随精简第二轮下线, 对应用例删除)。
 // 纯函数直接测; 组件用真实模板 + 手给状态 SSR 渲染(测试语言为 en, 文案用 t() 取)
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import * as Vue from 'vue'
 import { compileView, renderView, t } from '../helpers/sfc-render.js'
-import {
-  mayExportTeam, exportItems, projectExportItems, exportUrl, fileNameFromDisposition, downloadExport, fileSizeText,
-  defaultDecisionRange, filterDecisions, decisionRow, missingSupersederIds, decisionMenu, revertPayload, decisionPayload,
-  decisionStats, objectiveOptions, decisionBriefs,
-  levelOf, riskByObjective, streakOf, myRiskBars, riskSummaryCounts, recentRates, findRiskTarget
-} from '../../src/views/okr/okrFe5.js'
+import * as fe5 from '../../src/views/okr/okrFe5.js'
 import { OBJ_TAG, pct, krValueText } from '../../src/views/okr/okrUtils.js'
 
+const {
+  mayExportTeam, exportItems, exportUrl, fileNameFromDisposition, downloadExport, fileSizeText,
+  levelOf, riskByObjective, streakOf, myRiskBars, recentRates, findRiskTarget
+} = fe5
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/'/g, '&#39;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 const has = (html, text) => assert.ok(html.includes(esc(text)), `应出现: ${text}`)
 const lacks = (html, text) => assert.ok(!html.includes(esc(text)), `不应出现: ${text}`)
@@ -53,20 +52,15 @@ describe('导出: 选项 / 地址 / 文件名', () => {
     assert.equal(mayExportTeam(ENG), false)
     assert.equal(mayExportTeam(MGR), true)
   })
-  test('团队页带项目时: 团队项换成该项目(scope=project&projectId)', () => {
+  test('精简第二轮: 导出下拉最多 3 项(Excel 明细 / Word 汇报 / 团队 Excel), 没有项目导出', () => {
     const items = exportItems({ page: 'team', user: ADMIN, week: '2026-W47', project: { id: 12, name: '园区巡检' } })
-    assert.deepEqual(items[2].params, { week: '2026-W47', scope: 'project', format: 'xlsx', projectId: '12' })
-    assert.equal(t(items[2].label, items[2].labelArgs), 'Project Excel: 园区巡检')
-  })
-  test('按项目视图的项目块导出: 只给 ADMIN / MANAGER, 「未挂项目」没有', () => {
-    const items = projectExportItems({ user: MGR, week: '2026-W47', project: { id: '12' } })
-    assert.deepEqual(items.map(i => [i.params.scope, i.params.format, i.params.projectId]), [['project', 'xlsx', '12'], ['project', 'docx', '12']])
-    assert.deepEqual(projectExportItems({ user: ENG, week: '2026-W47', project: { id: '12' } }), [])
-    assert.deepEqual(projectExportItems({ user: ADMIN, week: '2026-W47', project: null }), [])
-    assert.deepEqual(projectExportItems({ user: ADMIN, week: '2026-W47', project: { id: 'none' } }), [])
+    assert.deepEqual(items.map(i => i.key), ['xlsx', 'docx', 'team'], '传了 project 也不变')
+    assert.ok(items.every(i => i.params.scope !== 'project' && !('projectId' in i.params)))
+    assert.equal(fe5.projectExportItems, undefined)
+    for (const u of [ADMIN, MGR, ENG, LEAD]) for (const page of ['mine', 'team']) assert.ok(exportItems({ page, user: u, week: '2026-W47' }).length <= 3)
   })
   test('地址: 空值不带', () => {
-    assert.equal(exportUrl({ week: '2026-W47', scope: 'person', format: 'xlsx', userId: '7', projectId: '' }), '/api/okr/export?week=2026-W47&scope=person&format=xlsx&userId=7')
+    assert.equal(exportUrl({ week: '2026-W47', scope: 'person', format: 'xlsx', userId: '7', projectId: '12' }), '/api/okr/export?week=2026-W47&scope=person&format=xlsx&userId=7', 'projectId 不再透传')
     assert.equal(exportUrl({ week: '2026-W47', scope: 'team', format: 'docx' }), '/api/okr/export?week=2026-W47&scope=team&format=docx')
   })
   test('文件名: filename*=UTF-8 优先(中文), 退回 filename=, 都没有用兜底', () => {
@@ -138,166 +132,19 @@ describe('导出: 下载(fetch blob + <a download>)', () => {
   })
 })
 
-// ---------------------------------------------------------------- 二、决策记录
+// ---------------------------------------------------------------- 二、决策记录(已下线)
 
-const dec = (over = {}) => ({
-  id: '1', title: '巡检改两周一次', detail: '客户同意把巡检频率改成两周一次', rationale: '人手不够', impact: null,
-  decidedByName: '老板', date: '2026-11-20', decidedAt: '2026-11-20T02:00:00Z', status: 'ACTIVE', supersededBy: null,
-  project: { id: '12', name: '园区巡检' }, objective: { id: '90', title: 'O-巡检上线', ownerName: '林晓' },
-  can: { edit: true, delete: true, supersede: true }, ...over
-})
-
-describe('决策记录: 纯函数', () => {
-  test('默认时间范围: 最近 8 周(含今天, 上海日期)', () => {
-    assert.deepEqual(defaultDecisionRange(8, new Date('2026-11-22T04:00:00Z')), { from: '2026-09-28', to: '2026-11-22' })
-    assert.deepEqual(defaultDecisionRange(1, new Date('2026-11-22T20:00:00Z')), { from: '2026-11-17', to: '2026-11-23' }, '上海已是 23 号')
-  })
-  test('搜索: 标题 / 正文, 大小写不敏感; 空词原样', () => {
-    const list = [dec(), dec({ id: '2', title: 'API 走 GraphQL', detail: '前端统一' }), dec({ id: '3', title: '别的', detail: '和 graphql 无关吗' })]
-    assert.deepEqual(filterDecisions(list, 'graphql').map(d => d.id), ['2', '3'])
-    assert.deepEqual(filterDecisions(list, '  巡检 ').map(d => d.id), ['1'])
-    assert.equal(filterDecisions(list, '').length, 3)
-  })
-  test('时间线一行: 被取代取新决策标题(列表里 / 补查缓存), 撤销标红; 项目与 O 标签', () => {
-    const neo = dec({ id: '5', title: '巡检改每周一次' })
-    const old = dec({ id: '1', status: 'SUPERSEDED', supersededBy: '5' })
-    const r = decisionRow(old, new Map([['5', neo]]))
-    assert.equal(r.superseded, true)
-    assert.equal(r.supersededTitle, '巡检改每周一次')
-    assert.equal(r.supersededInList, true)
-    assert.deepEqual(r.tags.map(x => [x.kind, x.text]), [['project', '园区巡检'], ['objective', 'O-巡检上线']])
-    const far = decisionRow(dec({ status: 'SUPERSEDED', supersededBy: '77' }), new Map(), new Map([['77', { title: '更早范围外的新决策' }]]))
-    assert.equal(far.supersededTitle, '更早范围外的新决策')
-    assert.equal(far.supersededInList, false)
-    assert.equal(decisionRow(dec({ status: 'REVERTED' })).reverted, true)
-    assert.deepEqual(decisionRow(dec({ project: null, objective: null })).tags, [])
-    assert.deepEqual(missingSupersederIds([old, neo, dec({ id: '9', status: 'SUPERSEDED', supersededBy: '77' })], new Map()), ['77'])
-    assert.deepEqual(missingSupersederIds([dec({ supersededBy: '77' })], new Map([['77', {}]])), [], '补查过的不再查')
-  })
-  test('卡片菜单: 撤销要能改且生效中; 取代看后端 can.supersede', () => {
-    assert.deepEqual(decisionMenu(dec()), ['revert', 'supersede'])
-    assert.deepEqual(decisionMenu(dec({ can: { edit: false, supersede: false } })), [])
-    assert.deepEqual(decisionMenu(dec({ status: 'REVERTED', can: { edit: true, supersede: false } })), [])
-    assert.deepEqual(decisionMenu(dec({ can: { edit: true, supersede: false } })), ['revert'], '工程师作者 7 天内能撤销, 不能取代')
-  })
-  test('撤销请求体: 空原因原样发空(让后端 400 文案透出); 有原因时保留原理由', () => {
-    assert.deepEqual(revertPayload('  ', '人手不够', t), { status: 'REVERTED', rationale: '' })
-    assert.deepEqual(revertPayload('客户改主意', '', t), { status: 'REVERTED', rationale: 'Revert reason: 客户改主意' })
-    assert.equal(revertPayload('客户改主意', '人手不够', t).rationale, 'Revert reason: 客户改主意\n\nOriginal rationale: 人手不够')
-  })
-  test('新建请求体: 必填 trim, 可选空的不带, 决策时间转 ISO', () => {
-    const at = new Date('2026-11-20T02:00:00Z')
-    assert.deepEqual(decisionPayload({ title: ' A ', detail: ' B ', rationale: '', impact: ' C ', objectiveId: 90, projectId: '', decidedAt: at }),
-      { title: 'A', detail: 'B', impact: 'C', objectiveId: '90', decidedAt: '2026-11-20T02:00:00.000Z' })
-  })
-  test('右栏: 本周决策数(按上海日期) + 按项目分布(多的在前, 未挂项目垫底)', () => {
-    const now = new Date('2026-11-20T04:00:00Z') // 2026-W47: 11-16 ~ 11-22
-    const list = [
-      dec({ id: '1', date: '2026-11-16' }), dec({ id: '2', date: '2026-11-22', project: { id: '13', name: '告警平台' } }),
-      dec({ id: '3', date: '2026-11-15', project: null }), dec({ id: '4', date: '2026-11-10', project: { id: '13', name: '告警平台' } }),
-      dec({ id: '5', date: '2026-11-01', project: null }), dec({ id: '6', date: '2026-11-02', project: null }), dec({ id: '7', date: '2026-11-03', project: null })
-    ]
-    const s = decisionStats(list, now)
-    assert.equal(s.week, '2026-W47')
-    assert.equal(s.thisWeek, 2, '11-15 是上周日, 不算')
-    assert.deepEqual(s.projects.map(p => [p.id, p.count]), [['13', 2], ['12', 1], [null, 4]])
-    assert.equal(s.projects[0].ratio, 0.5)
-  })
-  test('「挂到 O」选项: 主管用团队行(带负责人), 工程师用自己这周的 O; 去掉已放弃', () => {
-    const rows = [{ user: { name: '林晓' }, objectives: [{ id: 1, title: 'O-甲', status: 'ON_TRACK' }, { id: 2, title: 'O-弃', status: 'DROPPED' }] }]
-    assert.deepEqual(objectiveOptions({ rows }), [{ id: '1', label: 'O-甲 · 林晓' }])
-    assert.deepEqual(objectiveOptions({ objectives: [{ id: 3, title: 'O-乙', status: 'AT_RISK' }], owner: { name: '周舟' } }), [{ id: '3', label: 'O-乙 · 周舟' }])
-  })
-  test('O 卡片的决策条目: 日期按上海', () => {
-    assert.deepEqual(decisionBriefs({ decisions: [{ id: '1', title: 'A', decidedAt: '2026-11-19T17:00:00Z' }] }).map(d => d.date), ['2026-11-20'])
-    assert.deepEqual(decisionBriefs({}), [])
-  })
-})
-
-describe('决策记录页: 时间线渲染', () => {
-  const render = compileView('views/okr/OkrDecisions.vue')
-  const EXTRA = { 'el-dropdown': dropdown, 'el-dropdown-menu': pass, 'el-dropdown-item': pass, OkrDecisionDialog: pass }
-  const neo = dec({ id: '5', title: '巡检改每周一次', date: '2026-11-21' })
-  const list = [neo, dec({ id: '1', status: 'SUPERSEDED', supersededBy: '5', can: { edit: true, supersede: false } }), dec({ id: '2', title: '暂停告警平台二期', status: 'REVERTED', project: null, objective: null, can: { edit: true, supersede: false } })]
-  const state = (over = {}) => {
-    const all = over.list || list
-    const byId = new Map(all.map(d => [d.id, d]))
-    return {
-      loading: false, busy: false, q: '', projectId: '', range: ['2026-09-28', '2026-11-22'], projects: [], oOptions: [], writer: true, isMobile: false,
-      timeline: { list: all, truncated: false }, rows: all.map(d => decisionRow(d, byId)), stats: decisionStats(all, new Date('2026-11-20T04:00:00Z')),
-      focusId: '', isOpen: id => (over.open || []).includes(id), toggle() {}, jump() {}, onMenu() {}, openCreate() {}, onSubmit() {}, submitRevert() {},
-      decisionMenu, supText: d => (d.supersededTitle ? t('okr.fe5.dec_superseded_by', { p0: d.supersededTitle }) : t('okr.fe5.dec_superseded_by_id', { p0: d.supersededBy })),
-      dlg: { visible: false, mode: 'create', old: null }, rev: { visible: false, d: null, reason: '', error: '' },
-      ...over
-    }
+test('决策记录下线: 纯函数 / 页面 / 弹窗都删了', async () => {
+  for (const k of ['defaultDecisionRange', 'filterDecisions', 'decisionRow', 'missingSupersederIds', 'decisionMenu', 'revertPayload', 'decisionPayload', 'decisionStats', 'objectiveOptions', 'decisionBriefs', 'riskSummaryCounts']) {
+    assert.equal(fe5[k], undefined, k)
   }
-  test('每条一个点: 日期 · 决策人 · 标题 · 项目 / O 标签; 被取代的灰删除线 +「已被 X 取代」; 撤销红标签', async () => {
-    const html = await renderView(render, state(), EXTRA)
-    assert.equal(count(html, 'class="dec-dot"'), 3)
-    has(html, '2026-11-21 · 老板')
-    has(html, '巡检改每周一次')
-    assert.match(html, /class="dec-item sup"[^>]*data-test="dec-item-1"/)
-    has(html, t('okr.fe5.dec_superseded_by', { p0: '巡检改每周一次' }))
-    assert.match(html, /class="dec-item rev"[^>]*data-test="dec-item-2"/)
-    assert.equal(count(html, 'data-test="dec-reverted"'), 1)
-    has(html, 'Reverted')
-    has(html, '园区巡检')
-    has(html, 'O O-巡检上线')
-  })
-  test('卡片菜单: 生效中的有「撤销 / 取代」; 已被取代 / 已撤销的没有菜单', async () => {
-    const html = await renderView(render, state(), EXTRA)
-    assert.equal(count(html, 'data-test="dec-menu"'), 1)
-    has(html, t('okr.fe5.dec_revert'))
-    has(html, t('okr.fe5.dec_supersede'))
-  })
-  test('展开看背景 / 理由 / 影响(没有的段不出)', async () => {
-    const html = await renderView(render, state({ open: ['5'] }), EXTRA)
-    assert.equal(count(html, 'data-test="dec-expanded"'), 1)
-    has(html, t('okr.fe5.dec_detail'))
-    has(html, '客户同意把巡检频率改成两周一次')
-    has(html, t('okr.fe5.dec_rationale'))
-    lacks(html, t('okr.fe5.dec_impact'))
-  })
-  test('右栏: 本周决策数 + 按项目分布(CSS 只在 ≥1280 显示); 空时间线出空态', async () => {
-    const html = await renderView(render, state(), EXTRA)
-    assert.match(html, /data-test="dec-side-week">3</)
-    has(html, t('okr.fe5.dec_side_unassigned'))
-    assert.match(src('views/okr/OkrDecisions.vue'), /\.dec-side \{ display: none; \}[\s\S]*@media \(min-width: 1280px\)[\s\S]*\.dec-side \{ display: flex;/)
-    const empty = await renderView(render, state({ list: [] }), EXTRA)
-    has(empty, t('okr.fe5.dec_empty'))
-  })
-  test('撤销弹窗: 后端文案原样显示, 确认按钮不因空原因置灰(让后端 400 透出)', async () => {
-    const html = await renderView(render, state({ rev: { visible: true, d: list[0], reason: '', error: '撤销决策必须写明原因' } }), EXTRA)
-    assert.match(html, /data-test="dec-revert-error">撤销决策必须写明原因</)
-    assert.doesNotMatch(src('views/okr/OkrDecisions.vue'), /data-test="dec-revert-go"[^>]*:disabled/)
-  })
+  const { existsSync } = await import('node:fs')
+  for (const f of ['views/okr/OkrDecisions.vue', 'components/okr/OkrDecisionDialog.vue', 'components/okr/OkrRiskPanel.vue']) {
+    assert.ok(!existsSync(new URL(`../../src/${f}`, import.meta.url)), f)
+  }
 })
 
-describe('「记一条决策」弹窗', () => {
-  const render = compileView('components/okr/OkrDecisionDialog.vue')
-  const base = (over = {}) => ({
-    modelValue: true, mode: 'create', old: null, objectives: [{ id: '90', label: 'O-巡检上线 · 林晓' }], projects: [{ id: '12', name: '园区巡检' }],
-    writer: true, mobile: false, busy: false, supersede: false, form: { title: '', detail: '', rationale: '', impact: '', objectiveId: '', projectId: '', decidedAt: new Date() }, error: '', submit() {}, reset() {},
-    ...over
-  })
-  test('记: 标题 / 背景(必填) / 理由 / 影响 / 挂到 O / 项目 / 决策时间', async () => {
-    const html = await renderView(render, base())
-    for (const k of ['dec-title', 'dec-detail', 'dec-rationale', 'dec-impact', 'dec-objective', 'dec-project', 'dec-decided-at']) assert.ok(html.includes(`data-test="${k}"`), k)
-    assert.equal(count(html, 'class="req"'), 2)
-    has(html, 'O-巡检上线 · 林晓')
-    lacks(html, t('okr.fe5.dec_f_objective_engineer'))
-    const eng = await renderView(render, base({ writer: false }))
-    has(eng, t('okr.fe5.dec_f_objective_engineer'))
-  })
-  test('取代: 显示被取代的老标题, 不出 O / 项目(后端继承); 错误文案显示在框里', async () => {
-    const html = await renderView(render, base({ mode: 'supersede', supersede: true, old: dec(), error: '只有管理员 / 主管能取代决策' }))
-    has(html, t('okr.fe5.dec_supersede_old', { p0: '巡检改两周一次' }))
-    assert.ok(!html.includes('data-test="dec-objective"'))
-    assert.match(html, /data-test="dec-error">只有管理员 \/ 主管能取代决策</)
-  })
-})
-
-// ---------------------------------------------------------------- 三、连续未达成预警
+// ---------------------------------------------------------------- 三、连续未达成预警(我的 OKR 顶部红条 + O 卡红黄点保留)
 
 const risk = (over = {}) => ({
   objectiveId: '101', currentObjectiveId: '201', week: '2026-W46', title: 'O-巡检上线', ownerId: '7', ownerName: '林晓',
@@ -325,11 +172,6 @@ describe('连续未达成: 纯函数', () => {
     assert.deepEqual(myRiskBars(items, '7').map(i => i.objectiveId), ['c', 'w'])
     assert.deepEqual(myRiskBars(items, 7).length, 2)
     assert.deepEqual(myRiskBars(items, '9'), [])
-  })
-  test('团队页一行字直接用后端 summary', () => {
-    assert.deepEqual(riskSummaryCounts({ critical: 1, warn: 1 }), { total: 2, critical: 1, warn: 1 })
-    assert.deepEqual(riskSummaryCounts(undefined), { total: 0, critical: 0, warn: 0 })
-    assert.equal(t('okr.fe5.risk_team', { p0: 2, p1: 1 }), '2 O missed in a row (1 red line)')
   })
   test('最近三周小条形: 老 → 新, 没 O 的周为 null', () => {
     assert.deepEqual(recentRates(risk()).map(r => [r.week, r.pct, r.missed]), [['2026-W44', 40, true], ['2026-W45', null, true], ['2026-W46', 30, true]])
@@ -373,22 +215,6 @@ describe('连续未达成: 组件', () => {
     assert.match(css, /\.okr-rbar-text \{[^}]*text-overflow: ellipsis;[^}]*white-space: nowrap;/)
     assert.match(css, /\.okr-rbar-btn \{[^}]*flex: none;[^}]*white-space: nowrap;/)
   })
-  test('团队页面板: 「N 个 O 连续未达成(M 红线)」用 summary; 展开列 O / 负责人 / 连续周数 / 三周小条形; 没有就不出', async () => {
-    const render = compileView('components/okr/OkrRiskPanel.vue')
-    const data = { summary: { critical: 1, warn: 1 }, items: [risk(), risk({ objectiveId: '2', title: 'O-文档', ownerName: '周舟', level: 'WARN', consecutiveMissedWeeks: 2 })] }
-    const st = (over = {}) => ({ risk: data, open: true, counts: riskSummaryCounts(data.summary), items: data.items, recentRates, rateLabel: it => recentRates(it, 3).map(r => (r.pct == null ? '-' : r.pct + '%')).join(' → '), ...over })
-    const html = await renderView(render, st())
-    assert.match(html, /data-test="okr-risk-summary">2 O missed in a row \(1 red line\)</)
-    assert.equal(count(html, 'data-test="okr-risk-row-'), 2)
-    has(html, '林晓')
-    has(html, t('okr.fe5.risk_weeks_n', { p0: 3 }))
-    assert.equal(count(html, 'class="okr-rbar3"'), 6)
-    has(html, '40% → - → 30%')
-    const closed = await renderView(render, st({ open: false }))
-    assert.ok(!closed.includes('data-test="okr-risk-row-'))
-    const none = await renderView(render, st({ counts: riskSummaryCounts({ critical: 0, warn: 0 }), items: [] }))
-    assert.ok(!none.includes('data-test="okr-risk-panel"'))
-  })
 })
 
 // ---------------------------------------------------------------- 页面 / 卡片接线
@@ -400,12 +226,12 @@ const cardState = (obj, over = {}) => ({
   OBJ_TAG, pct, krValueText, round: n => n, shDate: s => s, toggle() {}, send() {}, complete() {},
   today: '2026-11-21', milestoneRows: () => [], overdueDays: () => 0, msClickable: false, clickMilestone() {},
   blkOpen: false, blkEditing: false, blkBusy: false, blk: {}, blkState: 'empty', canEditBlocker: false, people: [], compact: false, startBlk() {}, saveBlk() {}, RISK_LEVELS: [],
-  streak: null, decisions: decisionBriefs(obj), decOpen: false,
+  streak: null,
   ...over
 })
 const cobj = (over = {}) => ({ id: '201', seq: 1, title: 'O-巡检上线', weight: 100, status: 'AT_RISK', progress: 0.3, submittedAt: 'x', keyResults: [], ...over })
 
-describe('O 卡片: 连续未达成点 + 决策折叠区', () => {
+describe('O 卡片: 连续未达成点', () => {
   test('右上红 / 黄点 + 悬浮「连续 N 周未达成」; 没有就不出', async () => {
     const red = await renderView(card, cardState(cobj(), { streak: { n: 3, level: 'CRITICAL' } }), { 'el-tooltip': true })
     assert.ok(red.includes('data-test="okr-streak-CRITICAL"'))
@@ -415,18 +241,6 @@ describe('O 卡片: 连续未达成点 + 决策折叠区', () => {
     assert.ok(yellow.includes('data-test="okr-streak-WARN"'))
     const none = await renderView(card, cardState(cobj()), { 'el-tooltip': true })
     assert.ok(!none.includes('data-test="okr-streak-'))
-  })
-  test('有决策: 底部「决策 N 条」折叠, 展开是标题 + 日期 + 决策人; 没决策不出', async () => {
-    const o = cobj({ decisions: [{ id: '5', title: '巡检改每周一次', decidedAt: '2026-11-21T02:00:00Z', decidedByName: '老板', status: 'ACTIVE' }, { id: '1', title: '巡检改两周一次', decidedAt: '2026-11-20T02:00:00Z', decidedByName: '老板', status: 'SUPERSEDED' }] })
-    const closed = await renderView(card, cardState(o), { 'el-tooltip': true })
-    has(closed, t('okr.fe5.dec_card_n', { p0: 2 }))
-    lacks(closed, '巡检改每周一次')
-    const open = await renderView(card, cardState(o, { decOpen: true }), { 'el-tooltip': true })
-    has(open, '巡检改每周一次')
-    has(open, '2026-11-21 · 老板')
-    assert.match(open, /<li class="off">/, '被取代的灰掉')
-    const none = await renderView(card, cardState(cobj()), { 'el-tooltip': true })
-    assert.ok(!none.includes('data-test="okr-card-decisions"'))
   })
 })
 
@@ -440,17 +254,15 @@ describe('页面接线: 我的 OKR / 团队 OKR', () => {
     assert.match(s, /exportItems\(\{ page: 'mine', user: me, week: weekKeyNow\.value, userId: ownerId\.value \|\| meId \}\)/)
     assert.ok(s.indexOf('<OkrRiskBars') < s.indexOf('<OkrWeekBar'), '在页面顶部')
   })
-  test('团队 OKR: 风险面板只给 ADMIN / MANAGER, 在周进度条上方; 导出含团队项; 按项目块头导出', () => {
+  test('团队 OKR: 导出含团队项; 没有风险面板 / 项目块导出(精简第二轮), 也不再拉团队预警', () => {
     const s = src('views/okr/TeamOkr.vue')
-    assert.match(s, /<OkrRiskPanel v-if="lead" :risk="risk" @open="openRisk" \/>/)
-    assert.ok(s.indexOf('<OkrRiskPanel') < s.indexOf('<OkrWeekStatus'), '在周进度条上方')
     assert.match(s, /exportItems\(\{ page: 'team'/)
-    assert.match(s, /<OkrExportMenu v-if="projectExport\(g\.head\)\.length"/)
-    assert.match(s, /async function loadRisk\(\) \{\s*if \(!lead\) return/, '工程师不拉团队预警')
+    assert.doesNotMatch(s, /OkrRiskPanel|projectExport|riskObjectives/)
   })
-  test('API: 预警 / 决策接口路径与后端一致', () => {
+  test('API: 预警接口路径与后端一致; 决策接口已删', () => {
     const s = src('api/index.js')
-    for (const p of ["'/api/okr/risk/objectives?'", "'/api/okr/decisions/timeline?'", "`/api/okr/decisions/${encodeURIComponent(id)}/supersede`", "method: 'PATCH'"]) assert.ok(s.includes(p), p)
+    assert.ok(s.includes("'/api/okr/risk/objectives?'"))
+    assert.ok(!s.includes('/api/okr/decisions'))
   })
   test('中英文 key 一致(fe5 段)', () => {
     const zh = JSON.parse(src('locales/zh-CN.json')).okr.fe5
@@ -458,6 +270,5 @@ describe('页面接线: 我的 OKR / 团队 OKR', () => {
     const keys = o => Object.entries(o).flatMap(([k, v]) => (typeof v === 'object' ? keys(v).map(x => k + '.' + x) : [k])).sort()
     assert.deepEqual(keys(zh), keys(en))
     assert.equal(zh.risk_bar, '「{p0}」已连续 {p1} 周未达成')
-    assert.equal(zh.risk_team, '{p0} 个 O 连续未达成（{p1} 红线）')
   })
 })

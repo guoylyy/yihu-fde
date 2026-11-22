@@ -199,7 +199,7 @@ export function overdueDays(dueDate, today = todayKey()) {
  * 其他 O 不带卡点字段(= 后端不动已有的); KR 带上阶段明细和卡点说明, 免得被清掉
  */
 export function planWithPatch(objectives, objectiveId, patch) {
-  return toDraft(objectives).map(({ projects: _p, ...o }) => ({
+  return toDraft(objectives).map(o => ({
     ...o,
     ...(String(o.id) === String(objectiveId) ? patch : {}),
     keyResults: o.keyResults.map(k => ({ ...k, unit: k.unit || null, milestones: k.metricType === 'MILESTONE' ? milestonePayload(k.milestones) : undefined }))
@@ -279,7 +279,6 @@ export function previewKrMeta(k, t) {
 export function planSnapshot(objectives) {
   return JSON.stringify((objectives || []).map(o => ({
     id: o.id || null, title: String(o.title || '').trim(), description: String(o.description || '').trim(), weight: Number(o.weight) || 0, status: o.status || 'ON_TRACK',
-    projectIds: [...(o.projectIds || [])].map(String).sort(),
     keyResults: (o.keyResults || []).map(k => ({
       id: k.id || null, title: String(k.title || '').trim(), metricType: k.metricType, unit: k.unit || '', targetValue: k.targetValue ?? null, weight: Number(k.weight) || 0,
       blockers: String(k.blockers || '').trim(), milestones: k.metricType === 'MILESTONE' ? milestonePayload(k.milestones) : null

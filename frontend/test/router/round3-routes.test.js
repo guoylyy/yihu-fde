@@ -8,19 +8,19 @@ const src = readFileSync(new URL('../../src/router/index.js', import.meta.url), 
 const routeLine = (path) => src.split('\n').find(l => l.includes(`path: '${path}'`))
 
 test('新页面路由都已注册, 工时路由保留', () => {
-  for (const p of ['team/members', 'team/load', 'team/skills', 'experience', 'conversations', 'timesheets', 'assets', 'workbench']) {
+  for (const p of ['team/members', 'team/skills', 'experience', 'conversations', 'timesheets', 'assets', 'workbench']) {
     assert.ok(routeLine(p), `缺少路由 ${p}`)
   }
   assert.match(src, /path: 'conversations\/:id\(\\\\d\+\)'/)
 })
 
-test('团队页按 team.view 拦(组长+老板), 承诺 vs 交付要 team.view.all: 工程师直达弹回今日', () => {
-  for (const p of ['team/members', 'team/load', 'team/skills']) {
+test('团队页按 team.view 拦(组长+老板): 工程师直达弹回今日; 负载 / 承诺 vs 交付已下线(旧地址落兜底 → 我的今日)', () => {
+  for (const p of ['team/members', 'team/skills']) {
     const idx = src.indexOf(`path: '${p}'`)
     assert.match(src.slice(idx, idx + 260), /requiredPerm: 'team\.view'/, p)
   }
-  const idx = src.indexOf("path: 'team/promise'")
-  assert.match(src.slice(idx, idx + 260), /requiredPerm: 'team\.view\.all'/)
+  assert.ok(!routeLine('team/load') && !routeLine('team/promise'))
+  assert.match(src, /\{ path: ':pathMatch\(\.\*\)\*', redirect: '\/admin\/workbench' \}/)
   assert.ok(src.includes("path: 'team/members/:engineerId(\\\\d+)'"), '个人页路由')
 
   const matched = [{ meta: { requiresInternalAuth: true } }, { meta: { requiredPerm: 'team.view', requiredRoles: ['ADMIN', 'TEAM_LEAD'] } }]
