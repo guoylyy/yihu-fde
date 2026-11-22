@@ -605,10 +605,10 @@ export async function markMiss({ objectiveId, userId, ownerId, reason, carryToNe
 
 /**
  * 应该交 OKR 的人: 在职的 FDE 工程师; 主管/老板自己也交了的话一并列出。
- * OKR 免提交白名单里的人不算(即使他自己交了也不进团队列表 / 统计)
+ * OKR 免提交白名单里的人不算(即使他自己交了也不进团队列表 / 统计); includeExempt=true 时一并列出(周评分进度要标「免提交」)
  */
-async function participants(cycleId) {
-  const exempt = await exemptIds()
+export async function participants(cycleId, { includeExempt = false } = {}) {
+  const exempt = includeExempt ? new Set() : await exemptIds()
   const engineers = await prisma.user.findMany({
     where: { role: { in: ['FDE_ENGINEER', 'TEAM_LEAD'] }, status: 1, deletedAt: null },
     select: { id: true }

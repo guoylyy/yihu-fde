@@ -29,6 +29,7 @@ import { generateOkrDraft } from '../services/okrDraft.js'
 import { resolveOkrTarget, canManageOkrOf, teamListScope, forViewer, teamForViewer, managerScoreScope, scopeCovers } from '../services/okrAccess.js'
 import { personOverview, weekStats, yearStats } from '../services/okrStats.js'
 import { describeExempt, setExempt, isExempt } from '../services/okrExempt.js'
+import { dailyView, dailyMissing, saveDailySummary } from '../services/okrDaily.js'
 import { listProjectDocs, getProjectDoc, loadProject, canWriteProjectDoc, saveProjectDoc } from '../services/okrProjectDocs.js'
 
 const router = express.Router()
@@ -462,6 +463,50 @@ router.post('/projects/:projectId/import', humanOnly('导入项目周 OKR'), pro
     const title = String(req.body?.title || req.file.originalname.replace(/\.[^.]+$/, '')).slice(0, 200)
     await saveDoc(req, res, { title, contentMd: text, sourceFile: req.file.originalname, via: 'import' })
   } catch (e) { fail(res, e, 'projects/:id/import') }
+})
+
+// ---------------------------------------------------------------- 每日进展总结(OKR 4.0)
+// 每人每天: autoItems(当天 okr_updates 自动归并) + 人补的一句 summary。免提交名单不出现。
+// 写: 本人; 主管代写带 targetUserId(代管范围同计划 / 进展: ADMIN 任何人, MANAGER / 组长限本团队)
+
+const isLead = req => ['ADMIN', 'MANAGER'].includes(req.user?.role)
+
+/** ADMIN / MANAGER 才能看的汇总; 不满足已回 403 */
+function leadOnly(what) {
+  return (req, res, next) => {
+    if (isLead(req)) return next()
+    res.status(403).json({ code: 8161, message: `只有管理员或经理能${what}` })
+  }
+}
+
+router.get('/daily', async (req, res) => {
+  try {
+    const scope = String(req.query.scope || 'team')
+    if (!['team', 'me'].includes(scope)) return res.status(400).json({ code: 8100, message: 'scope 只能是 team / me' })
+    const onlyUserIds = scope === 'me' ? new Set([String(req.user.id)]) : await teamListScope(req.user)
+    ok(res, { scope, ...(await dailyView(req.query.date, { onlyUserIds })) })
+  } catch (e) { fail(res, e, 'daily') }
+})
+
+router.get('/daily/missing', leadOnly('查看没写每日总结的名单'), async (req, res) => {
+  try {
+    ok(res, await dailyMissing(req.query.date, { onlyUserIds: await teamListScope(req.user) }))
+  } catch (e) { fail(res, e, 'daily/missing') }
+})
+
+router.put('/daily', async (req, res) => {
+  try {
+    const b = req.body || {}
+    const t = await targetOf(req)
+    const { row, created, date } = await saveDailySummary({ ownerId: t.ownerId, operatorId: t.operatorId, by: req.user.id, dateKey: b.date, summaryMd: b.summaryMd })
+    if (t.onBehalf) {
+      logInternalAction(req, 'okr.daily.save', { resourceType: 'okr_daily_summary', resourceId: row.id, details: { date, ownerId: t.ownerId, onBehalf: true, created } })
+    }
+    ok(res, {
+      id: String(row.id), userId: String(row.userId), date, summaryMd: row.summaryMd, hasWritten: true, created, updatedAt: row.updatedAt,
+      operatorId: row.operatorId != null ? String(row.operatorId) : null, onBehalfOf: onBehalfOf(t)
+    })
+  } catch (e) { fail(res, e, 'daily put') }
 })
 
 // ---------------------------------------------------------------- 设置: 免提交白名单
