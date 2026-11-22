@@ -1595,6 +1595,22 @@ model OkrDecision {
   @@map("okr_decisions")
 }
 
+// 精简第一轮: 本周项目整体计划。一周一份(唯一键 year+weekNo), 重复保存覆盖同一份, 记最近一次的 updatedById。
+// 全员可读, ADMIN / MANAGER 可写; 已结束(过去 + 已归档 / 已有主管评分)的周只读。取代 okr_project_docs(该表暂留)
+model OkrWeekPlan {
+  id          BigInt   @id @default(autoincrement())
+  year        Int // ISO 年
+  weekNo      Int      @map("week_no")
+  title       String?  @db.VarChar(200)
+  contentMd   String   @map("content_md") @db.Text
+  updatedById BigInt   @map("updated_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@unique([year, weekNo])
+  @@map("okr_week_plans")
+}
+
 // OKR 5.0: O 挂项目(一个 O 可挂多个项目, 空 = 个人发展类 O)。结构化归属, 与 okr_project_docs(叙述)并存。
 // 不建外键: 项目被删时保留关联行, 查询时过滤掉不存在 / 已删的项目; O 被删时由 savePlan 一并删关联
 model OkrObjectiveProject {

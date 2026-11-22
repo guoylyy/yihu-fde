@@ -35,6 +35,9 @@
 // OKR 10.0: GET /risk/objectives、/risk/people 连续未达成预警(只读现算, 口径见 services/okrRisk.js)。
 // 范围: ADMIN 全部, MANAGER 本团队, 工程师只看自己(自己的 CRITICAL 照样给)。?weeks=2–26(缺省 4), ?asOf=YYYY-MM-DD 回看某天视角。
 //
+// 精简第一轮: /week-plan 本周项目整体计划(一周一份 Markdown, 取代按项目拆分的 /projects 文档; 后者暂留)。
+// 全员可读, ADMIN / MANAGER 可写; 已结束的周只读(400)。import 只解析不落库。留痕 okr.weekplan.update。
+//
 // OKR 9.0: /decisions 决策记录(可挂 O / 项目 / 周期, 全员可读, 时间线回看)。写权限与 7 天窗口见 services/okrDecisions.js;
 // 每次写动作 await 留痕(okr.decision.create / update / supersede / delete)。/my /cycle /team 的 O 带最近 3 条 decisions。
 import express from 'express'
@@ -65,6 +68,7 @@ import { exportData, exportFileNames, contentDisposition, EXPORT_FORMATS } from 
 import { renderXlsx, renderDocx, CONTENT_TYPES } from '../services/okrExportFormat.js'
 import { objectiveRisk, peopleRisk, parseRiskWeeks, parseAsOf } from '../services/okrRisk.js'
 import { createDecision, listDecisions, getDecision, patchDecision, supersedeDecision, deleteDecision, decisionTimeline } from '../services/okrDecisions.js'
+import { getWeekPlan, saveWeekPlan, canWriteWeekPlan, CONTENT_MAX_BYTES as WEEK_PLAN_MAX_BYTES } from '../services/okrWeekPlan.js'
 
 const router = express.Router()
 router.use(internalAuth)
@@ -703,6 +707,47 @@ router.post('/projects/:projectId/import', humanOnly('导入项目周 OKR'), pro
     const title = String(req.body?.title || req.file.originalname.replace(/\.[^.]+$/, '')).slice(0, 200)
     await saveDoc(req, res, { title, contentMd: text, sourceFile: req.file.originalname, via: 'import' })
   } catch (e) { fail(res, e, 'projects/:id/import') }
+})
+
+// ---------------------------------------------------------------- 本周项目整体计划(精简第一轮)
+// 一周一份, 全员可读; ADMIN / MANAGER 可写; 已结束的周只读。口径见 services/okrWeekPlan.js
+
+router.get('/week-plan', async (req, res) => {
+  try {
+    const week = weekOf(req, res)
+    if (!week) return
+    ok(res, await getWeekPlan(week, req.user))
+  } catch (e) { fail(res, e, 'week-plan') }
+})
+
+router.put('/week-plan', humanOnly('编辑本周项目计划'), async (req, res) => {
+  try {
+    const week = weekOf(req, res)
+    if (!week) return
+    const b = req.body || {}
+    const { plan, created } = await saveWeekPlan({ week, title: b.title, contentMd: b.contentMd, user: req.user })
+    await logInternalAction(req, 'okr.weekplan.update', {
+      resourceType: 'okr_week_plan', resourceId: plan.id,
+      details: { week: plan.week, created, title: plan.title, chars: plan.contentMd.length }
+    })
+    ok(res, { ...plan, created })
+  } catch (e) { fail(res, e, 'week-plan put') }
+})
+
+// 先校验写权限再收文件; 只解析出 contentMd 返回, 不落库(前端确认后再 PUT)
+function weekPlanWriterOnly(req, res, next) {
+  if (canWriteWeekPlan(req.user)) return next()
+  res.status(403).json({ code: 8195, message: '只有管理员或经理能编辑本周项目计划' })
+}
+
+router.post('/week-plan/import', humanOnly('导入本周项目计划'), weekPlanWriterOnly, receiveOkrFile('week-plan/import'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ code: 8132, message: '请用 multipart 字段 file 上传 .md / .txt / .docx' })
+    const text = (await fileText(req.file)).replace(/\r\n?/g, '\n')
+    if (!text.trim()) return res.status(400).json({ code: 8132, message: '文件里没有读到正文' })
+    if (Buffer.byteLength(text, 'utf8') > WEEK_PLAN_MAX_BYTES) return res.status(400).json({ code: 8196, message: '正文太长(上限 64KB)' })
+    ok(res, { contentMd: text, title: req.file.originalname.replace(/\.[^.]+$/, '').slice(0, 200), fileName: req.file.originalname })
+  } catch (e) { fail(res, e, 'week-plan/import') }
 })
 
 // ---------------------------------------------------------------- 每日进展总结(OKR 4.0)
