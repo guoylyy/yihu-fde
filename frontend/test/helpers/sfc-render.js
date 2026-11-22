@@ -21,7 +21,7 @@ export function compileView(relPath) {
 const passthrough = { setup: (_, { slots }) => () => Vue.h('div', slots.default?.()) }
 const STUBS = ['el-input', 'el-button', 'el-tag', 'el-progress', 'el-avatar', 'el-skeleton', 'el-empty', 'el-tooltip',
   'el-dialog', 'el-radio-group', 'el-radio-button', 'el-select', 'el-option', 'el-form', 'el-form-item', 'el-icon',
-  'LoadError', 'router-link', 'TaskDetailDialog']
+  'LoadError', 'router-link', 'TaskDetailDialog', 'el-date-picker', 'el-checkbox', 'el-switch']
 
 /** 渲染; el-table 把 data 逐行喂给列的默认插槽, 列头插槽也渲染(看 tooltip 文案) */
 export async function renderView(render, state, extra = {}) {

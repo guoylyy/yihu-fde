@@ -55,6 +55,8 @@ const routes = [
       { path: 'okr/history', name: 'AdminOkrHistory', component: () => import('@/views/okr/OkrHistory.vue') },
       { path: 'okr/team', name: 'AdminOkrTeam', component: () => import('@/views/okr/TeamOkr.vue') },
       { path: 'okr/person/:userId(\\d+)', name: 'AdminOkrPerson', component: () => import('@/views/okr/OkrPerson.vue') },
+      // OKR 4.0 项目周 OKR(全员可读, 写权限页内按 ADMIN/MANAGER/项目成员判断)
+      { path: 'okr/projects', name: 'AdminOkrProjects', component: () => import('@/views/okr/ProjectOkr.vue') },
       { path: 'customers', name: 'AdminCustomers', component: () => import('@/views/admin/Customers.vue'),
         meta: { requiredPerm: 'customer.view', requiredRoles: ['ADMIN', 'MANAGER'] } },
       { path: 'projects', name: 'AdminProjects', component: () => import('@/views/admin/Projects.vue'),

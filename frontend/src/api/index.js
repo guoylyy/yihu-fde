@@ -643,7 +643,26 @@ export const fde = {
     exempt: () => request('/api/okr/settings/exempt'),
     saveExempt: (userIds) => request('/api/okr/settings/exempt', { method: 'PUT', body: JSON.stringify({ userIds }) }),
     close: (week) => request('/api/okr/cycle/close', { method: 'POST', body: JSON.stringify(week ? { week } : {}) }),
-    reopen: (week, reason) => request('/api/okr/cycle/reopen', { method: 'POST', body: JSON.stringify({ week, reason }) })
+    reopen: (week, reason) => request('/api/okr/cycle/reopen', { method: 'POST', body: JSON.stringify({ week, reason }) }),
+    // OKR 4.0: 项目周 OKR 文档(一周一项目一份 Markdown; 全员可读, ADMIN/MANAGER/项目成员可写)
+    projectDocs: (week) => request('/api/okr/projects?' + new URLSearchParams(clean({ week })).toString()),
+    projectDoc: (projectId, week) => request(`/api/okr/projects/${encodeURIComponent(projectId)}?` + new URLSearchParams(clean({ week })).toString()),
+    saveProjectDoc: (projectId, { week, title, contentMd }) => request(`/api/okr/projects/${encodeURIComponent(projectId)}`, { method: 'PUT', body: JSON.stringify({ week, title, contentMd }) }),
+    importProjectDoc: (projectId, week, file) => {
+      const fd = new FormData()
+      fd.append('file', file)
+      return request(`/api/okr/projects/${encodeURIComponent(projectId)}/import?week=${encodeURIComponent(week)}`, { method: 'POST', body: fd, timeout: 60000 })
+    },
+    // OKR 4.0: 每日总结(autoItems 自动归并 + 人补一句); 主管代写带 targetUserId
+    daily: (date, scope) => request('/api/okr/daily?' + new URLSearchParams(clean({ date, scope })).toString()),
+    saveDaily: (date, summaryMd, targetUserId) => request('/api/okr/daily', { method: 'PUT', body: JSON.stringify(withTarget({ date, summaryMd }, targetUserId)) }),
+    dailyMissing: (date) => request('/api/okr/daily/missing?' + new URLSearchParams(clean({ date })).toString()),
+    // OKR 4.0: 周评分进度 + 催交(ADMIN/MANAGER)
+    weekStatus: (week) => request('/api/okr/week/status?' + new URLSearchParams(clean({ week })).toString()),
+    remindWeek: (week, userIds) => request('/api/okr/week/remind', { method: 'POST', body: JSON.stringify(userIds ? { week, userIds } : { week }) }),
+    // OKR 5.0: 按项目分组看 O
+    byProject: (week) => request('/api/okr/by-project?' + new URLSearchParams(clean({ week })).toString()),
+    projectObjectives: (projectId, week) => request(`/api/okr/projects/${encodeURIComponent(projectId)}/objectives?` + new URLSearchParams(clean({ week })).toString())
   },
   reports: {
     projects: (params = {}) => {

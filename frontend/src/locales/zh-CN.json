@@ -2433,6 +2433,26 @@
       "exempt_empty": "名单为空，所有工程师都需要提交周 OKR",
       "exempt_count": "已选 {p0} 人",
       "exempt_saved": "免提交名单已保存"
+    },
+    "proj": {
+      "all": "全部项目",
+      "has_doc": "本周已有项目 OKR",
+      "upload": "上传文档",
+      "edit": "编辑",
+      "paste": "直接粘贴",
+      "summary": "本周 {p0}/{p1} 个项目有项目 OKR",
+      "none_short": "本周还没有",
+      "no_projects": "没有进行中的项目",
+      "from_file": "来自 {p0}",
+      "updated": "{p0} 更新于 {p1}",
+      "empty": "{p0} 本周还没有项目 OKR，上传或直接粘贴",
+      "edit_title": "{p0} · {p1} 项目 OKR",
+      "title_ph": "标题（可不填，默认取正文第一个标题）",
+      "content_ph": "Markdown 正文，如：\n# 本周目标\n- O1 …\n  - KR1 …",
+      "saved": "已保存",
+      "imported": "已导入",
+      "file_type": "只支持 .md / .txt / .docx",
+      "file_size": "文件不能超过 2MB"
     }
   },
   "assistant": {
@@ -2518,7 +2538,8 @@
     "experience": "经验",
     "experience_library": "经验库",
     "conversations": "会话",
-    "settings": "设置"
+    "settings": "设置",
+    "project_okr": "项目 OKR"
   },
   "today": {
     "okr_week": "本周 OKR",

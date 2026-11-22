@@ -182,9 +182,9 @@
 import { $t } from '@/i18n'
 import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowDown, Bell, User, Document, Avatar, UserFilled, List, DataAnalysis, Reading, Key, Setting, Connection, Checked, Guide, Fold, Expand, Opportunity, OfficeBuilding, Aim, MagicStick, TrendCharts, Collection, ChatLineSquare, Timer } from '@element-plus/icons-vue'
+import { ArrowDown, Bell, User, Document, Avatar, UserFilled, List, DataAnalysis, Reading, Key, Setting, Connection, Checked, Guide, Fold, Expand, Opportunity, OfficeBuilding, Aim, MagicStick, TrendCharts, Collection, ChatLineSquare, Timer, Flag, Notebook } from '@element-plus/icons-vue'
 import { buildNav, activeMenuPath, DEFAULT_OPENEDS } from './navMenu.js'
-const NAV_ICONS = { User, Document, Avatar, UserFilled, List, DataAnalysis, Reading, Key, Setting, Checked, Guide, Opportunity, OfficeBuilding, Aim, TrendCharts, Collection, ChatLineSquare, Timer }
+const NAV_ICONS = { User, Document, Avatar, UserFilled, List, DataAnalysis, Reading, Key, Setting, Checked, Guide, Opportunity, OfficeBuilding, Aim, TrendCharts, Collection, ChatLineSquare, Timer, Flag, Notebook }
 import { fde } from '@/api/index.js'
 import LangSwitch from '@/components/common/LangSwitch.vue'
 import { can as permCan, refreshMyPermissions, clearMyPermissions } from '@/api/permissions.js'

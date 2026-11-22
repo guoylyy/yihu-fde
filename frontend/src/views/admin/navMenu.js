@@ -41,6 +41,8 @@ export function buildNav({ can, moduleEnabled = () => true, role } = {}) {
       key: 'delivery', index: NAV_GROUPS.delivery, title: 'nav.delivery',
       items: [
         { path: '/admin/projects', title: 'common.projects', icon: 'Document', show: can('projects') },
+        // OKR 4.0: 项目周 OKR 全员可读(写权限在页内判断)
+        { path: '/admin/okr/projects', title: 'nav.project_okr', icon: 'Flag', show: moduleEnabled('okr') },
         { path: '/admin/tasks', title: 'common.tasks', icon: 'List', show: can('project.view') || role === 'FDE_ENGINEER' },
         { path: '/admin/customers', title: 'common.customers', icon: 'User', show: can('customers') },
         { path: '/admin/knowledge', title: 'common.knowledge_base', icon: 'Reading', show: can('knowledge') },
@@ -83,6 +85,10 @@ export function activeMenuPath(path) {
     return '/admin/experience'
   }
   if (p === '/admin/team/promise') return '/admin/team/load'
+  // 交付组里的 OKR 页先认, 免得被下面的 /admin/okr 前缀吃掉
+  for (const pre of ['/admin/okr/projects', '/admin/okr/daily']) {
+    if (p === pre || p.startsWith(pre + '/')) return pre
+  }
   const prefixes = ['/admin/team/members', '/admin/projects', '/admin/knowledge', '/admin/conversations', '/admin/experience', '/admin/okr', '/admin/timesheets']
   for (const pre of prefixes) {
     if (p.startsWith(pre + '/')) return pre

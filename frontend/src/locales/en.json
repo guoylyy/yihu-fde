@@ -2433,6 +2433,26 @@
       "exempt_empty": "The list is empty: every engineer needs to submit weekly OKRs",
       "exempt_count": "{p0} selected",
       "exempt_saved": "Exemption list saved"
+    },
+    "proj": {
+      "all": "All projects",
+      "has_doc": "Has a project OKR this week",
+      "upload": "Upload",
+      "edit": "Edit",
+      "paste": "Paste text",
+      "summary": "{p0}/{p1} projects have a project OKR this week",
+      "none_short": "None yet this week",
+      "no_projects": "No active projects",
+      "from_file": "from {p0}",
+      "updated": "Updated by {p0} on {p1}",
+      "empty": "{p0} has no project OKR this week. Upload a file or paste it in",
+      "edit_title": "{p0} · {p1} project OKR",
+      "title_ph": "Title (optional; defaults to the first heading)",
+      "content_ph": "Markdown, e.g.:\n# Goals this week\n- O1 …\n  - KR1 …",
+      "saved": "Saved",
+      "imported": "Imported",
+      "file_type": "Only .md / .txt / .docx files",
+      "file_size": "File must be 2MB or smaller"
     }
   },
   "assistant": {
@@ -2518,7 +2538,8 @@
     "experience": "Experience",
     "experience_library": "Experience library",
     "conversations": "Conversations",
-    "settings": "Settings"
+    "settings": "Settings",
+    "project_okr": "Project OKR"
   },
   "today": {
     "okr_week": "This week's OKR",
