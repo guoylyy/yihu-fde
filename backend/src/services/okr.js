@@ -12,7 +12,8 @@ import {
   isReopened, isEditable, isScorable, isLate, submitDeadline, normalizePlan, checkKrStatus,
   krProgress, objectiveProgress, personProgress, weightedScore, derivedObjectiveStatus,
   validScore, personalStatus, equalWeights, LOW_COMPLETION, UPDATE_KINDS,
-  creatableRange, isCreatableWeek, isPastWeek, planWritable, isProgressWritable, unhandledKrs
+  creatableRange, isCreatableWeek, isPastWeek, planWritable, isProgressWritable, unhandledKrs,
+  shanghaiDateKey, parseMilestones, milestonesWithDone, milestoneStatus, checkMilestoneValue
 } from './okrRules.js'
 
 export { planWritable }
@@ -123,6 +124,8 @@ function krView(k) {
   return {
     id: String(k.id), seq: k.seq, title: k.title, metricType: k.metricType, unit: k.unit,
     targetValue: k.targetValue, currentValue: k.currentValue, weight: k.weight, status: k.status,
+    // 6.0: 阶段型带阶段明细(done 已按已完成阶段数回写), 其他类型为 null
+    milestones: k.metricType === 'MILESTONE' ? parseMilestones(k.milestones) : null,
     progress: r4(krProgress(k)), updatedAt: k.updatedAt
   }
 }
@@ -227,7 +230,8 @@ export async function savePlan({ ownerId, operatorId = null, week, objectives, s
       include: { keyResults: true, _count: { select: { updates: true, scores: true, misses: true } } }
     })
     const alreadySubmitted = existing.some(o => o.submittedAt)
-    const plan = normalizePlan(objectives, { strict: submit || alreadySubmitted })
+    const today = shanghaiDateKey(now)
+    const plan = normalizePlan(objectives, { strict: submit || alreadySubmitted, today })
     // 5.0: 每个 O 的 projectIds(normalizePlan 与入参逐条对应); null = 没传, 不动已有关联
     const projectIdsOf = plan.map((o, i) => normalizeProjectIds(objectives[i]?.projectIds, o.title))
     await assertProjectsExist(projectIdsOf.flatMap(ids => ids || []), tx)
@@ -288,9 +292,11 @@ export async function savePlan({ ownerId, operatorId = null, week, objectives, s
             let status = ok.status
             try { checkKrStatus(k.metricType, status) } catch { status = k.metricType === 'BINARY' ? null : 'ON_TRACK' }
             if (status == null && k.metricType !== 'BINARY') status = 'ON_TRACK'
+            const ms = k.metricType === 'MILESTONE' ? milestonePlanUpdate(ok, k, status, today) : { milestones: null }
+            if (ms.status) status = ms.status
             await tx.okrKeyResult.update({
               where: { id: ok.id },
-              data: { seq: k.seq, title: k.title, metricType: k.metricType, unit: k.unit, targetValue: k.targetValue, weight: k.weight, status }
+              data: { seq: k.seq, title: k.title, metricType: k.metricType, unit: k.unit, targetValue: k.targetValue, weight: k.weight, status, milestones: ms.milestones }
             })
           } else {
             await tx.okrKeyResult.create({ data: krData(objId, k) })
@@ -330,7 +336,33 @@ async function canWritePlan(cycle, ownerId, db = prisma) {
 function krData(objectiveId, k) {
   return {
     objectiveId, seq: k.seq, title: k.title, metricType: k.metricType, unit: k.unit,
-    targetValue: k.targetValue, currentValue: k.currentValue ?? 0, weight: k.weight, status: k.status
+    targetValue: k.targetValue, currentValue: k.currentValue ?? 0, weight: k.weight, status: k.status,
+    milestones: k.milestones ? JSON.stringify(k.milestones) : null
+  }
+}
+
+/**
+ * 计划里改已有的阶段型 KR: 已完成阶段数(currentValue)只走进展接口改, 这里沿用旧值。
+ * 没传 milestones = 沿用旧的阶段明细(老前端不认识这个字段, 整份覆盖时不能把阶段清掉), 此时目标值要等于旧阶段数。
+ * 阶段数不能少于已完成数; 换类型过来时旧当前值也得是合法的已完成阶段数。返回 { milestones(JSON|null), status }
+ */
+function milestonePlanUpdate(old, k, status, today) {
+  const done = Number(old.currentValue)
+  let list = k.milestones
+  if (!list) {
+    const prev = old.metricType === 'MILESTONE' ? parseMilestones(old.milestones) : []
+    if (prev.length && prev.length !== k.targetValue) {
+      throw new OkrRuleError(`「${k.title}」有 ${prev.length} 个阶段, 目标值却是 ${k.targetValue}; 改阶段数请把 milestones 一起传上来`, { code: 8102 })
+    }
+    list = prev.length ? prev : null
+  }
+  if (!Number.isInteger(done) || done < 0 || done > k.targetValue) {
+    throw new OkrRuleError(`「${k.title}」已完成 ${old.currentValue} 个阶段, 阶段型 KR 的阶段数要 ≥ 已完成数(且已完成数是整数)`, { code: 8102 })
+  }
+  const withDone = list ? milestonesWithDone(list, done) : null
+  return {
+    milestones: withDone ? JSON.stringify(withDone) : null,
+    status: milestoneStatus({ done, target: k.targetValue, milestones: withDone, status, today })
   }
 }
 
@@ -369,6 +401,18 @@ async function applyKrChange(tx, { o, kr, value, status, content, kind, source, 
   const before = { value: kr.currentValue, status: kr.status }
   let newValue = kr.currentValue
   let newStatus = kr.status
+  let milestones
+  if (kr.metricType === 'MILESTONE') {
+    // 阶段型: 值 = 已完成阶段数(0..阶段数的整数); 明确标 DONE = 全部阶段完成; 状态与阶段 done 由服务器推导回写
+    const explicit = status !== undefined && status !== null && status !== '' ? checkKrStatus(kr.metricType, status) : null
+    newValue = value !== undefined && value !== null && value !== '' ? checkMilestoneValue(value, kr.targetValue, kr.title) : kr.currentValue
+    if (explicit === 'DONE') newValue = Number(kr.targetValue)
+    const list = milestonesWithDone(parseMilestones(kr.milestones), newValue)
+    newStatus = milestoneStatus({ done: newValue, target: Number(kr.targetValue), milestones: list, status: explicit ?? kr.status, explicit: !!explicit, today: shanghaiDateKey(now) })
+    milestones = list.length ? JSON.stringify(list) : kr.milestones
+    value = undefined
+    status = undefined
+  }
   if (value !== undefined && value !== null && value !== '') {
     newValue = kr.metricType === 'BINARY' ? binaryValue(value) : Number(value)
     if (!Number.isFinite(newValue)) throw new OkrRuleError('数值不是数字', { code: 8104 })
@@ -380,7 +424,7 @@ async function applyKrChange(tx, { o, kr, value, status, content, kind, source, 
     newStatus = checkKrStatus(kr.metricType, status)
     if (kr.metricType === 'BINARY') newValue = newStatus === 'DONE' ? 1 : 0
   }
-  await tx.okrKeyResult.update({ where: { id: kr.id }, data: { currentValue: newValue, status: newStatus } })
+  await tx.okrKeyResult.update({ where: { id: kr.id }, data: { currentValue: newValue, status: newStatus, ...(milestones !== undefined ? { milestones } : {}) } })
   const text = String(content || '').trim() || autoContent(kr, before, { value: newValue, status: newStatus })
   const upd = await tx.okrUpdate.create({
     data: {
@@ -467,7 +511,8 @@ export async function patchKr({ krId, userId, ownerId, currentValue, status, not
 
 /**
  * KR 完成开关: done=true → DONE(BINARY 值 1, 数值型值 = 目标值); done=false → MISSED(明确「未完成」,
- * 数值型的当前值不动, 进度由人另填; BINARY 的值随状态为 0)。同样留一条 OkrUpdate。
+ * 数值型的当前值不动, 进度由人另填; BINARY 的值随状态为 0)。
+ * 阶段型(6.0): done=true = 全部阶段置完成; done=false = 只把状态改 MISSED, 阶段不动。同样留一条 OkrUpdate。
  * 返回该 KR 最新状态 + 所属 O 的完成度 / 状态 + 本人这周的整体完成度, 前端拿来立刻重算
  */
 export async function completeKr({ krId, userId, ownerId, done, note, source = 'MANUAL', sourceQuote, agentProfileId, now = new Date() }) {
@@ -589,7 +634,9 @@ export async function markMiss({ objectiveId, userId, ownerId, reason, carryToNe
           data: {
             objectiveId: carried.id, seq: i + 1, title: k.title, metricType: k.metricType, unit: k.unit,
             targetValue: k.targetValue, currentValue: k.metricType === 'BINARY' ? 0 : k.currentValue,
-            weight: k.weight ?? krWeights[i], status: k.metricType === 'BINARY' ? null : 'ON_TRACK'
+            weight: k.weight ?? krWeights[i], status: k.metricType === 'BINARY' ? null : 'ON_TRACK',
+            // 6.0: 阶段型带上阶段明细(已完成的阶段照旧算完成)
+            milestones: k.metricType === 'MILESTONE' ? k.milestones : null
           }
         })
       }

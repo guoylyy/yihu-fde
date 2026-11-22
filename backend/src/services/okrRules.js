@@ -9,11 +9,13 @@ export const CYCLE_STATUSES = ['PLANNING', 'SUBMITTED', 'IN_PROGRESS', 'REVIEW',
 export const OBJECTIVE_STATUSES = ['ON_TRACK', 'AT_RISK', 'DONE', 'MISSED', 'DROPPED']
 export const KR_STATUSES = ['ON_TRACK', 'AT_RISK', 'DONE', 'MISSED']
 export const BINARY_KR_STATUSES = ['DONE', 'MISSED']
-export const METRIC_TYPES = ['BINARY', 'PERCENT', 'NUMBER']
+// MILESTONE(6.0): 阶段型 —— targetValue = 阶段总数, currentValue = 已完成阶段数, 阶段明细存 milestones(JSON)
+export const METRIC_TYPES = ['BINARY', 'PERCENT', 'NUMBER', 'MILESTONE']
 export const UPDATE_KINDS = ['DAILY', 'MIDWEEK', 'FINAL']
 
 export const MAX_OBJECTIVES = 3
 export const MAX_KRS = 10
+export const MAX_MILESTONES = 20
 export const WEIGHT_EPSILON = 0.01
 /** 低于这个完成率连续两周的人, 团队视图单独列一段 */
 export const LOW_COMPLETION = 0.6
@@ -261,7 +263,7 @@ export function checkKrStatus(metricType, status) {
  * strict=true 时(提交)校验三条硬约束: 每个 O 至少 1 个 KR、O 权重合计 100、每个 O 的 KR 权重合计 100。
  * 草稿只做类型与长度校验, 不要求凑齐。
  */
-export function normalizePlan(objectives, { strict = false } = {}) {
+export function normalizePlan(objectives, { strict = false, today = shanghaiDateKey() } = {}) {
   if (!Array.isArray(objectives)) throw new OkrRuleError('objectives 必须是数组', { code: 8101 })
   const active = objectives.filter(o => o && o.status !== 'DROPPED')
   if (active.length > MAX_OBJECTIVES) throw new OkrRuleError(`每周最多 ${MAX_OBJECTIVES} 个 O`, { code: 8101 })
@@ -291,10 +293,32 @@ export function normalizePlan(objectives, { strict = false } = {}) {
       if (Number.isNaN(targetValue) || Number.isNaN(currentValue)) throw new OkrRuleError(`「${krTitle}」的数值不是数字`, { code: 8102 })
       if (metricType === 'BINARY') targetValue = 1
       else if (metricType === 'PERCENT' && targetValue === null) targetValue = 100
+      let milestones = null
+      if (metricType === 'MILESTONE') {
+        // 阶段型: 阶段数决定目标值; 没给阶段明细时 targetValue 至少 1。草稿也校验(0 个阶段没有意义)
+        const ms = normalizeMilestones(k.milestones, krTitle)
+        if (ms && ms.length) {
+          if (targetValue !== null && targetValue !== ms.length) {
+            throw new OkrRuleError(`「${krTitle}」有 ${ms.length} 个阶段, 目标值却是 ${targetValue}; 阶段型 KR 的目标值 = 阶段数`, { code: 8102 })
+          }
+          targetValue = ms.length
+        }
+        if (!Number.isInteger(targetValue) || targetValue < 1) {
+          throw new OkrRuleError(`「${krTitle}」是阶段型 KR, 至少要有 1 个阶段(targetValue 为 ≥1 的整数)`, { code: 8102 })
+        }
+        if (ms && (k.currentValue === undefined || k.currentValue === null || k.currentValue === '')) {
+          currentValue = ms.filter(m => m.done).length
+        }
+        checkMilestoneValue(currentValue, targetValue, krTitle)
+        milestones = ms ? milestonesWithDone(ms, currentValue) : null
+      }
       if (metricType !== 'BINARY' && strict && !(targetValue > 0)) {
         throw new OkrRuleError(`「${krTitle}」是数值型 KR, 目标值要大于 0`, { code: 8102 })
       }
-      const st = checkKrStatus(metricType, k.status) ?? (metricType === 'BINARY' ? null : 'ON_TRACK')
+      let st = checkKrStatus(metricType, k.status) ?? (metricType === 'BINARY' ? null : 'ON_TRACK')
+      if (metricType === 'MILESTONE') {
+        st = milestoneStatus({ done: currentValue, target: targetValue, milestones, status: st, explicit: k.status != null && k.status !== '', today })
+      }
       return {
         id: k.id != null && k.id !== '' ? String(k.id) : null,
         title: krTitle,
@@ -303,7 +327,8 @@ export function normalizePlan(objectives, { strict = false } = {}) {
         targetValue,
         currentValue,
         weight: k.weight,
-        status: st
+        status: st,
+        milestones
       }
     }))
     if (krs.some(k => !Number.isFinite(k.weight) || k.weight < 0)) throw new OkrRuleError(`「${title}」的 KR 权重要是非负数`, { code: 8103 })
@@ -329,6 +354,83 @@ export function normalizePlan(objectives, { strict = false } = {}) {
     throw new OkrRuleError(`本周 O 的权重合计是 ${round2(live.reduce((s, o) => s + o.weight, 0))}, 要等于 100`, { code: 8103 })
   }
   return out.map((o, i) => ({ ...o, seq: i + 1 }))
+}
+
+// ---------------------------------------------------------------- 阶段型 KR(MILESTONE, 6.0)
+
+/** 上海日期 YYYY-MM-DD */
+export function shanghaiDateKey(now = new Date()) {
+  return new Date(now.getTime() + TZ_OFFSET_MS).toISOString().slice(0, 10)
+}
+
+/** YYYY-MM-DD 且是真实日期 */
+export function isDateKey(s) {
+  if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false
+  const d = new Date(`${s}T00:00:00Z`)
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s
+}
+
+/**
+ * 规整阶段明细: [{ name, dueDate?, done? }] → [{ name, dueDate, done }]。
+ * 没传(undefined / null)返回 null(调用方决定沿用旧的); done 只用来在没给 currentValue 时数已完成个数,
+ * 最终以服务器按已完成阶段数回写的为准
+ */
+export function normalizeMilestones(raw, krTitle = '') {
+  if (raw === undefined || raw === null) return null
+  if (!Array.isArray(raw)) throw new OkrRuleError(`「${krTitle}」的 milestones 要是数组`, { code: 8102 })
+  if (raw.length > MAX_MILESTONES) throw new OkrRuleError(`「${krTitle}」的阶段超过 ${MAX_MILESTONES} 个`, { code: 8102 })
+  return raw.map((m, i) => {
+    if (!m || typeof m !== 'object') throw new OkrRuleError(`「${krTitle}」第 ${i + 1} 个阶段格式不对`, { code: 8102 })
+    const name = String(m.name ?? '').trim()
+    if (!name) throw new OkrRuleError(`「${krTitle}」第 ${i + 1} 个阶段没有名称`, { code: 8102 })
+    if (name.length > 100) throw new OkrRuleError(`「${krTitle}」第 ${i + 1} 个阶段名称超过 100 字`, { code: 8102 })
+    const due = m.dueDate === undefined || m.dueDate === null || m.dueDate === '' ? null : String(m.dueDate).slice(0, 10)
+    if (due !== null && !isDateKey(due)) throw new OkrRuleError(`「${krTitle}」第 ${i + 1} 个阶段的日期要是 YYYY-MM-DD`, { code: 8102 })
+    return { name, dueDate: due, done: m.done === true }
+  })
+}
+
+/** 阶段按顺序推进: 前 done 个完成, 其余未完成(done 由服务器回写, 不信前端) */
+export function milestonesWithDone(list, done) {
+  return (list || []).map((m, i) => ({ name: m.name, dueDate: m.dueDate ?? null, done: i < done }))
+}
+
+/** 已完成阶段数: 0..target 的整数, 否则 400 */
+export function checkMilestoneValue(v, target, krTitle = '') {
+  const n = Number(v)
+  if (v === null || v === undefined || v === '' || !Number.isInteger(n) || n < 0 || n > Number(target)) {
+    throw new OkrRuleError(`「${krTitle}」是阶段型 KR, 已完成阶段数只能是 0–${target} 的整数`, { code: 8104 })
+  }
+  return n
+}
+
+/** 存库的 JSON → 数组; 坏数据当空 */
+export function parseMilestones(raw) {
+  if (!raw) return []
+  try {
+    const arr = typeof raw === 'string' ? JSON.parse(raw) : raw
+    return Array.isArray(arr) ? arr : []
+  } catch { return [] }
+}
+
+/** 有没有已过截止日(早于 today)还没完成的阶段 */
+export function milestoneOverdue(milestones, today = shanghaiDateKey()) {
+  return (milestones || []).some(m => !m.done && m.dueDate && m.dueDate < today)
+}
+
+/**
+ * 阶段型 KR 的状态。status = 本次明确给的状态, 没给就是原状态; explicit = 本次是否明确给了状态。
+ * - 明确标 MISSED → MISSED; 原来是 MISSED 且还没全部完成 → 仍 MISSED(只有人能把它改回来)
+ * - 全部阶段完成 → DONE
+ * - 有阶段逾期未完成 → AT_RISK(不会自动改成 MISSED)
+ * - 其余沿用; 从 DONE 退回(有阶段被取消) → ON_TRACK
+ */
+export function milestoneStatus({ done, target, milestones, status, explicit = false, today = shanghaiDateKey() }) {
+  if (status === 'MISSED' && (explicit || done < target)) return 'MISSED'
+  if (done >= target) return 'DONE'
+  if (milestoneOverdue(milestones, today)) return 'AT_RISK'
+  if (!status || status === 'DONE') return 'ON_TRACK'
+  return status
 }
 
 // ---------------------------------------------------------------- 完成度

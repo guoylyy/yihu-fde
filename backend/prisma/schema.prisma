@@ -1457,13 +1457,15 @@ model OkrKeyResult {
   objectiveId  BigInt   @map("objective_id")
   seq          Int      @default(1)
   title        String   @db.VarChar(200)
-  metricType   String   @default("BINARY") @map("metric_type") @db.VarChar(10) // BINARY|PERCENT|NUMBER
+  metricType   String   @default("BINARY") @map("metric_type") @db.VarChar(10) // BINARY|PERCENT|NUMBER|MILESTONE
   unit         String?  @db.VarChar(20)
   targetValue  Float?   @map("target_value") // BINARY 恒为 1
   currentValue Float    @default(0) @map("current_value")
   weight       Float    @default(100) // 同一个 O 下合计 100
   // ON_TRACK|AT_RISK|DONE|MISSED; BINARY 只允许 DONE/MISSED(未定时为空)
   status       String?  @db.VarChar(20)
+  // OKR 6.0 MILESTONE: 阶段明细 JSON [{name, dueDate, done}]; targetValue = 阶段数, currentValue = 已完成阶段数
+  milestones   String?  @db.Text
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 

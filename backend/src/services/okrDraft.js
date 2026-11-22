@@ -26,10 +26,13 @@ const clip = (s, max) => {
   return t.length > max ? t.slice(0, max) : t
 }
 
+const DRAFT_METRIC_TYPES = METRIC_TYPES.filter(t => t !== 'MILESTONE')
+
 function normKr(k) {
   const title = clip(typeof k === 'string' ? k : k?.title, TITLE_MAX)
   if (!title) return null
-  let metricType = METRIC_TYPES.includes(k?.metricType) ? k.metricType : 'BINARY'
+  // 草稿只出三种老类型: 阶段型要人自己列阶段, 不让模型猜
+  let metricType = DRAFT_METRIC_TYPES.includes(k?.metricType) ? k.metricType : 'BINARY'
   let targetValue = Number(k?.targetValue)
   let unit = null
   if (metricType === 'PERCENT') {
