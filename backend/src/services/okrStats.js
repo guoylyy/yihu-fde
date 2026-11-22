@@ -3,7 +3,8 @@
 // 主管评分是否返回由路由按查看人处理(okrAccess.forViewer), 这里一律算出来。
 // OKR 免提交白名单里的人不进统计: 三个接口照常 200(带 exempt: true), 但按「一周都没参与」返回 —— 不计迟交、不计承诺。
 import prisma from '../lib/prisma.js'
-import { OkrRuleError, isoWeekOf, shiftWeek, weekKey, krProgress, objectiveProgress } from './okrRules.js'
+import { OkrRuleError, isoWeekOf, shiftWeek, weekKey, krProgress, objectiveProgress, shanghaiDateKey } from './okrRules.js'
+import { blockerOwnerNames, riskFields, riskSummary } from './okrBlockers.js'
 import { personSummary, cycleView } from './okr.js'
 import { isExempt } from './okrExempt.js'
 import { projectsByObjective } from './okrObjectiveProjects.js'
@@ -99,7 +100,7 @@ export async function personOverview(userId, { now = new Date(), trendWeeks = 8 
     const e = emptyWeek(cur)
     return {
       user, exempt,
-      current: { week: e.key, status: null, submitted: false, late: false, objectiveCount: 0, krCount: 0, avgSelfScore: null, managerScore: null, lateCount: 0, updateCount: 0 },
+      current: { week: e.key, status: null, submitted: false, late: false, objectiveCount: 0, krCount: 0, avgSelfScore: null, managerScore: null, lateCount: 0, updateCount: 0, riskLevel: null, blockerCount: 0, blockerOverdueCount: 0, objectives: [] },
       trend: keys.map(k => ({ key: weekKey(k), year: k.year, weekNo: k.weekNo, submitted: false, selfScore: null, managerScore: null, completion: null })),
       years: []
     }
@@ -118,6 +119,11 @@ export async function personOverview(userId, { now = new Date(), trendWeeks = 8 
   }
 
   const now0 = rowOf(cur)
+  // 6.0: 当前周每个 O 的风险等级 + 卡点摘要(前端画红黄绿)
+  const curCycle = byKey.get(weekKey(cur))
+  const curObjs = curCycle ? (byCycle.get(String(curCycle.id)) || []) : []
+  const today = shanghaiDateKey(now)
+  const blockerNames = await blockerOwnerNames(curObjs)
   const curYearRows = cycles.filter(c => c.year === cur.year).map(c => weekRow(c, byCycle.get(String(c.id)) || []))
   const years = new Map()
   for (const c of cycles) {
@@ -141,7 +147,9 @@ export async function personOverview(userId, { now = new Date(), trendWeeks = 8 
       managerScore: now0.managerScore,
       // 迟交次数: 本年度累计迟交的周数(单周只有迟交 / 没迟交)
       lateCount: curYearRows.filter(r => r.late).length,
-      updateCount: now0.updateCount
+      updateCount: now0.updateCount,
+      ...riskSummary(curObjs, today),
+      objectives: curObjs.map(o => ({ id: String(o.id), seq: o.seq, title: o.title, status: o.status, ...riskFields(o, blockerNames, today) }))
     },
     trend: keys.map(k => {
       const r = rowOf(k)

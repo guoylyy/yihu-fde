@@ -6,7 +6,8 @@
 // - 读: 只返回仍存在的项目(项目被删时关联行保留, 这里过滤掉)
 // - 统计口径不变(仍按人); 这里只提供「O 属于哪些项目」以及按项目汇总的读视图
 import prisma from '../lib/prisma.js'
-import { OkrRuleError, objectiveProgress } from './okrRules.js'
+import { OkrRuleError, objectiveProgress, maxRiskLevel } from './okrRules.js'
+import { riskFields } from './okrBlockers.js'
 
 export const MAX_PROJECTS_PER_OBJECTIVE = 10
 export const UNASSIGNED_NAME = '未挂项目'
@@ -122,10 +123,12 @@ export function groupCompletion(items) {
 }
 
 /** 按项目视图里的一条 O(含负责人、权重、完成度、自评 / 主管分; 主管分由路由按查看人裁剪) */
-export function projectObjectiveView(o, owner, projects) {
+export function projectObjectiveView(o, owner, projects, { blockerNames = new Map(), today } = {}) {
   const krs = [...(o.keyResults || [])].sort((a, b) => a.seq - b.seq)
   return {
     id: String(o.id), seq: o.seq, title: o.title, weight: o.weight, status: o.status,
+    // 6.0: 风险等级 + 卡点摘要
+    ...riskFields(o, blockerNames, today),
     submitted: !!o.submittedAt, lateSubmit: o.lateSubmit,
     owner,
     progress: r4(objectiveProgress({ keyResults: krs })),
@@ -136,9 +139,14 @@ export function projectObjectiveView(o, owner, projects) {
 }
 
 export function groupSummary(objectives) {
+  const live = objectives.filter(o => o.status !== 'DROPPED')
   return {
     ownerCount: new Set(objectives.map(o => o.owner?.id)).size,
-    completion: groupCompletion(objectives)
+    completion: groupCompletion(objectives),
+    // 6.0: 组内最高风险等级 / 有卡点的 O 数 / 卡点逾期的 O 数(DROPPED 不算)
+    riskLevel: maxRiskLevel(live),
+    blockerCount: live.filter(o => o.blocker).length,
+    blockerOverdueCount: live.filter(o => o.blocker?.overdue).length
   }
 }
 

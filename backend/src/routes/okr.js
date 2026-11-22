@@ -21,6 +21,10 @@
 // (不传 = 不动, [] = 清空; 都要是未删除的项目, 最多 10 个); /my /cycle /team 的 O 带 projects;
 // /team?projectId= 按项目筛 O; /by-project 按项目分组; /projects/:id/objectives 某项目某周全部 O。
 // 统计(close-by-score / person overview / stats)口径不变, 仍按人; /stats 的 O 只多带项目名称。
+//
+// OKR 6.0: KR 加阶段型(MILESTONE, 阶段明细 milestones); O 加卡点三件套(blockers / blockerOwnerId / blockerDueDate, 填了说明
+// 另两个必填, 否则 8120)与 riskLevel(LOW/MEDIUM/HIGH), KR 加 blockers。/plan 不传这些字段 = 不动已有的。
+// /my /cycle /team /by-project /projects/:id/objectives /person/:id/overview 的 O 带 riskLevel + blocker 摘要。
 import express from 'express'
 import multer from 'multer'
 import mammoth from 'mammoth'

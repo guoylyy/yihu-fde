@@ -12,6 +12,10 @@ export const BINARY_KR_STATUSES = ['DONE', 'MISSED']
 // MILESTONE(6.0): 阶段型 —— targetValue = 阶段总数, currentValue = 已完成阶段数, 阶段明细存 milestones(JSON)
 export const METRIC_TYPES = ['BINARY', 'PERCENT', 'NUMBER', 'MILESTONE']
 export const UPDATE_KINDS = ['DAILY', 'MIDWEEK', 'FINAL']
+// 6.0: O 的风险等级(前端画红黄绿)
+export const RISK_LEVELS = ['LOW', 'MEDIUM', 'HIGH']
+export const BLOCKER_MAX = 2000
+export const BLOCKER_INCOMPLETE_MSG = '填了卡点就要写清卡在谁、什么时候要'
 
 export const MAX_OBJECTIVES = 3
 export const MAX_KRS = 10
@@ -322,6 +326,8 @@ export function normalizePlan(objectives, { strict = false, today = shanghaiDate
       return {
         id: k.id != null && k.id !== '' ? String(k.id) : null,
         title: krTitle,
+        // 6.0: KR 卡点说明; undefined = 没传(不动已有的), '' / null = 清空
+        blockers: k.blockers === undefined ? undefined : (String(k.blockers ?? '').trim().slice(0, BLOCKER_MAX) || null),
         metricType,
         unit: k.unit ? String(k.unit).slice(0, 20) : null,
         targetValue,
@@ -339,6 +345,9 @@ export function normalizePlan(objectives, { strict = false, today = shanghaiDate
       id: o.id != null && o.id !== '' ? String(o.id) : null,
       title,
       description: o.description ? String(o.description).slice(0, 5000) : null,
+      // 6.0: 卡点三件套与风险; undefined = 没传(不动已有的, 老前端整份覆盖时不能把卡点清掉)
+      ...normalizeBlocker(o, title),
+      riskLevel: normalizeRiskLevel(o.riskLevel, title),
       weight: status === 'DROPPED' ? 0 : o.weight,
       status,
       keyResults: krs.map((k, j) => ({ ...k, seq: j + 1 }))
@@ -354,6 +363,52 @@ export function normalizePlan(objectives, { strict = false, today = shanghaiDate
     throw new OkrRuleError(`本周 O 的权重合计是 ${round2(live.reduce((s, o) => s + o.weight, 0))}, 要等于 100`, { code: 8103 })
   }
   return out.map((o, i) => ({ ...o, seq: i + 1 }))
+}
+
+// ---------------------------------------------------------------- 卡点 / 风险(6.0)
+
+/**
+ * O 的卡点三件套: blockers(说明) / blockerOwnerId(卡在谁) / blockerDueDate(依赖截止日 YYYY-MM-DD)。
+ * 三个都没传 → {}(保存时不动已有的); 说明为空 → 三个一起清空; 说明非空 → 另两个必填且合法, 否则 8120
+ */
+export function normalizeBlocker(o, title = '') {
+  if (o.blockers === undefined && o.blockerOwnerId === undefined && o.blockerDueDate === undefined) return {}
+  const text = String(o.blockers ?? '').trim()
+  if (!text) return { blockers: null, blockerOwnerId: null, blockerDueDate: null }
+  if (text.length > BLOCKER_MAX) throw new OkrRuleError(`「${title}」的卡点说明超过 ${BLOCKER_MAX} 字`, { code: 8120 })
+  const owner = o.blockerOwnerId == null ? '' : String(o.blockerOwnerId).trim()
+  const due = o.blockerDueDate == null ? '' : String(o.blockerDueDate).trim().slice(0, 10)
+  if (!owner || !due) throw new OkrRuleError(BLOCKER_INCOMPLETE_MSG, { code: 8120 })
+  if (!/^\d+$/.test(owner)) throw new OkrRuleError(`${BLOCKER_INCOMPLETE_MSG}: 「${title}」的 blockerOwnerId 要是用户 id`, { code: 8120 })
+  if (!isDateKey(due)) throw new OkrRuleError(`${BLOCKER_INCOMPLETE_MSG}: 「${title}」的 blockerDueDate 要是 YYYY-MM-DD`, { code: 8120 })
+  return { blockers: text, blockerOwnerId: owner, blockerDueDate: due }
+}
+
+/** 风险等级: 没传(undefined / null)返回 undefined = 不动; 只认 LOW / MEDIUM / HIGH */
+export function normalizeRiskLevel(v, title = '') {
+  if (v === undefined || v === null) return undefined
+  if (!RISK_LEVELS.includes(v)) throw new OkrRuleError(`「${title}」的风险等级只能是 ${RISK_LEVELS.join(' / ')}, 不能是 ${v}`, { code: 8101 })
+  return v
+}
+
+/** 卡点逾期: 截止日早于今天(上海), 且 O 还没完成(DONE; 已放弃的 DROPPED 也不算) */
+export function blockerOverdue(o, today = shanghaiDateKey()) {
+  const due = dateKeyOf(o.blockerDueDate)
+  return !!(o.blockers && due && due < today && !['DONE', 'DROPPED'].includes(o.status))
+}
+
+/** Date(@db.Date, UTC 零点) / 字符串 → YYYY-MM-DD; 空返回 null */
+export function dateKeyOf(v) {
+  if (v === undefined || v === null || v === '') return null
+  if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v.toISOString().slice(0, 10)
+  return String(v).slice(0, 10)
+}
+
+/** 多个 O 里最高的风险等级(DROPPED 不算); 没有 O 返回 null */
+export function maxRiskLevel(objectives) {
+  const live = (objectives || []).filter(o => o.status !== 'DROPPED')
+  if (!live.length) return null
+  return live.reduce((m, o) => (RISK_LEVELS.indexOf(o.riskLevel || 'LOW') > RISK_LEVELS.indexOf(m) ? (o.riskLevel || 'LOW') : m), 'LOW')
 }
 
 // ---------------------------------------------------------------- 阶段型 KR(MILESTONE, 6.0)

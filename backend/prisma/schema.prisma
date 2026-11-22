@@ -1438,6 +1438,11 @@ model OkrObjective {
   // OKR 2.0: 主管代管留痕 —— 最近一次由他人代为保存/提交计划的操作人(本人自己保存时清空)
   operatorId          BigInt?  @map("operator_id")
   submittedByOperator Boolean  @default(false) @map("submitted_by_operator")
+  // OKR 6.0: 外部依赖 / 卡点 / 风险。blockers 非空时 blockerOwnerId 与 blockerDueDate 必填(服务层校验 8120)
+  blockers       String?   @db.Text
+  blockerOwnerId BigInt?   @map("blocker_owner_id") // 卡在谁那里(userId)
+  blockerDueDate DateTime? @map("blocker_due_date") @db.Date // 依赖截止日; 到期提醒按它扫
+  riskLevel      String    @default("LOW") @map("risk_level") @db.VarChar(10) // LOW|MEDIUM|HIGH
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
@@ -1449,6 +1454,7 @@ model OkrObjective {
 
   @@index([cycleId, ownerId])
   @@index([ownerId])
+  @@index([blockerDueDate])
   @@map("okr_objectives")
 }
 
@@ -1466,6 +1472,7 @@ model OkrKeyResult {
   status       String?  @db.VarChar(20)
   // OKR 6.0 MILESTONE: 阶段明细 JSON [{name, dueDate, done}]; targetValue = 阶段数, currentValue = 已完成阶段数
   milestones   String?  @db.Text
+  blockers     String?  @db.Text // OKR 6.0: 这条 KR 的外部依赖 / 卡点说明
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 

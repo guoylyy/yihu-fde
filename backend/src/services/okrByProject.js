@@ -5,7 +5,8 @@
 // 主管分 / 主管评语这里一律算出来, 由路由按查看人逐条裁剪(okrAccess.canSeeManagerScore)。
 // 读接口不建周期: 那一周没有周期就返回空。
 import prisma from '../lib/prisma.js'
-import { weekKey } from './okrRules.js'
+import { weekKey, shanghaiDateKey } from './okrRules.js'
+import { blockerOwnerNames } from './okrBlockers.js'
 import { getCycle, participants } from './okr.js'
 import {
   projectsByObjective, objectiveIdsOfProject, projectObjectiveView, groupSummary, unassignedProject, projectBrief
@@ -15,7 +16,7 @@ const USER_SELECT = { id: true, name: true, username: true, avatarUrl: true }
 
 async function weekObjectives(week, { onlyIds = null } = {}) {
   const cycle = await getCycle(week)
-  if (!cycle) return { cycle: null, objs: [], users: new Map() }
+  if (!cycle) return { cycle: null, objs: [], users: new Map(), risk: {} }
   const allowed = new Set(await participants(cycle.id))
   const objs = (await prisma.okrObjective.findMany({
     where: { cycleId: cycle.id, ...(onlyIds ? { id: { in: [...onlyIds].map(BigInt) } } : {}) },
@@ -25,7 +26,9 @@ async function weekObjectives(week, { onlyIds = null } = {}) {
   const ownerIds = [...new Set(objs.map(o => String(o.ownerId)))]
   const rows = ownerIds.length ? await prisma.user.findMany({ where: { id: { in: ownerIds.map(BigInt) } }, select: USER_SELECT }) : []
   const users = new Map(rows.map(u => [String(u.id), { id: String(u.id), name: u.name, username: u.username, avatarUrl: u.avatarUrl }]))
-  return { cycle, objs, users }
+  // 6.0: 卡点人名字 + 今天(算卡点逾期)
+  const risk = { blockerNames: await blockerOwnerNames(objs), today: shanghaiDateKey() }
+  return { cycle, objs, users, risk }
 }
 
 const ownerOf = (users, o) => users.get(String(o.ownerId)) || { id: String(o.ownerId) }
@@ -37,14 +40,14 @@ function sortObjectives(list) {
 
 /** [{ project, objectives, ownerCount, completion }]; 项目按名称排, 「未挂项目」垫底 */
 export async function byProject(week) {
-  const { objs, users } = await weekObjectives(week)
+  const { objs, users, risk } = await weekObjectives(week)
   if (!objs.length) return []
   const projects = await projectsByObjective(objs.map(o => o.id))
   const groups = new Map()
   const unassigned = []
   for (const o of objs) {
     const ps = projects.get(String(o.id)) || []
-    const view = projectObjectiveView(o, ownerOf(users, o), ps)
+    const view = projectObjectiveView(o, ownerOf(users, o), ps, risk)
     if (!ps.length) { unassigned.push(view); continue }
     for (const p of ps) {
       if (!groups.has(p.id)) groups.set(p.id, { project: p, objectives: [] })
@@ -62,12 +65,12 @@ export async function byProject(week) {
 export async function projectObjectives(project, week) {
   const cycle = await getCycle(week)
   const base = { project: projectBrief(project), week: weekKey(week), cycleStatus: cycle?.status ?? null }
-  if (!cycle) return { ...base, objectives: [], ownerCount: 0, completion: null }
+  if (!cycle) return { ...base, objectives: [], ownerCount: 0, completion: null, riskLevel: null, blockerCount: 0, blockerOverdueCount: 0 }
   const cycleObjIds = (await prisma.okrObjective.findMany({ where: { cycleId: cycle.id }, select: { id: true } })).map(o => String(o.id))
   const ids = await objectiveIdsOfProject(project.id, cycleObjIds)
-  if (!ids.size) return { ...base, objectives: [], ownerCount: 0, completion: null }
-  const { objs, users } = await weekObjectives(week, { onlyIds: ids })
+  if (!ids.size) return { ...base, objectives: [], ownerCount: 0, completion: null, riskLevel: null, blockerCount: 0, blockerOverdueCount: 0 }
+  const { objs, users, risk } = await weekObjectives(week, { onlyIds: ids })
   const projects = await projectsByObjective(objs.map(o => o.id))
-  const list = sortObjectives(objs.map(o => projectObjectiveView(o, ownerOf(users, o), projects.get(String(o.id)) || [])))
+  const list = sortObjectives(objs.map(o => projectObjectiveView(o, ownerOf(users, o), projects.get(String(o.id)) || [], risk)))
   return { ...base, objectives: list, ...groupSummary(list) }
 }

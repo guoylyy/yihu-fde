@@ -7,6 +7,7 @@ import {
   normalizeProjectIds, assertProjectsExist, replaceObjectiveProjects, deleteObjectiveProjects, copyObjectiveProjects,
   projectsByObjective, objectiveIdsOfProject
 } from './okrObjectiveProjects.js'
+import { blockerOwnerNames, riskFields, riskSummary, assertBlockerOwnersExist } from './okrBlockers.js'
 import {
   OkrRuleError, isoWeekOf, weekRange, weekKey, shiftWeek, compareWeek, nextStatus, timeStatus,
   isReopened, isEditable, isScorable, isLate, submitDeadline, normalizePlan, checkKrStatus,
@@ -126,6 +127,7 @@ function krView(k) {
     targetValue: k.targetValue, currentValue: k.currentValue, weight: k.weight, status: k.status,
     // 6.0: 阶段型带阶段明细(done 已按已完成阶段数回写), 其他类型为 null
     milestones: k.metricType === 'MILESTONE' ? parseMilestones(k.milestones) : null,
+    blockers: k.blockers ?? null,
     progress: r4(krProgress(k)), updatedAt: k.updatedAt
   }
 }
@@ -142,11 +144,13 @@ function updateView(u, users) {
   }
 }
 
-function objectiveView(o, users, { detail = true } = {}) {
+function objectiveView(o, users, { detail = true, blockerNames = new Map(), today } = {}) {
   const krs = [...(o.keyResults || [])].sort((a, b) => a.seq - b.seq)
   const v = {
     id: String(o.id), seq: o.seq, title: o.title, description: o.description, weight: o.weight,
     status: o.status, selfScore: o.selfScore, managerScore: o.managerScore, managerComment: o.managerComment,
+    // 6.0: 风险等级 + 卡点摘要 { text, ownerId, ownerName, dueDate, overdue }
+    ...riskFields(o, blockerNames, today),
     submittedAt: o.submittedAt, lateSubmit: o.lateSubmit,
     submittedByOperator: !!o.submittedByOperator,
     onBehalfOf: o.operatorId != null ? (users.get(String(o.operatorId)) || { id: String(o.operatorId) }) : null,
@@ -192,7 +196,9 @@ export async function personWeek(cycle, ownerId, { detail = true, updatesPerObje
   }
   const users = await loadUsers(userIds)
   const projects = await projectsByObjective(objectives.map(o => o.id))
-  const views = objectives.map(o => ({ ...objectiveView(o, users, { detail }), projects: projects.get(String(o.id)) || [] }))
+  const blockerNames = await blockerOwnerNames(objectives)
+  const today = shanghaiDateKey(now)
+  const views = objectives.map(o => ({ ...objectiveView(o, users, { detail, blockerNames, today }), projects: projects.get(String(o.id)) || [] }))
   const cv = cycleView(cycle, now)
   return {
     cycle: cv,
@@ -235,6 +241,7 @@ export async function savePlan({ ownerId, operatorId = null, week, objectives, s
     // 5.0: 每个 O 的 projectIds(normalizePlan 与入参逐条对应); null = 没传, 不动已有关联
     const projectIdsOf = plan.map((o, i) => normalizeProjectIds(objectives[i]?.projectIds, o.title))
     await assertProjectsExist(projectIdsOf.flatMap(ids => ids || []), tx)
+    await assertBlockerOwnersExist(plan.map(o => o.blockerOwnerId), tx)
     const by = operator ?? owner
     const projectLinks = []
 
@@ -269,6 +276,7 @@ export async function savePlan({ ownerId, operatorId = null, week, objectives, s
           where: { id: objId },
           data: {
             seq: o.seq, title: o.title, description: o.description, weight: o.weight, status: o.status,
+            ...blockerData(o),
             operatorId: operator,
             // 已提交的保留第一次的提交时间与迟交标记
             ...(old.submittedAt ? {} : submitFields)
@@ -296,7 +304,10 @@ export async function savePlan({ ownerId, operatorId = null, week, objectives, s
             if (ms.status) status = ms.status
             await tx.okrKeyResult.update({
               where: { id: ok.id },
-              data: { seq: k.seq, title: k.title, metricType: k.metricType, unit: k.unit, targetValue: k.targetValue, weight: k.weight, status, milestones: ms.milestones }
+              data: {
+                seq: k.seq, title: k.title, metricType: k.metricType, unit: k.unit, targetValue: k.targetValue, weight: k.weight, status, milestones: ms.milestones,
+                ...(k.blockers !== undefined ? { blockers: k.blockers } : {})
+              }
             })
           } else {
             await tx.okrKeyResult.create({ data: krData(objId, k) })
@@ -306,7 +317,7 @@ export async function savePlan({ ownerId, operatorId = null, week, objectives, s
         const created = await tx.okrObjective.create({
           data: {
             cycleId: cycle.id, ownerId: owner, seq: o.seq, title: o.title, description: o.description,
-            weight: o.weight, status: o.status, operatorId: operator, ...submitFields
+            weight: o.weight, status: o.status, ...blockerData(o), operatorId: operator, ...submitFields
           }
         })
         objId = created.id
@@ -337,8 +348,21 @@ function krData(objectiveId, k) {
   return {
     objectiveId, seq: k.seq, title: k.title, metricType: k.metricType, unit: k.unit,
     targetValue: k.targetValue, currentValue: k.currentValue ?? 0, weight: k.weight, status: k.status,
-    milestones: k.milestones ? JSON.stringify(k.milestones) : null
+    milestones: k.milestones ? JSON.stringify(k.milestones) : null,
+    blockers: k.blockers ?? null
   }
+}
+
+/** O 的卡点 / 风险字段: 没传的不写(不动已有的) */
+function blockerData(o) {
+  const d = {}
+  if (o.blockers !== undefined) {
+    d.blockers = o.blockers
+    d.blockerOwnerId = o.blockerOwnerId != null ? BigInt(o.blockerOwnerId) : null
+    d.blockerDueDate = o.blockerDueDate ? new Date(`${o.blockerDueDate}T00:00:00.000Z`) : null
+  }
+  if (o.riskLevel !== undefined) d.riskLevel = o.riskLevel
+  return d
 }
 
 /**
@@ -622,7 +646,9 @@ export async function markMiss({ objectiveId, userId, ownerId, reason, carryToNe
         data: {
           cycleId: nextCycle.id, ownerId: o.ownerId, seq: theirs.length + 1, title: o.title,
           description: [`顺延自 ${weekKey(o.cycle)}`, o.description].filter(Boolean).join('\n'),
-          weight: 0, status: 'ON_TRACK'
+          weight: 0, status: 'ON_TRACK',
+          // 6.0: 卡点 / 风险跟着走(依赖往往还没解决)
+          blockers: o.blockers, blockerOwnerId: o.blockerOwnerId, blockerDueDate: o.blockerDueDate, riskLevel: o.riskLevel
         }
       })
       // 5.0: 顺延的 O 带上原 O 的项目
@@ -636,7 +662,8 @@ export async function markMiss({ objectiveId, userId, ownerId, reason, carryToNe
             targetValue: k.targetValue, currentValue: k.metricType === 'BINARY' ? 0 : k.currentValue,
             weight: k.weight ?? krWeights[i], status: k.metricType === 'BINARY' ? null : 'ON_TRACK',
             // 6.0: 阶段型带上阶段明细(已完成的阶段照旧算完成)
-            milestones: k.metricType === 'MILESTONE' ? k.milestones : null
+            milestones: k.metricType === 'MILESTONE' ? k.milestones : null,
+            blockers: k.blockers
           }
         })
       }
@@ -702,10 +729,11 @@ export function personSummary(cycle, objs) {
 }
 
 /** 团队行里的一条 O(简版, 带项目) */
-function teamObjectiveView(o, projects) {
+function teamObjectiveView(o, projects, blockerNames, today) {
   const krs = [...(o.keyResults || [])].sort((a, b) => a.seq - b.seq)
   return {
     id: String(o.id), seq: o.seq, title: o.title, weight: o.weight, status: o.status,
+    ...riskFields(o, blockerNames, today),
     submitted: !!o.submittedAt, progress: r4(objectiveProgress({ keyResults: krs })),
     selfScore: o.selfScore, managerScore: o.managerScore,
     projects: projects.get(String(o.id)) || []
@@ -733,13 +761,17 @@ export async function teamView(week, { now = new Date(), onlyUserIds = null, pro
   }
   const projects = await projectsByObjective(objs.map(o => o.id))
   const inProject = projectId != null ? await objectiveIdsOfProject(projectId, objs.map(o => o.id)) : null
+  const blockerNames = await blockerOwnerNames(objs)
+  const today = shanghaiDateKey(now)
   const rows = ids.filter(id => users.has(id)).map(id => ({
     user: users.get(id),
     ...(cycle ? personSummary(cycle, byOwner.get(id) || []) : { submitted: false, submission: 'NONE', objectiveCount: 0, krTotal: 0, krDone: 0, completion: null, selfScore: null, managerScore: null, personalStatus: 'NOT_SUBMITTED' }),
+    // 6.0: 这人这周最高风险等级 + 卡点数 / 逾期卡点数(按人, 不因 projectId 筛选改变)
+    ...riskSummary(byOwner.get(id) || [], today),
     objectives: (byOwner.get(id) || [])
       .filter(o => !inProject || inProject.has(String(o.id)))
       .sort((a, b) => a.seq - b.seq)
-      .map(o => teamObjectiveView(o, projects))
+      .map(o => teamObjectiveView(o, projects, blockerNames, today))
   }))
   // 稳定排序: 未交的在前(主管先看到), 其余按名字
   const order = { NONE: 0, LATE: 1, ON_TIME: 2 }
