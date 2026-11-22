@@ -1,6 +1,6 @@
 // 周 OKR(公司管理级) —— /api/okr
 //
-// 与项目管理完全独立: 不挂项目、不产生任务、不记工时。
+// 与项目管理的任务 / 工时独立: 不产生任务、不记工时。5.0 起 O 可结构化挂项目(多项目, 见下方 OKR 5.0)。
 // 所有硬约束都在这里(经 services/okr.js)校验, 界面隐藏按钮只是体验, 不是防线。
 //
 // 助手(MCP)调用: 内部 token 带 via='mcp'。助手只能写进展 / KR 数值 / 自评,
@@ -16,6 +16,11 @@
 //
 // OKR 4.0: 项目周 OKR 文档(/projects, 全员可读, ADMIN / MANAGER / 项目成员可写)、每日进展总结(/daily)、
 // 周评分进度与催交(/week/status、/week/remind, ADMIN 全部 / MANAGER 本团队)。不改上面任何既有规则。
+//
+// OKR 5.0: O 挂项目(okr_objective_projects, 一个 O 可挂多个)。/plan 的 objectives[i].projectIds 全量替换关联
+// (不传 = 不动, [] = 清空; 都要是未删除的项目, 最多 10 个); /my /cycle /team 的 O 带 projects;
+// /team?projectId= 按项目筛 O; /by-project 按项目分组; /projects/:id/objectives 某项目某周全部 O。
+// 统计(close-by-score / person overview / stats)口径不变, 仍按人; /stats 的 O 只多带项目名称。
 import express from 'express'
 import multer from 'multer'
 import mammoth from 'mammoth'
@@ -209,19 +214,22 @@ async function plan(req, res, submit) {
   const week = weekOf(req, res)
   if (!week) return
   const t = await targetOf(req)
-  const { late } = await savePlan({ ownerId: t.ownerId, operatorId: t.operatorId, week, objectives: req.body?.objectives, submit })
+  const { late, projectLinks } = await savePlan({ ownerId: t.ownerId, operatorId: t.operatorId, week, objectives: req.body?.objectives, submit })
   const cycle = await getCycle(week)
   const data = await personWeek(cycle, t.ownerId)
   data.onBehalfOf = onBehalfOf(t)
+  // 5.0: 这次显式设置了项目关联的 O → { objectiveId: [projectId...] }, 写进审计
+  const projectIds = projectLinks.length ? Object.fromEntries(projectLinks.map(l => [l.objectiveId, l.projectIds])) : null
+  const extra = { ...(t.onBehalf ? { ownerId: t.ownerId, onBehalf: true } : {}), ...(projectIds ? { projectIds } : {}) }
   if (submit) {
     data.lateSubmit = !!late
     data.submittedByOperator = t.onBehalf
     logInternalAction(req, 'okr.plan.submit', {
       resourceType: 'okr_cycle', resourceId: cycle.id,
-      details: { week: weekKey(week), late: !!late, ...(t.onBehalf ? { ownerId: t.ownerId, onBehalf: true } : {}) }
+      details: { week: weekKey(week), late: !!late, ...extra }
     })
-  } else if (t.onBehalf) {
-    logInternalAction(req, 'okr.plan.save', { resourceType: 'okr_cycle', resourceId: cycle.id, details: { week: weekKey(week), ownerId: t.ownerId, onBehalf: true } })
+  } else if (t.onBehalf || projectIds) {
+    logInternalAction(req, 'okr.plan.save', { resourceType: 'okr_cycle', resourceId: cycle.id, details: { week: weekKey(week), ...extra } })
   }
   ok(res, data)
 }

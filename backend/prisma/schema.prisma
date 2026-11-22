@@ -1427,7 +1427,7 @@ model OkrObjective {
   ownerId        BigInt    @map("owner_id") // userId
   seq            Int       @default(1)
   title          String    @db.VarChar(200)
-  description    String?   @db.Text // 可以提项目名, 纯文本, 不做关联
+  description    String?   @db.Text // 纯文本; 结构化的项目归属见 OkrObjectiveProject(5.0)
   weight         Float     @default(100) // 同一周同一人合计 100(DROPPED 不计)
   status         String    @default("ON_TRACK") @db.VarChar(20) // ON_TRACK|AT_RISK|DONE|MISSED|DROPPED
   selfScore      Int?      @map("self_score") // 最近一次自评, 历史见 okr_scores
@@ -1543,6 +1543,20 @@ model OkrProjectDoc {
   @@unique([projectId, year, weekNo])
   @@index([year, weekNo])
   @@map("okr_project_docs")
+}
+
+// OKR 5.0: O 挂项目(一个 O 可挂多个项目, 空 = 个人发展类 O)。结构化归属, 与 okr_project_docs(叙述)并存。
+// 不建外键: 项目被删时保留关联行, 查询时过滤掉不存在 / 已删的项目; O 被删时由 savePlan 一并删关联
+model OkrObjectiveProject {
+  id          BigInt   @id @default(autoincrement())
+  objectiveId BigInt   @map("objective_id")
+  projectId   BigInt   @map("project_id")
+  createdBy   BigInt   @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@unique([objectiveId, projectId])
+  @@index([projectId])
+  @@map("okr_objective_projects")
 }
 
 // OKR 4.0: 每人每天一篇进展总结(人补一句); 自动聚合部分从 okr_updates 现算, 不落库

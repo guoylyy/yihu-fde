@@ -1,8 +1,12 @@
 // 周 OKR 的数据操作。路由、MCP(经路由)、定时任务都走这里。
-// 与项目管理完全独立: 不读写 Project / Task / Timesheet。
+// 与任务 / 工时完全独立: 不读写 Task / Timesheet。5.0 起 O 可挂项目(okr_objective_projects, 只读 Project 校验存在与取名称)。
 import prisma from '../lib/prisma.js'
 import { pushNotification } from '../lib/notify.js'
 import { exemptIds } from './okrExempt.js'
+import {
+  normalizeProjectIds, assertProjectsExist, replaceObjectiveProjects, deleteObjectiveProjects, copyObjectiveProjects,
+  projectsByObjective, objectiveIdsOfProject
+} from './okrObjectiveProjects.js'
 import {
   OkrRuleError, isoWeekOf, weekRange, weekKey, shiftWeek, compareWeek, nextStatus, timeStatus,
   isReopened, isEditable, isScorable, isLate, submitDeadline, normalizePlan, checkKrStatus,
@@ -184,7 +188,8 @@ export async function personWeek(cycle, ownerId, { detail = true, updatesPerObje
     for (const s of o.scores) userIds.push(s.scorerId, s.operatorId)
   }
   const users = await loadUsers(userIds)
-  const views = objectives.map(o => objectiveView(o, users, { detail }))
+  const projects = await projectsByObjective(objectives.map(o => o.id))
+  const views = objectives.map(o => ({ ...objectiveView(o, users, { detail }), projects: projects.get(String(o.id)) || [] }))
   const cv = cycleView(cycle, now)
   return {
     cycle: cv,
@@ -223,6 +228,11 @@ export async function savePlan({ ownerId, operatorId = null, week, objectives, s
     })
     const alreadySubmitted = existing.some(o => o.submittedAt)
     const plan = normalizePlan(objectives, { strict: submit || alreadySubmitted })
+    // 5.0: 每个 O 的 projectIds(normalizePlan 与入参逐条对应); null = 没传, 不动已有关联
+    const projectIdsOf = plan.map((o, i) => normalizeProjectIds(objectives[i]?.projectIds, o.title))
+    await assertProjectsExist(projectIdsOf.flatMap(ids => ids || []), tx)
+    const by = operator ?? owner
+    const projectLinks = []
 
     const byId = new Map(existing.map(o => [String(o.id), o]))
     const keepIds = new Set(plan.filter(o => o.id).map(o => o.id))
@@ -238,12 +248,13 @@ export async function savePlan({ ownerId, operatorId = null, week, objectives, s
         throw conflict(`「${old.title}」已有进展或评分记录, 不能删除; 不做了可以把它的状态改成 DROPPED`)
       }
       await tx.okrKeyResult.deleteMany({ where: { objectiveId: old.id } })
+      await deleteObjectiveProjects(tx, old.id)
       await tx.okrObjective.delete({ where: { id: old.id } })
     }
 
     // 迟交按被操作人这一周的截止判定(周期即被操作人的周期), 与谁点的提交无关
     const late = isLate(cycle.startDate, now)
-    for (const o of plan) {
+    for (const [i, o] of plan.entries()) {
       const live = o.status !== 'DROPPED'
       const submitFields = submit && live ? { submittedAt: now, lateSubmit: late, submittedByOperator: operator != null } : {}
       let objId
@@ -295,11 +306,16 @@ export async function savePlan({ ownerId, operatorId = null, week, objectives, s
         objId = created.id
         for (const k of o.keyResults) await tx.okrKeyResult.create({ data: krData(objId, k) })
       }
+      // 全量替换项目关联: O 行已被上面的 update / create 锁住, 并发保存同一 O 会在这里排队
+      if (projectIdsOf[i] !== null) {
+        await replaceObjectiveProjects(tx, objId, projectIdsOf[i], by)
+        projectLinks.push({ objectiveId: String(objId), projectIds: projectIdsOf[i] })
+      }
       const fresh = await tx.okrObjective.findUnique({ where: { id: objId }, include: { keyResults: true } })
       const st = derivedObjectiveStatus(fresh)
       if (st !== fresh.status) await tx.okrObjective.update({ where: { id: objId }, data: { status: st } })
     }
-    return { cycle, late: submit ? late : undefined }
+    return { cycle, late: submit ? late : undefined, projectLinks }
   })
 }
 
@@ -564,6 +580,8 @@ export async function markMiss({ objectiveId, userId, ownerId, reason, carryToNe
           weight: 0, status: 'ON_TRACK'
         }
       })
+      // 5.0: 顺延的 O 带上原 O 的项目
+      await copyObjectiveProjects(tx, o.id, carried.id, userId)
       const krWeights = equalWeights(o.keyResults.length)
       const krs = [...o.keyResults].sort((a, b) => a.seq - b.seq)
       for (const [i, k] of krs.entries()) {
