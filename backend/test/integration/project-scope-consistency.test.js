@@ -98,15 +98,24 @@ describe('项目详情与子资源的数据范围必须一致', () => {
     assert.equal(recs.status, 404)
   })
 
+  // 第二个项目挂在本套件 before 里自建的客户下。以前取「客户列表第一条」(= 最新建的客户),
+  // 并行跑时那往往是别的套件刚建、马上要删的临时客户 —— 建项目报「客户不存在」, 再在 finally 里
+  // 读 other.data.id 炸成 TypeError(全量 npm test 约 1/4 偶发)。
   test('记录只属于自己的项目 —— 换个项目查不到这条', async () => {
-    const customers = await admin.get('/api/fde/customers?page=1&page_size=1')
-    const other = await admin.post('/api/fde/projects', { name: uniqName('项目'), customerId: customers.data.list[0].id })
+    const other = await admin.post('/api/fde/projects', { name: uniqName('项目'), customerId })
+    assert.equal(other.code, 0, `建第二个项目失败: ${other.message}`)
+    const otherId = other.data.id
     try {
-      const recs = await admin.get(`/api/fde/project-records/${other.data.id}/records`)
+      assert.notEqual(otherId, projectId)
+      const recs = await admin.get(`/api/fde/project-records/${otherId}/records`)
       assert.equal(recs.code, 0, recs.message)
       assert.equal(recs.data.total, 0, '新项目不该看到别的项目的记录')
+      // 反向确认: 原项目那条记录还在原项目里
+      const mine = await admin.get(`/api/fde/project-records/${projectId}/records`)
+      assert.equal(mine.code, 0, mine.message)
+      assert.deepEqual(mine.data.list.map(x => x.id), [recordId])
     } finally {
-      await admin.del(`/api/fde/projects/${other.data.id}`).catch(() => {})
+      await admin.del(`/api/fde/projects/${otherId}`).catch(() => {})
     }
   })
 })
