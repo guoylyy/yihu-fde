@@ -384,7 +384,7 @@ router.post('/plan/confirm-owner', humanOnly('确认 OKR'), async (req, res) => 
     const t = await targetOf(req)
     const r = await confirmOwner({ week, ownerId: t.ownerId, actorId: req.user.id })
     if (r.changed) {
-      await logInternalAction(req, 'okr.plan.confirm-owner', { resourceType: 'okr_cycle', details: { week: weekKey(week), ownerId: t.ownerId, ...(t.onBehalf ? { onBehalf: true } : {}) } })
+      await logInternalAction(req, 'okr.plan.confirm-owner', { resourceType: 'okr_cycle', details: { week: weekKey(week), ownerId: t.ownerId, ...(t.onBehalf ? { onBehalf: true } : {}), ...(r.submitted ? { submitted: true, late: !!r.lateSubmit } : {}) } })
     }
     ok(res, { ...r, onBehalfOf: onBehalfOf(t) })
   } catch (e) { fail(res, e, 'plan/confirm-owner') }

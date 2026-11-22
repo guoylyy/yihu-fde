@@ -6,7 +6,9 @@
 //
 // 规则:
 //  - 员工确认: 本人, 或有代管权限的人带 targetUserId 代确认(代确认记操作人)。前置: 这周有周期、未归档、至少 1 个未放弃的 O;
-//    没提交过也能确认(确认即「我认这份」)。重复确认不报错(changed=false, 不重复留痕 / 通知)
+//    没提交过也能确认(确认即「我认这份并交上去」): 同一事务里给还没提交的 O 补上提交(submittedAt / lateSubmit / submittedByOperator,
+//    迟交口径 = isLate, 与 /plan/submit 相同; 先按提交的硬约束校验, 不过 → 8204), 返回 submitted=true;
+//    已提交过的不动提交时间。重复确认不报错(changed=false, 不重复留痕 / 通知)
 //  - 主管确认: ADMIN 或本团队 MANAGER(= 主管评分范围, 见 okrAccess.managerScoreScope), 不能确认自己的。
 //    前置: 员工已确认(否则 8202); 员工确认是这位主管代点的 → 403 / 8206(二级确认要两个人)
 //  - 确认后不能取消, 要改只能走变更申请; 归档周(CLOSED)不可确认 / 申请 / 审批
@@ -19,7 +21,7 @@
 //         8205 变更申请的入参或状态不对 / 8206 无权(403)
 import prisma from '../lib/prisma.js'
 import { pushNotification } from '../lib/notify.js'
-import { OkrRuleError, weekKey, parseMilestones } from './okrRules.js'
+import { OkrRuleError, weekKey, parseMilestones, isLate, normalizePlan, shanghaiDateKey } from './okrRules.js'
 import { getCycle, canWritePlan, writePlan, previewPlan, READ_ONLY_MSG } from './okr.js'
 import { lockStatusOf, confirmRow, lockConfirmRow, writeAudit, loadPlanRows, ACTION_LABELS } from './okrPlanAudit.js'
 
@@ -118,15 +120,32 @@ export async function confirmOwner({ week, ownerId, actorId, now = new Date() })
   const cycle = await existingCycle(week)
   assertNotClosed(cycle, '确认', 8204)
   const owner = BigInt(ownerId)
-  const changed = await prisma.$transaction(async (tx) => {
+  const proxy = String(actorId) !== String(ownerId)
+  const { changed, submitted, late } = await prisma.$transaction(async (tx) => {
     const row = await lockConfirmRow(tx, cycle.id, owner)
-    if (row.ownerConfirmedAt) return false
-    const live = await tx.okrObjective.count({ where: { cycleId: cycle.id, ownerId: owner, status: { not: 'DROPPED' } } })
-    if (!live) throw bad('这周还没有计划(至少要有 1 个 O)才能确认', 8204)
+    if (row.ownerConfirmedAt) return { changed: false, submitted: false, late: false }
+    const rows = await loadPlanRows(tx, cycle.id, owner)
+    const live = rows.filter(o => o.status !== 'DROPPED')
+    if (!live.length) throw bad('这周还没有计划(至少要有 1 个 O)才能确认', 8204)
+    // 确认 = 认下并交上去: 还没提交的 O 一并提交(与 /plan/submit 同一套硬约束、同一个迟交口径; 已提交的保留第一次的提交时间)
+    const pending = live.filter(o => !o.submittedAt)
+    let isLateNow = false
+    if (pending.length) {
+      try {
+        normalizePlan(planPayload(rows), { strict: true, today: shanghaiDateKey(now) })
+      } catch (e) {
+        if (e instanceof OkrRuleError) throw bad(`确认会一并提交本周计划, 但计划还不能提交: ${e.message}`, 8204)
+        throw e
+      }
+      isLateNow = isLate(cycle.startDate, now)
+      await tx.okrObjective.updateMany({
+        where: { id: { in: pending.map(o => o.id) } },
+        data: { submittedAt: now, lateSubmit: isLateNow, submittedByOperator: proxy }
+      })
+    }
     await tx.okrPlanConfirm.update({ where: { id: row.id }, data: { ownerConfirmedAt: now, ownerConfirmedBy: BigInt(actorId) } })
-    const proxy = String(actorId) !== String(ownerId)
     await writeAudit(tx, { cycleId: cycle.id, ownerId: owner, actorId, action: 'OWNER_CONFIRM', beforeText: '草稿', afterText: proxy ? '员工已确认(代确认)' : '员工已确认', now })
-    return true
+    return { changed: true, submitted: pending.length > 0, late: isLateNow }
   })
   if (changed) {
     const name = await ownerName(ownerId)
@@ -139,7 +158,8 @@ export async function confirmOwner({ week, ownerId, actorId, now = new Date() })
       link: `/admin/okr?week=${key}&userId=${ownerId}`
     })))
   }
-  return { changed, ...(await confirmInfo(cycle, ownerId)) }
+  // submitted: 这次确认顺带完成了提交(之前没交); lateSubmit 只在顺带提交时有意义
+  return { changed, submitted, ...(submitted ? { lateSubmit: late } : {}), ...(await confirmInfo(cycle, ownerId)) }
 }
 
 /** 主管确认。范围(ADMIN / 本团队 MANAGER)由路由校验; 这里校验前置与「两个人」 */

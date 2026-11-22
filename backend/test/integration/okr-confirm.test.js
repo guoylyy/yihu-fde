@@ -1,6 +1,6 @@
 // 集成测试 - 0.6.2: OKR 二级确认 + 变更申请 + 计划层修改记录
 //
-// 测试年份(与其他 OKR 用例错开): 2161–2169 年里连续的 5 周(以后的周, 周期由 prisma 现建: 4 周 IN_PROGRESS + 1 周 CLOSED), 绝不碰真实周。
+// 测试年份(与其他 OKR 用例错开): 2161–2169 年里连续的 7 周(以后的周, 周期由 prisma 现建: 6 周 IN_PROGRESS + 1 周 CLOSED), 绝不碰真实周。
 // 人物: 工程师 A(主角, 团队甲) / 工程师 B(团队乙) / M(MANAGER, 团队甲负责人) / M2(MANAGER, 团队乙负责人) / ADMIN。
 // 账号、团队现建现删; 三张新表按测试周期硬删(helpers.dropPlanTrail)。主角都在团队里, 通知不会落到库里真实的 ADMIN 身上。
 import { test, describe, before, after } from 'node:test'
@@ -18,7 +18,9 @@ const AUDIT = wk(1)     // 修改记录四类(未确认, 直接改)
 const PROG = wk(2)      // 锁定后进展 / 完成 / 评分照常可写, 且不进修改记录
 const DRAFT = wk(3)     // 没提交也能确认; 锁定后复制 / 批量导入同样被拦
 const CLOSED = wk(4)    // 已归档
-const WEEKS = [MAIN, AUDIT, PROG, DRAFT, CLOSED]
+const SAVED = wk(5)     // 只保存不提交 → 确认 = 一并提交
+const SUBMITTED = wk(6) // 先提交再确认 → 提交时间不被覆盖
+const WEEKS = [MAIN, AUDIT, PROG, DRAFT, CLOSED, SAVED, SUBMITTED]
 const K = w => weekKey(w)
 
 async function cycleOf(week) {
@@ -414,13 +416,16 @@ describe('0.6.2 OKR 二级确认 / 变更申请 / 修改记录', () => {
     assert.equal((await auditRows(PROG, A.id)).length, n0, '进展 / 完成 / 评分不进计划修改记录')
   })
 
-  test('3b. 没提交也能确认; 锁定后复制 / 批量导入同样 400 / 8201', async () => {
+  test('3b. 没提交也能确认(一并提交); 锁定后批量导入 / 复制 400 / 8171(已提交)', async () => {
     const d = await a.post(`/api/okr/plan?week=${K(DRAFT)}`, { objectives: [{ title: T('D-O1 草稿'), keyResults: [{ title: T('D-KR') }] }] })
     assert.equal(d.status, 200, d.message)
     // 代确认: M 替 A 点员工确认; 之后 M 自己不能再做主管确认(要两个人)
     const proxy = await confirmOwner(m, DRAFT, A.id)
     assert.equal(proxy.status, 200, proxy.message)
     assert.equal(proxy.data.ownerConfirmedBy.id, M.id)
+    assert.equal(proxy.data.submitted, true)
+    const dObjs = await prisma.okrObjective.findMany({ where: { cycleId: (await cycleOf(DRAFT)).id, ownerId: BigInt(A.id) } })
+    assert.ok(dObjs.every(o => o.submittedAt && o.submittedByOperator === true), '代确认顺带提交记为代提交')
     const same = await confirmManager(m, DRAFT, A.id)
     assert.equal(same.status, 403)
     assert.equal(same.code, 8206)
@@ -428,11 +433,78 @@ describe('0.6.2 OKR 二级确认 / 变更申请 / 修改记录', () => {
     assert.equal(r.status, 200, r.message)
     assert.equal(r.data.lockStatus, 'CONFIRMED')
     const bulk = await a.post('/api/okr/plan/bulk-import', { week: K(DRAFT), mode: 'apply', text: '## unit-test-cf 批量 O\n- 批量 KR' })
+    // 确认时已一并提交: 批量导入 / 复制先撞上「目标周已提交」(8171, 校验顺序在锁之前), 同样被拦
     assert.equal(bulk.status, 400, bulk.message)
-    assert.equal(bulk.code, 8201)
+    assert.equal(bulk.code, 8171)
     const copy = await a.post('/api/okr/plan/copy-from-week', { fromWeek: K(AUDIT), toWeek: K(DRAFT) })
     assert.equal(copy.status, 400, copy.message)
-    assert.equal(copy.code, 8201)
+    assert.equal(copy.code, 8171)
+  })
+
+  test('3c. 只保存不提交 → 员工确认 = 一并提交: /my submission 非空、submittedAt 有值; 团队视图 submitted=true', async () => {
+    // 不满足提交硬约束(O 权重合计 ≠ 100) → 确认 400 / 8204, 既不提交也不确认
+    const badSave = await a.post(`/api/okr/plan?week=${K(SAVED)}`, { objectives: [
+      { title: T('S-O1'), weight: 30, keyResults: [{ title: T('S-KR1') }] },
+      { title: T('S-O2'), weight: 30, keyResults: [{ title: T('S-KR2') }] }
+    ] })
+    assert.equal(badSave.status, 200, badSave.message)
+    const rejected = await confirmOwner(a, SAVED)
+    assert.equal(rejected.status, 400, rejected.message)
+    assert.equal(rejected.code, 8204)
+    let my = await a.get(`/api/okr/my?week=${K(SAVED)}`)
+    assert.equal(my.data.submission, 'NONE')
+    assert.equal(my.data.confirm.lockStatus, 'DRAFT')
+
+    const objs = (await currentObjectives(SAVED)).map(o => ({ ...o, weight: 50 }))
+    const save = await a.post(`/api/okr/plan?week=${K(SAVED)}`, { objectives: objs })
+    assert.equal(save.status, 200, save.message)
+    my = await a.get(`/api/okr/my?week=${K(SAVED)}`)
+    assert.equal(my.data.submission, 'NONE')
+    assert.ok(my.data.objectives.every(o => !o.submittedAt))
+
+    const r = await confirmOwner(a, SAVED)
+    assert.equal(r.status, 200, r.message)
+    assert.equal(r.data.changed, true)
+    assert.equal(r.data.submitted, true)
+    assert.equal(r.data.lateSubmit, false)
+    assert.equal(r.data.lockStatus, 'AWAITING_MANAGER')
+
+    my = await a.get(`/api/okr/my?week=${K(SAVED)}`)
+    assert.equal(my.status, 200, my.message)
+    assert.equal(my.data.submission, 'ON_TIME')
+    assert.ok(my.data.objectives.length === 2 && my.data.objectives.every(o => o.submittedAt && o.lateSubmit === false && o.submittedByOperator === false))
+    assert.equal(new Date(my.data.objectives[0].submittedAt).getTime(), new Date(r.data.ownerConfirmedAt).getTime(), '提交时间 = 确认时间')
+
+    const team = await m.get(`/api/okr/team?week=${K(SAVED)}`)
+    assert.equal(team.status, 200, team.message)
+    const row = team.data.rows.find(x => String(x.user.id) === A.id)
+    assert.ok(row, '团队视图里有 A')
+    assert.equal(row.submitted, true)
+    assert.equal(row.submission, 'ON_TIME')
+    assert.ok(team.data.summary.submitted >= 1)
+
+    // 只记 OWNER_CONFIRM 一条(不另记提交行); 重复确认 submitted=false
+    const confirms = (await auditRows(SAVED, A.id)).filter(x => x.action === 'OWNER_CONFIRM')
+    assert.equal(confirms.length, 1)
+    const again = await confirmOwner(a, SAVED)
+    assert.equal(again.data.changed, false)
+    assert.equal(again.data.submitted, false)
+  })
+
+  test('3d. 先提交再确认 → submittedAt 保持第一次提交的时间, submitted=false', async () => {
+    const s = await a.post(`/api/okr/plan/submit?week=${K(SUBMITTED)}`, { objectives: [{ title: T('P-O1'), keyResults: [{ title: T('P-KR') }] }] })
+    assert.equal(s.status, 200, s.message)
+    const first = s.data.objectives[0].submittedAt
+    assert.ok(first)
+    await new Promise(res => setTimeout(res, 1100))
+    const r = await confirmOwner(a, SUBMITTED)
+    assert.equal(r.status, 200, r.message)
+    assert.equal(r.data.changed, true)
+    assert.equal(r.data.submitted, false)
+    assert.ok(new Date(r.data.ownerConfirmedAt).getTime() > new Date(first).getTime())
+    const my = await a.get(`/api/okr/my?week=${K(SUBMITTED)}`)
+    assert.equal(my.data.submission, 'ON_TIME')
+    assert.equal(new Date(my.data.objectives[0].submittedAt).getTime(), new Date(first).getTime(), '提交时间未被确认覆盖')
   })
 
   test('13. CLOSED 周确认 → 400; CLOSED 周提变更 → 400', async () => {
