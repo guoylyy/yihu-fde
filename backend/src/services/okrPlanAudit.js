@@ -4,8 +4,9 @@
 //   都空 → DRAFT; 只有员工确认 → AWAITING_MANAGER; 两个都有 → CONFIRMED(计划层只读, 改动走变更申请)
 // 锁只锁计划层(O / KR 的定义); 进展 / 完成开关 / 自评 / 主管分 / 未达成照常可写。
 //
-// 修改记录: savePlan(以及复制 / 批量导入 / 顺延)落库后, 拿「改之前」和「改之后」的库里快照按 id 对齐做 diff
-// (同一个 O / KR 前后 id 不变; 删掉一个 O 后序号会前移, 按序号对齐会把「删 O1」记成「改 O1 标题 + 删 O3」),
+// 修改记录: savePlan(以及复制 / 批量导入 / 顺延 / 变更申请套用)落库后, 拿「改之前」和「改之后」的库里快照对齐做 diff。
+// 对齐按 id → 标题 → seq 回退(变更申请的 payload 不带 id, 套用后 id 全变, 只按 id 会把改标题记成「删 O + 加 O」;
+// 只按序号又会把「删 O1」记成「改 O1 标题 + 删 O3」), 细则见 matchRows。
 // target_ref 里写序号(O2 / O2.KR3)+ 标题方便人看。一条改动一行, before / after 存人类可读的字符串。
 // 只记计划层: O 增删 / 标题 / 说明 / 权重 / 放弃(DROPPED) / 卡点三件套 / 风险等级;
 //             KR 增删 / 标题 / 度量类型 / 目标值 / 单位 / 权重 / 阶段明细(名称 + 截止日) / 卡点。
@@ -102,22 +103,64 @@ function objectiveSummary(o) {
 }
 
 /**
+ * 把 before / after 两组(O, 或同一个 O 下的 KR)配成对:
+ *   1. id 相同 → 同一条(直接保存计划时前端带 id, 落库后 id 不变)
+ *   只有 rebuilt=true(这一组整份重建过: 变更申请的 payload 不带 id, 套用后 id 全变)才往下回退;
+ *   带 id 保存时配不上 id 的就是真增删, 再按标题 / seq 配会把「删 O2 + 加新 O」错记成「改 O2 标题」。
+ *   2. 标题完全相同 → 同一条(只是顺位移动的条目靠标题认回来)
+ *   3. seq 相同 → 同一条, 只在剩下的条目没有净减少(新侧条数 ≥ 旧侧)时启用:
+ *      删掉 O2 后原 O3 顺位成 O2, 按 seq 配会把「删 O2」错记成「改 O2 + 删 O3」; 有净删除时宁可老实报增删
+ *   4. 仍配不上 → 旧侧算删除, 新侧算新增
+ * 返回 { removed: [old], rows: [[old | null, new]] }: removed 按旧 seq 升序; rows 按新 seq 升序, old 为 null 即新增
+ */
+export function matchRows(before = [], after = [], { rebuilt = false } = {}) {
+  const bySeq = (a, b) => a.seq - b.seq
+  const olds = [...before].sort(bySeq)
+  const news = [...after].sort(bySeq)
+  const pairOf = new Map()   // new 行 → old 行
+  const usedOld = new Set()
+  const link = (o, n) => { pairOf.set(n, o); usedOld.add(o) }
+  const restOld = () => olds.filter(o => !usedOld.has(o))
+  const restNew = () => news.filter(n => !pairOf.has(n))
+
+  const oldById = new Map(olds.filter(o => o.id != null).map(o => [String(o.id), o]))
+  for (const n of news) {
+    const o = n.id != null ? oldById.get(String(n.id)) : null
+    if (o && !usedOld.has(o)) link(o, n)
+  }
+  if (!rebuilt) return { removed: restOld(), rows: news.map(n => [pairOf.get(n) ?? null, n]) }
+  for (const n of restNew()) {
+    const o = restOld().find(x => x.title === n.title)
+    if (o) link(o, n)
+  }
+  const ro = restOld(); const rn = restNew()
+  if (ro.length && rn.length && rn.length >= ro.length) {
+    for (const n of rn) {
+      const same = ro.filter(o => o.seq === n.seq && !usedOld.has(o))
+      if (same.length === 1) link(same[0], n)
+    }
+  }
+  return { removed: restOld(), rows: news.map(n => [pairOf.get(n) ?? null, n]) }
+}
+
+/**
  * 两份库里快照的计划层差异。返回审计行(不含 cycle / owner / actor / source / reason, 由调用方补)。
+ * O / KR 的前后对齐见 matchRows; target_ref 用变更后的序号与标题(删除的条目没有「之后」, 用它原来的)。
  * names: Map<userId, 名字>, 给卡点人显示用
  */
 export function diffPlans(before, after, names = new Map()) {
   const rows = []
   const push = (action, targetType, targetRef, field, b, a) => rows.push({ action, targetType, targetRef, field, beforeText: b, afterText: a })
-  const oldById = new Map(before.map(o => [String(o.id), o]))
-  const newById = new Map(after.map(o => [String(o.id), o]))
+  // 前后一个 O 的 id 都对不上(且两边都有 O) = 整份重建(变更申请套用), O 按标题 / seq 回退;
+  // O 是回退配上的, 它下面的 KR 也一定是重建的, 同样回退; O 按 id 配上的, KR 只按 id
+  const afterIds = new Set(after.filter(o => o.id != null).map(o => String(o.id)))
+  const rebuilt = before.length > 0 && after.length > 0 && !before.some(o => o.id != null && afterIds.has(String(o.id)))
+  const om = matchRows(before, after, { rebuilt })
 
-  for (const o of [...before].sort((a, b) => a.seq - b.seq)) {
-    if (!newById.has(String(o.id))) push('OBJECTIVE_DEL', 'OBJECTIVE', oRef(o), null, objectiveSummary(o), null)
-  }
-  for (const o of [...after].sort((a, b) => a.seq - b.seq)) {
-    const old = oldById.get(String(o.id))
-    if (!old) { push('OBJECTIVE_ADD', 'OBJECTIVE', oRef(o), null, null, objectiveSummary(o)); continue }
+  for (const o of om.removed) push('OBJECTIVE_DEL', 'OBJECTIVE', oRef(o), null, objectiveSummary(o), null)
+  for (const [old, o] of om.rows) {
     const ref = oRef(o)
+    if (!old) { push('OBJECTIVE_ADD', 'OBJECTIVE', ref, null, null, objectiveSummary(o)); continue }
     if (old.title !== o.title) push('OBJECTIVE_EDIT', 'OBJECTIVE', ref, 'title', old.title, o.title)
     if ((old.description || '') !== (o.description || '')) push('OBJECTIVE_EDIT', 'OBJECTIVE', ref, 'description', text(old.description), text(o.description))
     if (num(old.weight) !== num(o.weight)) push('WEIGHT_EDIT', 'OBJECTIVE', ref, 'weight', fmtWeight(old.weight), fmtWeight(o.weight))
@@ -130,13 +173,9 @@ export function diffPlans(before, after, names = new Map()) {
       push('OBJECTIVE_EDIT', 'OBJECTIVE', ref, 'riskLevel', `风险 ${RISK_LABEL[old.riskLevel || 'LOW']}`, `风险 ${RISK_LABEL[o.riskLevel || 'LOW']}`)
     }
 
-    const oldKrs = new Map((old.keyResults || []).map(k => [String(k.id), k]))
-    const newKrs = new Map((o.keyResults || []).map(k => [String(k.id), k]))
-    for (const k of [...(old.keyResults || [])].sort((a, b) => a.seq - b.seq)) {
-      if (!newKrs.has(String(k.id))) push('KR_DEL', 'KR', krRef(old, k), null, krSummary(k), null)
-    }
-    for (const k of [...(o.keyResults || [])].sort((a, b) => a.seq - b.seq)) {
-      const ok = oldKrs.get(String(k.id))
+    const km = matchRows(old.keyResults || [], o.keyResults || [], { rebuilt: old.id == null || String(old.id) !== String(o.id) })
+    for (const k of km.removed) push('KR_DEL', 'KR', krRef(o, k), null, krSummary(k), null)
+    for (const [ok, k] of km.rows) {
       const kref = krRef(o, k)
       if (!ok) { push('KR_ADD', 'KR', kref, null, null, krSummary(k)); continue }
       if (ok.title !== k.title) push('KR_EDIT', 'KR', kref, 'title', ok.title, k.title)
@@ -148,9 +187,9 @@ export function diffPlans(before, after, names = new Map()) {
       else if (unitChanged) push('KR_EDIT', 'KR', kref, 'unit', `单位 ${text(ok.unit)}`, `单位 ${text(k.unit)}`)
       if (num(ok.weight) !== num(k.weight)) push('WEIGHT_EDIT', 'KR', kref, 'weight', fmtWeight(ok.weight), fmtWeight(k.weight))
       if (ok.metricType === 'MILESTONE' || k.metricType === 'MILESTONE') {
-        const om = milestoneText(ok.metricType === 'MILESTONE' ? ok.milestones : null)
+        const om2 = milestoneText(ok.metricType === 'MILESTONE' ? ok.milestones : null)
         const nm = milestoneText(k.metricType === 'MILESTONE' ? k.milestones : null)
-        if (om !== nm) push('MILESTONE_EDIT', 'KR', kref, 'milestones', om, nm)
+        if (om2 !== nm) push('MILESTONE_EDIT', 'KR', kref, 'milestones', om2, nm)
       }
       if ((ok.blockers || '') !== (k.blockers || '')) push('BLOCKER_EDIT', 'KR', kref, 'blockers', text(ok.blockers), text(k.blockers))
     }
