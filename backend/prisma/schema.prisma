@@ -1611,6 +1611,65 @@ model OkrWeekPlan {
   @@map("okr_week_plans")
 }
 
+// 0.6.2: 计划二级确认(某人某周一行)。lockStatus 推导: 都空 → DRAFT; 只有 owner → AWAITING_MANAGER; 都有 → CONFIRMED。
+// 这一行也是改这人这周计划的行锁(savePlan / 确认 / 变更申请 / 审批先 FOR UPDATE)
+model OkrPlanConfirm {
+  id                 BigInt    @id @default(autoincrement())
+  cycleId            BigInt    @map("cycle_id")
+  ownerId            BigInt    @map("owner_id")
+  ownerConfirmedAt   DateTime? @map("owner_confirmed_at")
+  ownerConfirmedBy   BigInt?   @map("owner_confirmed_by") // 代确认时记操作人
+  managerConfirmedAt DateTime? @map("manager_confirmed_at")
+  managerConfirmedBy BigInt?   @map("manager_confirmed_by")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  @@unique([cycleId, ownerId])
+  @@map("okr_plan_confirms")
+}
+
+// 0.6.2: 锁定后的计划变更申请。payload = 完整 objectives(与 POST /plan 同形); 批准后覆盖计划
+model OkrPlanChange {
+  id           BigInt    @id @default(autoincrement())
+  cycleId      BigInt    @map("cycle_id")
+  ownerId      BigInt    @map("owner_id")
+  requestedBy  BigInt    @map("requested_by")
+  reason       String    @db.Text
+  payload      Json
+  status       String    @default("PENDING") @db.VarChar(20) // PENDING|APPROVED|REJECTED|CANCELED
+  decidedBy    BigInt?   @map("decided_by")
+  decidedAt    DateTime? @map("decided_at")
+  decisionNote String?   @map("decision_note") @db.Text
+  appliedAt    DateTime? @map("applied_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  @@index([cycleId, ownerId, status])
+  @@index([status])
+  @@map("okr_plan_changes")
+}
+
+// 0.6.2: 计划层修改记录(只增不改)。进展 / 完成 / 评分不进这里(走 okr_updates / okr_scores)
+model OkrPlanAudit {
+  id         BigInt   @id @default(autoincrement())
+  cycleId    BigInt   @map("cycle_id")
+  ownerId    BigInt   @map("owner_id")
+  actorId    BigInt   @map("actor_id")
+  action     String   @db.VarChar(30)
+  targetType String?  @map("target_type") @db.VarChar(20) // OBJECTIVE|KR|PLAN
+  targetRef  String?  @map("target_ref") @db.VarChar(120)
+  field      String?  @db.VarChar(40)
+  beforeText String?  @map("before_text") @db.Text
+  afterText  String?  @map("after_text") @db.Text
+  reason     String?  @db.Text
+  source     String   @default("DIRECT") @db.VarChar(20) // DIRECT|CONFIRM|CHANGE_APPLY
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([cycleId, ownerId, createdAt])
+  @@index([actorId])
+  @@map("okr_plan_audit")
+}
+
 // OKR 5.0: O 挂项目(一个 O 可挂多个项目, 空 = 个人发展类 O)。结构化归属, 与 okr_project_docs(叙述)并存。
 // 不建外键: 项目被删时保留关联行, 查询时过滤掉不存在 / 已删的项目; O 被删时由 savePlan 一并删关联
 model OkrObjectiveProject {
