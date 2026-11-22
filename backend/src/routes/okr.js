@@ -38,6 +38,10 @@
 // 精简第一轮: /week-plan 本周项目整体计划(一周一份 Markdown, 取代按项目拆分的 /projects 文档; 后者暂留)。
 // 全员可读, ADMIN / MANAGER 可写; 已结束的周只读(400)。import 只解析不落库。留痕 okr.weekplan.update。
 //
+// 0.6.2: 二级确认(/plan/confirm-owner → /plan/confirm-manager → CONFIRMED 锁定)、锁定后的变更申请(/plan/changes*)、
+// 计划层修改记录(/plan/audit)。锁定后 /plan、/plan/submit、复制 / 批量导入 → 400 / 8201; 进展 / 完成 / 评分照常可写。
+// 主管确认与审批范围 = 主管评分范围(ADMIN 全部, MANAGER 本团队); 修改记录: 本人 / 评分范围覆盖的主管 / ADMIN。口径见 services/okrPlanConfirm.js。
+//
 // OKR 9.0: /decisions 决策记录(可挂 O / 项目 / 周期, 全员可读, 时间线回看)。写权限与 7 天窗口见 services/okrDecisions.js;
 // 每次写动作 await 留痕(okr.decision.create / update / supersede / delete)。/my /cycle /team 的 O 带最近 3 条 decisions。
 import express from 'express'
@@ -69,6 +73,8 @@ import { renderXlsx, renderDocx, CONTENT_TYPES } from '../services/okrExportForm
 import { objectiveRisk, peopleRisk, parseRiskWeeks, parseAsOf } from '../services/okrRisk.js'
 import { createDecision, listDecisions, getDecision, patchDecision, supersedeDecision, deleteDecision, decisionTimeline } from '../services/okrDecisions.js'
 import { getWeekPlan, saveWeekPlan, canWriteWeekPlan, CONTENT_MAX_BYTES as WEEK_PLAN_MAX_BYTES } from '../services/okrWeekPlan.js'
+import { confirmInfo, confirmOwner, confirmManager, createChange, listChanges, approveChange, rejectChange, cancelChange } from '../services/okrPlanConfirm.js'
+import { listAudit } from '../services/okrPlanAudit.js'
 
 const router = express.Router()
 router.use(internalAuth)
@@ -162,9 +168,18 @@ async function weekPayload(req, res, { detail }) {
   data.window = window
   // 免提交白名单: 不需要交 OKR(交了照常记录, 只是不进统计 / 提醒)
   data.exempt = await isExempt(ownerId)
+  // 0.6.2: 二级确认状态; CONFIRMED 后计划只读, 改动走变更申请
+  data.confirm = await confirmInfo(cycle, ownerId)
+  const locked = data.confirm.lockStatus === 'CONFIRMED'
+  const open = data.cycle.status !== 'CLOSED'
   data.can = {
-    // 计划可写: 进行中的周; 或周五复盘里这人还一条没交(补交, 记迟交)
-    edit: (mine || proxy) && planWritable(data.cycle.status, submittedBefore),
+    // 计划可写: 进行中的周; 或周五复盘里这人还一条没交(补交, 记迟交); 已二级确认的不能直接改
+    edit: (mine || proxy) && planWritable(data.cycle.status, submittedBefore) && !locked,
+    confirmOwner: (mine || proxy) && !viaAssistant(req) && open && data.confirm.lockStatus === 'DRAFT' && data.objectives.some(o => o.status !== 'DROPPED'),
+    confirmManager: !mine && !viaAssistant(req) && open && data.confirm.lockStatus === 'AWAITING_MANAGER' && scopeCovers(scoreScope, ownerId) &&
+      String(data.confirm.ownerConfirmedBy?.id) !== String(req.user.id),
+    requestChange: (mine || proxy) && !viaAssistant(req) && open && locked && !data.confirm.pendingChange,
+    viewAudit: mine || scopeCovers(scoreScope, ownerId),
     // OKR 3.0: KR 进展 / 完成开关, 已提交且没归档就能改(复盘里也能改, 自评前要把 KR 都标完)
     progress: (mine || proxy) && data.cycle.progressWritable && submittedBefore,
     selfScore: (mine || proxy) && data.cycle.scorable,
@@ -343,6 +358,123 @@ router.post('/plan', humanOnly('写或改本周计划'), async (req, res) => {
 
 router.post('/plan/submit', humanOnly('提交本周计划'), async (req, res) => {
   try { await plan(req, res, true) } catch (e) { fail(res, e, 'plan/submit') }
+})
+
+// ---------------------------------------------------------------- 二级确认 / 变更申请 / 修改记录(0.6.2)
+
+/** 审批 / 主管确认 / 看修改记录的范围: ADMIN 全部(null), MANAGER 本团队(不含自己与 ADMIN) */
+const decideScope = req => managerScoreScope(req.user)
+
+/** 被查看 / 被确认的人: query.userId / body.userId, 缺省自己 */
+function subjectOf(req, res) {
+  const raw = req.body?.userId ?? req.query.userId
+  if (raw == null || raw === '') return String(req.user.id)
+  if (!/^\d+$/.test(String(raw))) {
+    res.status(400).json({ code: 8100, message: 'userId 不合法' })
+    return null
+  }
+  return String(raw)
+}
+
+// 员工确认: 自己; 代确认带 targetUserId(代管权限同 /plan)
+router.post('/plan/confirm-owner', humanOnly('确认 OKR'), async (req, res) => {
+  try {
+    const week = weekOf(req, res)
+    if (!week) return
+    const t = await targetOf(req)
+    const r = await confirmOwner({ week, ownerId: t.ownerId, actorId: req.user.id })
+    if (r.changed) {
+      await logInternalAction(req, 'okr.plan.confirm-owner', { resourceType: 'okr_cycle', details: { week: weekKey(week), ownerId: t.ownerId, ...(t.onBehalf ? { onBehalf: true } : {}) } })
+    }
+    ok(res, { ...r, onBehalfOf: onBehalfOf(t) })
+  } catch (e) { fail(res, e, 'plan/confirm-owner') }
+})
+
+// 主管确认: { week, userId }。ADMIN 或本团队 MANAGER; 不能确认自己的
+router.post('/plan/confirm-manager', humanOnly('确认 OKR'), async (req, res) => {
+  try {
+    const week = weekOf(req, res)
+    if (!week) return
+    const raw = req.body?.userId
+    if (raw == null || raw === '' || !/^\d+$/.test(String(raw))) return res.status(400).json({ code: 8100, message: 'userId 必填(要确认谁的 OKR)' })
+    const ownerId = String(raw)
+    if (ownerId === String(req.user.id) || !scopeCovers(await decideScope(req), ownerId)) {
+      return res.status(403).json({ code: 8206, message: '只有管理员或本团队主管能做主管确认(不能确认自己的)' })
+    }
+    const r = await confirmManager({ week, ownerId, actorId: req.user.id })
+    if (r.changed) await logInternalAction(req, 'okr.plan.confirm-manager', { resourceType: 'okr_cycle', details: { week: weekKey(week), ownerId } })
+    ok(res, r)
+  } catch (e) { fail(res, e, 'plan/confirm-manager') }
+})
+
+router.get('/plan/confirm-status', async (req, res) => {
+  try {
+    const week = weekOf(req, res)
+    if (!week) return
+    const ownerId = subjectOf(req, res)
+    if (!ownerId) return
+    ok(res, await confirmInfo(await getCycle(week), ownerId))
+  } catch (e) { fail(res, e, 'plan/confirm-status') }
+})
+
+// 变更申请: { week, targetUserId?, reason*, objectives? }(objectives 省略 = 用当前计划)
+router.post('/plan/changes', humanOnly('提交 OKR 变更申请'), async (req, res) => {
+  try {
+    const week = weekOf(req, res)
+    if (!week) return
+    const t = await targetOf(req)
+    const c = await createChange({ week, ownerId: t.ownerId, requestedBy: req.user.id, reason: req.body?.reason, objectives: req.body?.objectives })
+    await logInternalAction(req, 'okr.plan.change-request', { resourceType: 'okr_plan_change', resourceId: c.id, details: { week: c.week, ownerId: t.ownerId, diffCount: c.diffCount } })
+    ok(res, { ...c, onBehalfOf: onBehalfOf(t) })
+  } catch (e) { fail(res, e, 'plan/changes post') }
+})
+
+router.get('/plan/changes', async (req, res) => {
+  try {
+    let cycle
+    if (req.query.week != null && req.query.week !== '') {
+      const week = weekOf(req, res)
+      if (!week) return
+      cycle = await getCycle(week)
+    }
+    ok(res, await listChanges({ viewerId: req.user.id, scope: await decideScope(req), cycle, status: req.query.status, ownerId: req.query.userId }))
+  } catch (e) { fail(res, e, 'plan/changes') }
+})
+
+router.post('/plan/changes/:id/approve', humanOnly('审批 OKR 变更申请'), async (req, res) => {
+  try {
+    const c = await approveChange({ id: req.params.id, actorId: req.user.id, scope: await decideScope(req), note: req.body?.note })
+    await logInternalAction(req, 'okr.plan.change-approve', { resourceType: 'okr_plan_change', resourceId: c.id, details: { week: c.week, ownerId: c.owner?.id, diffCount: c.diffCount } })
+    ok(res, c)
+  } catch (e) { fail(res, e, 'plan/changes approve') }
+})
+
+router.post('/plan/changes/:id/reject', humanOnly('审批 OKR 变更申请'), async (req, res) => {
+  try {
+    const c = await rejectChange({ id: req.params.id, actorId: req.user.id, scope: await decideScope(req), note: req.body?.note })
+    await logInternalAction(req, 'okr.plan.change-reject', { resourceType: 'okr_plan_change', resourceId: c.id, details: { week: c.week, ownerId: c.owner?.id } })
+    ok(res, c)
+  } catch (e) { fail(res, e, 'plan/changes reject') }
+})
+
+router.post('/plan/changes/:id/cancel', humanOnly('撤回 OKR 变更申请'), async (req, res) => {
+  try {
+    ok(res, await cancelChange({ id: req.params.id, actorId: req.user.id }))
+  } catch (e) { fail(res, e, 'plan/changes cancel') }
+})
+
+// 修改记录: ?week=&userId=&limit=, 按时间倒序。本人 / 评分范围覆盖此人的主管 / ADMIN
+router.get('/plan/audit', async (req, res) => {
+  try {
+    const week = weekOf(req, res)
+    if (!week) return
+    const ownerId = subjectOf(req, res)
+    if (!ownerId) return
+    if (ownerId !== String(req.user.id) && !scopeCovers(await decideScope(req), ownerId)) {
+      return res.status(403).json({ code: 8206, message: '只能看自己的修改记录; 主管看本团队, 管理员看全部' })
+    }
+    ok(res, { ownerId, ...(await listAudit(await getCycle(week), ownerId, { limit: req.query.limit })), week: weekKey(week) })
+  } catch (e) { fail(res, e, 'plan/audit') }
 })
 
 // 贴周报 → O/KR 草稿: 只返回草稿给编辑器, 不写库、不提交(提交仍走上面的 /plan/submit 和它的校验)
