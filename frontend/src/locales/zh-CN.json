@@ -2309,7 +2309,7 @@
     },
     "people": {
       "pick": "选择查看谁的 OKR",
-      "me": "我",
+      "me": "（我）",
       "detail": "个人详情",
       "owner_okr": "该成员的 OKR"
     },
@@ -2437,6 +2437,11 @@
     },
     "proj": {
       "all": "全部项目",
+      "scope_active": "进行中项目",
+      "scope_all": "全部项目",
+      "summary_active": "本周 {p0}/{p1} 个项目有项目 OKR（共 {p2} 个，默认只看进行中）",
+      "summary_all": "本周 {p0}/{p1} 个项目有项目 OKR（全部项目）",
+      "no_active": "没有进行中的项目，切到「全部项目」看看",
       "has_doc": "本周已有项目 OKR",
       "upload": "上传文档",
       "edit": "编辑",

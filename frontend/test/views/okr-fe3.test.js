@@ -13,6 +13,7 @@ import {
 import { pct, OBJ_TAG, krValueText, toDraft } from '../../src/views/okr/okrUtils.js'
 import { readFileSync } from 'node:fs'
 import { initialOf, mayProxyRow } from '../../src/views/okr/okrPeople.js'
+import { PROJECT_SCOPES, projectDocView } from '../../src/views/okr/okrPolish.js'
 
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/'/g, '&#39;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 const has = (html, text) => assert.ok(html.includes(esc(text)), `应出现: ${text}`)
@@ -60,9 +61,11 @@ describe('项目周 OKR 页', () => {
     projectId: '', list: null, detail: null, canEdit: false, uploading: false, saving: false, fileInput: null, isMobile: false,
     week: '2026-W48', weekParts: { year: 2026, weekNo: 48 }, range: { start: null, end: null }, html: '',
     edit: { open: false, title: '', content: '' },
-    projectLabel, shift: () => {}, pickProject: () => {}, openEdit: () => {}, save: () => {}, onFile: () => {},
+    projectLabel, shift: () => {}, pickProject: () => {}, pickScope: () => {}, openEdit: () => {}, save: () => {}, onFile: () => {},
     metaText: d => `${d.updatedBy?.name} @ ${d.updatedAt}`,
-    ...over
+    scope: 'all', PROJECT_SCOPES,
+    ...over,
+    view: projectDocView(over.list, over.scope || 'all')
   })
   const extra = { OkrWeekBar: true }
 
@@ -70,7 +73,7 @@ describe('项目周 OKR 页', () => {
     const html = await renderView(render, base({
       list: { week: '2026-W48', total: 2, withDoc: 1, rows: [row('1', '园区', { hasDoc: true, title: 'W48 园区 OKR', updatedAt: 'x', updatedBy: { name: '林晓' } }), row('2', '仓储')] }
     }), extra)
-    has(html, t('okr.proj.summary', { p0: 1, p1: 2 }))
+    has(html, t('okr.proj.summary_all', { p0: 1, p1: 2 }))
     has(html, 'W48 园区 OKR')
     has(html, '林晓 @ x')
     has(html, t('okr.proj.none_short'))

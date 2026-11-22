@@ -1,18 +1,23 @@
 <template>
   <!-- OKR 4.0 项目周 OKR: 每周每个项目一份 Markdown 文档, 全员可读。
-       顶部: 项目选择(空 = 全部项目) + 周切换; 选了项目且有写权限(ADMIN/MANAGER/项目成员)才出「上传文档 / 编辑」。
+       顶部: 范围(进行中项目(默认) / 全部项目) + 项目选择 + 周切换; 选了项目且有写权限(ADMIN/MANAGER/项目成员)才出「上传文档 / 编辑」。
        渲染复用 utils/safeMarkdown(仓库已有的 marked + 消毒), 不引新依赖 -->
   <div class="pokr" v-loading="loading">
     <div class="pokr-top">
-      <el-select
-        :model-value="projectId" filterable :placeholder="$t('okr.proj.all')" class="pokr-pick" data-test="pokr-project"
-        @update:model-value="pickProject"
-      >
-        <el-option value="" :label="$t('okr.proj.all')" />
-        <el-option v-for="r in list?.rows || []" :key="r.project.id" :value="r.project.id" :label="projectLabel(r.project)">
-          <span class="pokr-opt">{{ projectLabel(r.project) }}<i v-if="r.hasDoc" class="pokr-opt-dot" :title="$t('okr.proj.has_doc')" /></span>
-        </el-option>
-      </el-select>
+      <div class="pokr-filters">
+        <el-radio-group :model-value="projectId ? '' : scope" class="pokr-scope" data-test="pokr-scope" @update:model-value="pickScope">
+          <el-radio-button v-for="s in PROJECT_SCOPES" :key="s" :value="s" :data-test="'pokr-scope-' + s">{{ $t('okr.proj.scope_' + s) }}</el-radio-button>
+        </el-radio-group>
+        <el-select
+          :model-value="projectId" filterable :placeholder="$t('okr.proj.scope_' + scope)" class="pokr-pick" data-test="pokr-project"
+          @update:model-value="pickProject"
+        >
+          <el-option value="" :label="$t('okr.proj.scope_' + scope)" />
+          <el-option v-for="r in view.rows" :key="r.project.id" :value="r.project.id" :label="projectLabel(r.project)">
+            <span class="pokr-opt">{{ projectLabel(r.project) }}<i v-if="r.hasDoc" class="pokr-opt-dot" :title="$t('okr.proj.has_doc')" /></span>
+          </el-option>
+        </el-select>
+      </div>
       <div v-if="projectId && canEdit" class="pokr-acts">
         <el-button :loading="uploading" data-test="pokr-upload" @click="fileInput?.click()">{{ $t('okr.proj.upload') }}</el-button>
         <el-button type="primary" data-test="pokr-edit" @click="openEdit">{{ $t('okr.proj.edit') }}</el-button>
@@ -22,11 +27,13 @@
 
     <OkrWeekBar :year="weekParts.year" :week-no="weekParts.weekNo" :week-key="week" :start="range.start" :end="range.end" hide-links @shift="shift" />
 
-    <!-- 全部项目: 每个项目一行, 有文档的在前; 点进去看全文 -->
+    <!-- 项目列表: 默认只看进行中; 每个项目一行, 有文档的在前, 没文档的灰一行(仍可点进去上传) -->
     <template v-if="!projectId">
-      <p v-if="list" class="pokr-sum" data-test="pokr-sum">{{ $t('okr.proj.summary', { p0: list.withDoc, p1: list.total }) }}</p>
-      <ul v-if="list?.rows?.length" class="pokr-list">
-        <li v-for="r in list.rows" :key="r.project.id">
+      <p v-if="list" class="pokr-sum" data-test="pokr-sum">{{ view.scope === 'all'
+        ? $t('okr.proj.summary_all', { p0: view.withDoc, p1: view.total })
+        : $t('okr.proj.summary_active', { p0: view.withDoc, p1: view.total, p2: view.allTotal }) }}</p>
+      <ul v-if="view.rows.length" class="pokr-list">
+        <li v-for="r in view.rows" :key="r.project.id">
           <button type="button" class="pokr-row" :class="{ empty: !r.hasDoc }" data-test="pokr-row" @click="pickProject(r.project.id)">
             <span class="pokr-row-name">{{ r.project.name }}<small v-if="r.project.code">{{ r.project.code }}</small></span>
             <span v-if="r.hasDoc" class="pokr-row-title">{{ r.title }}</span>
@@ -35,7 +42,7 @@
           </button>
         </li>
       </ul>
-      <el-empty v-else-if="list" :description="$t('okr.proj.no_projects')" />
+      <el-empty v-else-if="list" :description="$t(view.scope === 'all' || !view.allTotal ? 'okr.proj.no_projects' : 'okr.proj.no_active')" />
     </template>
 
     <!-- 单个项目 -->
@@ -80,6 +87,7 @@ import OkrWeekBar from '@/components/okr/OkrWeekBar.vue'
 import { shiftKey, parseKey, isoWeekOf, weekKey, weekStart, shDate } from './okrUtils.js'
 import { currentUser } from './okrPeople.js'
 import { canEditProjectDoc, projectLabel, projectDocFileProblem, isLead, firstHeading } from './okrFe3.js'
+import { PROJECT_SCOPES, projectDocView } from './okrPolish.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -93,12 +101,14 @@ const range = computed(() => {
   return { start: s.toISOString(), end: new Date(s.getTime() + 6 * 86400000).toISOString() }
 })
 const projectId = computed(() => String(route.query.project || ''))
+const scope = computed(() => (route.query.scope === 'all' ? 'all' : 'active'))
 
 const list = ref(null)
 const detail = ref(null)
 const loading = ref(false)
 const projectInfo = ref(null)
 const canEdit = computed(() => canEditProjectDoc(me, projectInfo.value))
+const view = computed(() => projectDocView(list.value, scope.value))
 const html = computed(() => (detail.value?.doc ? renderSafeMarkdown(detail.value.doc.contentMd) : ''))
 
 async function loadList() {
@@ -129,6 +139,9 @@ watch(projectId, loadProjectInfo, { immediate: true })
 
 function pickProject(id) {
   router.replace({ query: { ...route.query, project: id || undefined } })
+}
+function pickScope(s) {
+  router.replace({ query: { ...route.query, project: undefined, scope: s === 'all' ? 'all' : undefined } })
 }
 function shift(delta) {
   router.replace({ query: { ...route.query, week: shiftKey(week.value, delta) } })
@@ -191,6 +204,7 @@ async function onFile(ev) {
 <style scoped>
 .pokr { max-width: 960px; margin: 0 auto; padding: 4px 0 24px; }
 .pokr-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.pokr-filters { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
 .pokr-pick { width: 320px; max-width: 100%; }
 .pokr-opt { display: inline-flex; align-items: center; gap: 6px; }
 .pokr-opt-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--el-color-success); }
@@ -202,9 +216,10 @@ async function onFile(ev) {
 .pokr-row { width: 100%; min-height: 44px; display: grid; grid-template-columns: minmax(0, 220px) minmax(0, 1fr) auto; align-items: center; gap: 4px 12px; padding: 10px 14px;
   border: 1px solid var(--el-border-color-lighter); border-radius: 10px; background: var(--el-bg-color); font: inherit; text-align: left; cursor: pointer; color: inherit; }
 .pokr-row:hover { border-color: var(--el-color-primary-light-5); }
-.pokr-row.empty { background: var(--el-fill-color-lighter); }
+.pokr-row.empty { background: var(--el-fill-color-lighter); color: var(--el-text-color-secondary); }
+.pokr-row.empty .pokr-row-name { font-weight: 500; }
 .pokr-row-name { font-weight: 600; overflow-wrap: anywhere; }
-.pokr-row-name small { margin-left: 6px; font-weight: 400; font-size: 12px; color: var(--el-text-color-secondary); }
+.pokr-row-name small { display: block; margin-top: 2px; font-weight: 400; font-size: 12px; color: var(--el-text-color-secondary); }
 .pokr-row-title { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pokr-row-none { font-size: 13px; color: var(--el-text-color-placeholder); }
 .pokr-row-meta { font-size: 12px; color: var(--el-text-color-secondary); white-space: nowrap; }
@@ -232,11 +247,18 @@ async function onFile(ev) {
 .md-body :deep(table) { border-collapse: collapse; margin: 8px 0; }
 .md-body :deep(th), .md-body :deep(td) { border: 1px solid var(--el-border-color-lighter); padding: 4px 10px; }
 @media (max-width: 768px) {
+  .pokr-filters { width: 100%; }
+  .pokr-scope { display: flex; width: 100%; }
+  .pokr-scope :deep(.el-radio-button) { flex: 1; }
+  .pokr-scope :deep(.el-radio-button__inner) { width: 100%; min-height: 44px; line-height: 20px; }
   .pokr-pick { width: 100%; }
   .pokr-pick :deep(.el-select__wrapper) { min-height: 44px; }
   .pokr-acts { width: 100%; }
   .pokr-acts .el-button, .pokr-empty-acts .el-button { flex: 1; min-height: 44px; }
-  .pokr-row { grid-template-columns: minmax(0, 1fr); }
+  /* 手机: 单列卡片, 项目名 + 编号两行, 没文档的右侧小字「本周还没有」 */
+  .pokr-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .pokr-row-none { font-size: 12px; white-space: nowrap; }
+  .pokr-row-title, .pokr-row-meta { grid-column: 1 / -1; }
   .pokr-row-title { white-space: normal; }
   .pokr-doc { padding: 12px; }
 }

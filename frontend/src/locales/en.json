@@ -2309,7 +2309,7 @@
     },
     "people": {
       "pick": "Choose whose OKR to view",
-      "me": "Me",
+      "me": "(me)",
       "detail": "Details",
       "owner_okr": "This member's OKR"
     },
@@ -2437,6 +2437,11 @@
     },
     "proj": {
       "all": "All projects",
+      "scope_active": "Active projects",
+      "scope_all": "All projects",
+      "summary_active": "{p0}/{p1} projects have a project OKR this week ({p2} in total, showing active only)",
+      "summary_all": "{p0}/{p1} projects have a project OKR this week (all projects)",
+      "no_active": "No active projects — switch to All projects",
       "has_doc": "Has a project OKR this week",
       "upload": "Upload",
       "edit": "Edit",
