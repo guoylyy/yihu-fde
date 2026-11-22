@@ -34,13 +34,14 @@ import {
   markMiss, teamView, history, closeCycle, closeByScore, reopenCycle, okrTick, planWritable
 } from '../services/okr.js'
 import { generateOkrDraft } from '../services/okrDraft.js'
-import { resolveOkrTarget, canManageOkrOf, teamListScope, forViewer, teamForViewer, managerScoreScope, scopeCovers } from '../services/okrAccess.js'
+import { resolveOkrTarget, canManageOkrOf, teamListScope, forViewer, teamForViewer, managerScoreScope, scopeCovers, canSeeManagerScore, stripManagerScore } from '../services/okrAccess.js'
 import { personOverview, weekStats, yearStats } from '../services/okrStats.js'
 import { describeExempt, setExempt, isExempt } from '../services/okrExempt.js'
 import { dailyView, dailyMissing, saveDailySummary } from '../services/okrDaily.js'
 import { weekStatus, remindWeek, pendingPlanUsers } from '../services/okrWeekStatus.js'
 import { listProjectDocs, getProjectDoc, loadProject, canWriteProjectDoc, saveProjectDoc } from '../services/okrProjectDocs.js'
 import { projectBrief } from '../services/okrObjectiveProjects.js'
+import { byProject, projectObjectives } from '../services/okrByProject.js'
 
 const router = express.Router()
 router.use(internalAuth)
@@ -175,6 +176,34 @@ router.get('/team', async (req, res) => {
     if (project) data.project = projectBrief(project)
     ok(res, teamForViewer(data, await managerScoreScope(req.user)))
   } catch (e) { fail(res, e, 'team') }
+})
+
+// ---------------------------------------------------------------- 按项目看 O(OKR 5.0)
+// 全员可见(不按团队裁剪, 免提交名单除外); 主管分 / 评语逐条按查看人裁剪: 本人 + 评分范围覆盖负责人的人才有
+
+/** 逐条 O 剔除查看人看不到的主管分(按 O 的负责人判断) */
+function objectivesForViewer(user, list, scope) {
+  return list.map(o => (canSeeManagerScore(user, o.owner?.id, scope) ? o : stripManagerScore(o)))
+}
+
+router.get('/by-project', async (req, res) => {
+  try {
+    const week = weekOf(req, res)
+    if (!week) return
+    const scope = await managerScoreScope(req.user)
+    const groups = await byProject(week)
+    ok(res, groups.map(g => ({ ...g, objectives: objectivesForViewer(req.user, g.objectives, scope) })))
+  } catch (e) { fail(res, e, 'by-project') }
+})
+
+router.get('/projects/:projectId/objectives', async (req, res) => {
+  try {
+    const project = await loadProject(req.params.projectId)
+    const week = weekOf(req, res)
+    if (!week) return
+    const data = await projectObjectives(project, week)
+    ok(res, { ...data, objectives: objectivesForViewer(req.user, data.objectives, await managerScoreScope(req.user)) })
+  } catch (e) { fail(res, e, 'projects/:id/objectives') }
 })
 
 router.get('/history', async (req, res) => {
