@@ -644,8 +644,8 @@ export async function scoreObjective({ objectiveId, userId, ownerId, role, score
     await assertKrsHandled(o)
   } else {
     if (String(o.ownerId) === String(userId)) throw forbidden('不能给自己打主管分', 8109)
-    // OKR 3.0: 不卡时间, 员工交了这个 O 的自评就能评
-    if (o.selfScore == null) throw conflict(`「${o.title}」员工还没交自评, 交了之后才能打主管分`, 8115)
+    // 0.6.3: 主管评的是「这周做到几分」, 不等员工自评(自评只是参考); 以后员工再自评也不覆盖主管分(两个独立字段)。
+    // 8115 不再抛 —— 一个人不交自评, 不该卡住主管评分进而卡住全公司归档
   }
   const text = comment ? String(comment).trim().slice(0, 500) : null
   return prisma.$transaction(async (tx) => {
@@ -928,36 +928,46 @@ export async function closeCycle(week, { by = null, now = new Date() } = {}) {
 }
 
 /**
- * 主管评分完成 → 归档这一周(正常流程唯一的归档入口)。
- * 前置: 这周所有已提交、未 DROPPED 的 O 都有主管评分; 缺的列出来(人名 + O 序号 + 标题)。
- * 没提交的草稿打不了分, 不算缺项。归档后计划 / 进展 / 自评 / 主管分一律只读; 已归档的再调不报错(changed=false)
+ * 主管评分完成 → 归档这一周(正常流程唯一的归档入口)。只看已提交、未 DROPPED 的 O(没提交的草稿打不了分, 不算缺项)。
+ * 0.6.3 缺项判定分两类:
+ *   - 已交自评但没有主管分 → 拦(8116 + missing[]): 这是主管该干的活, 必须评完;
+ *     allowUnscoredSelfScored=true(ADMIN 显式开关)时放行, 列进 unscored[], 路由记 OKR_CLOSE_WITH_UNSCORED 审计
+ *   - 员工没交自评(selfScore 为空) → 不拦, 按未评归档; 这些人按人汇总进 pendingSelfScore[], 界面要点名, 不当 0 分处理
+ * 归档后计划 / 进展 / 自评 / 主管分一律只读; 已归档的再调不报错(changed=false)
  */
-export async function closeByScore(week, { by, now = new Date() }) {
+export async function closeByScore(week, { by, now = new Date(), allowUnscoredSelfScored = false }) {
   const cycle = await getCycle(week, { now })
   if (!cycle) throw notFound(`${weekKey(week)} 没有 OKR 周期`)
-  if (cycle.status === 'CLOSED') return { cycle, changed: false, scored: 0 }
+  if (cycle.status === 'CLOSED') return { cycle, changed: false, scored: 0, unscored: [], pendingSelfScore: [], pendingSelfScoreTotal: 0 }
   return prisma.$transaction(async (tx) => {
     const objs = await tx.okrObjective.findMany({
       where: { cycleId: cycle.id, status: { not: 'DROPPED' }, submittedAt: { not: null } },
-      select: { id: true, ownerId: true, seq: true, title: true, managerScore: true },
+      select: { id: true, ownerId: true, seq: true, title: true, selfScore: true, managerScore: true },
       orderBy: [{ ownerId: 'asc' }, { seq: 'asc' }]
     })
     if (!objs.length) throw new OkrRuleError(`${weekKey(week)} 还没有人提交 OKR, 没有可评分的内容, 不能归档`, { code: 8116 })
-    const left = objs.filter(o => o.managerScore == null)
-    if (left.length) {
-      const users = await loadUsers(left.map(o => o.ownerId))
-      const missing = left.map(o => {
-        const u = users.get(String(o.ownerId))
-        return { objectiveId: String(o.id), ownerId: String(o.ownerId), ownerName: u?.name || u?.username || String(o.ownerId), seq: o.seq, title: o.title }
-      })
-      const label = missing.map(m => `${m.ownerName} O${m.seq}「${m.title}」`).join('、')
-      throw new OkrRuleError(`还有 ${missing.length} 个 O 没有主管评分, 评完才能完成本周：${label}`, { code: 8116, data: { missing } })
+    const noSelf = objs.filter(o => o.selfScore == null)
+    const left = objs.filter(o => o.selfScore != null && o.managerScore == null)
+    const users = await loadUsers([...noSelf, ...left].map(o => o.ownerId))
+    const nameOf = id => { const u = users.get(String(id)); return u?.name || u?.username || String(id) }
+    const pendingSelfScore = []
+    for (const o of noSelf) {
+      const id = String(o.ownerId)
+      const row = pendingSelfScore.find(p => p.userId === id)
+      if (row) row.objectiveCount++
+      else pendingSelfScore.push({ userId: id, name: nameOf(id), objectiveCount: 1 })
+    }
+    const pending = { pendingSelfScore, pendingSelfScoreTotal: pendingSelfScore.length }
+    const listed = left.map(o => ({ objectiveId: String(o.id), ownerId: String(o.ownerId), ownerName: nameOf(o.ownerId), seq: o.seq, title: o.title }))
+    if (listed.length && !allowUnscoredSelfScored) {
+      const label = listed.map(m => `${m.ownerName} O${m.seq}「${m.title}」`).join('、')
+      throw new OkrRuleError(`还有 ${listed.length} 个 O 没有主管评分, 评完才能完成本周：${label}`, { code: 8116, data: { missing: listed, ...pending } })
     }
     const updated = await tx.okrCycle.update({
       where: { id: cycle.id },
       data: { status: 'CLOSED', closedAt: now, closedBy: BigInt(by) }
     })
-    return { cycle: updated, changed: true, scored: objs.length }
+    return { cycle: updated, changed: true, scored: objs.filter(o => o.managerScore != null).length, unscored: listed, ...pending }
   })
 }
 

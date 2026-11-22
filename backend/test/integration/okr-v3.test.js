@@ -203,17 +203,17 @@ describe('OKR 3.0 /api/okr', () => {
       assert.equal(r.code, 0, r.message)
     }
 
-    test('员工没交自评 → 主管评分 409 拒绝; 交了自评 → 200', async () => {
-      const r1 = await boss.post('/api/okr/manager-score', { objectiveId: oa[0].id, score: 80 })
-      assert.equal(r1.status, 409)
-      assert.equal(r1.code, 8115)
-      assert.match(r1.message, /还没交自评/)
+    test('0.6.3: 员工没交自评主管也能先打分(不再 8115); 之后员工自评不覆盖主管分', async () => {
+      const r1 = await boss.post('/api/okr/manager-score', { objectiveId: oa[0].id, score: 80, comment: 'unit-test-v3' })
+      assert.equal(r1.code, 0, r1.message)
       await selfScore(a, oa[0], 85)
-      const r2 = await boss.post('/api/okr/manager-score', { objectiveId: oa[0].id, score: 80, comment: 'unit-test-v3' })
-      assert.equal(r2.code, 0, r2.message)
+      const o = await prisma.okrObjective.findUnique({ where: { id: BigInt(oa[0].id) } })
+      assert.equal(o.selfScore, 85)
+      assert.equal(o.managerScore, 80)
     })
 
-    test('close-by-score: 有 O 没打主管分 → 400 列出缺项, 周期不动', async () => {
+    test('close-by-score: 已交自评的 O 没打主管分 → 400 列出缺项, 周期不动', async () => {
+      await selfScore(b, ob[0], 70)
       const r = await boss.post('/api/okr/cycle/close-by-score', { week: weekKey(WK3) })
       assert.equal(r.status, 400)
       assert.equal(r.code, 8116)
@@ -227,7 +227,6 @@ describe('OKR 3.0 /api/okr', () => {
     })
 
     test('全部评完 → CLOSED(记 closedAt/closedBy + 审计); 之后 PATCH /krs、complete、/self-score、主管分一律只读', async () => {
-      await selfScore(b, ob[0], 70)
       assert.equal((await boss.post('/api/okr/manager-score', { objectiveId: ob[0].id, score: 75 })).code, 0)
       const r = await boss.post('/api/okr/cycle/close-by-score', { week: weekKey(WK3) })
       assert.equal(r.code, 0, r.message)

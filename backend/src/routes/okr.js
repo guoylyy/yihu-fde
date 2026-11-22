@@ -976,13 +976,23 @@ router.post('/cycle/close-by-score', humanOnly('完成本周评分并归档'), r
     if (!isBoss(req)) return res.status(403).json({ code: 8118, message: '关闭本周是老板的动作' })
     const week = req.body?.week || req.query.week ? weekOf(req, res) : isoWeekOf()
     if (!week) return
-    const { cycle, changed, scored } = await closeByScore(week, { by: req.user.id })
+    // 0.6.3: 显式开关, 只认 true —— 已交自评但没主管分的 O 也放行(默认拦, 不是绕过评分的日常路径)
+    const flag = req.body?.allowUnscoredSelfScored
+    const allowUnscoredSelfScored = flag === true || flag === 'true'
+    const { cycle, changed, scored, unscored, pendingSelfScore, pendingSelfScoreTotal } = await closeByScore(week, { by: req.user.id, allowUnscoredSelfScored })
     if (changed) {
-      await logInternalAction(req, 'okr.cycle.close-by-score', { resourceType: 'okr_cycle', resourceId: cycle.id, details: { week: weekKey(week), scored } })
+      await logInternalAction(req, 'okr.cycle.close-by-score', { resourceType: 'okr_cycle', resourceId: cycle.id, details: { week: weekKey(week), scored, pendingSelfScoreTotal } })
+      if (unscored.length) {
+        await logInternalAction(req, 'OKR_CLOSE_WITH_UNSCORED', { resourceType: 'okr_cycle', resourceId: cycle.id, details: { week: weekKey(week), unscored } })
+      }
     }
     // 4.0: 不阻断关闭, 但把还没交计划的人(免提交除外)一并告诉老板
     const pendingUsers = await pendingPlanUsers(week)
-    ok(res, { week: weekKey(week), status: cycle.status, changed, scored, closedAt: cycle.closedAt, closedBy: cycle.closedBy != null ? String(cycle.closedBy) : null, pendingUsers })
+    ok(res, {
+      week: weekKey(week), status: cycle.status, changed, scored, closedAt: cycle.closedAt, closedBy: cycle.closedBy != null ? String(cycle.closedBy) : null, pendingUsers,
+      // 0.6.3: 没交自评、本次按未评归档的人(要在界面上点名); 开关放行的未打主管分 O
+      pendingSelfScore, pendingSelfScoreTotal, unscored
+    })
   } catch (e) { fail(res, e, 'cycle/close-by-score') }
 })
 
