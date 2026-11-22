@@ -32,6 +32,9 @@
 //
 // OKR 8.0: GET /export 按周导出 Excel(明细 + 汇总) / Word。只读; 权限与口径见 services/okrExport.js。
 //
+// OKR 10.0: GET /risk/objectives、/risk/people 连续未达成预警(只读现算, 口径见 services/okrRisk.js)。
+// 范围: ADMIN 全部, MANAGER 本团队, 工程师只看自己(自己的 CRITICAL 照样给)。?weeks=2–26(缺省 4), ?asOf=YYYY-MM-DD 回看某天视角。
+//
 // OKR 9.0: /decisions 决策记录(可挂 O / 项目 / 周期, 全员可读, 时间线回看)。写权限与 7 天窗口见 services/okrDecisions.js;
 // 每次写动作 await 留痕(okr.decision.create / update / supersede / delete)。/my /cycle /team 的 O 带最近 3 条 decisions。
 import express from 'express'
@@ -47,7 +50,7 @@ import {
   markMiss, teamView, history, closeCycle, closeByScore, reopenCycle, okrTick, planWritable
 } from '../services/okr.js'
 import { generateOkrDraft } from '../services/okrDraft.js'
-import { resolveOkrTarget, canManageOkrOf, teamListScope, forViewer, teamForViewer, managerScoreScope, scopeCovers, canSeeManagerScore, stripManagerScore } from '../services/okrAccess.js'
+import { resolveOkrTarget, canManageOkrOf, teamListScope, riskListScope, forViewer, teamForViewer, managerScoreScope, scopeCovers, canSeeManagerScore, stripManagerScore } from '../services/okrAccess.js'
 import { personOverview, weekStats, yearStats } from '../services/okrStats.js'
 import { describeExempt, setExempt, isExempt } from '../services/okrExempt.js'
 import { dailyView, dailyMissing, saveDailySummary } from '../services/okrDaily.js'
@@ -60,6 +63,7 @@ import { copyFromWeek, bulkImport } from '../services/okrPlanImport.js'
 import { listTemplates, createTemplate, deleteTemplate } from '../services/okrTemplates.js'
 import { exportData, exportFileNames, contentDisposition, EXPORT_FORMATS } from '../services/okrExport.js'
 import { renderXlsx, renderDocx, CONTENT_TYPES } from '../services/okrExportFormat.js'
+import { objectiveRisk, peopleRisk, parseRiskWeeks, parseAsOf } from '../services/okrRisk.js'
 import { createDecision, listDecisions, getDecision, patchDecision, supersedeDecision, deleteDecision, decisionTimeline } from '../services/okrDecisions.js'
 
 const router = express.Router()
@@ -283,6 +287,24 @@ router.get('/export', async (req, res) => {
     res.setHeader('Content-Length', buf.length)
     res.end(buf)
   } catch (e) { fail(res, e, 'export') }
+})
+
+// ---------------------------------------------------------------- 连续未达成预警(OKR 10.0)
+
+router.get('/risk/objectives', async (req, res) => {
+  try {
+    const weeks = parseRiskWeeks(req.query.weeks)
+    const now = parseAsOf(req.query.asOf)
+    ok(res, await objectiveRisk({ weeks, now, onlyUserIds: await riskListScope(req.user) }))
+  } catch (e) { fail(res, e, 'risk/objectives') }
+})
+
+router.get('/risk/people', async (req, res) => {
+  try {
+    const weeks = parseRiskWeeks(req.query.weeks)
+    const now = parseAsOf(req.query.asOf)
+    ok(res, await peopleRisk({ weeks, now, onlyUserIds: await riskListScope(req.user) }))
+  } catch (e) { fail(res, e, 'risk/people') }
 })
 
 // ---------------------------------------------------------------- 计划

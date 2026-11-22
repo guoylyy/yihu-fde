@@ -47,6 +47,17 @@ export async function teamListScope(user) {
   return teammateIds(user)
 }
 
+/**
+ * 10.0 预警(/risk/*)的可见范围: ADMIN(dataScope=ALL) 全部(null); MANAGER / 组长(dataScope=TEAM) 本人所在团队的成员;
+ * 其余(工程师)只有自己 —— 和 /team 的区别: 工程师挂了团队也只看自己
+ */
+export async function riskListScope(user) {
+  const kind = delegateKind(user)
+  if (kind === 'ALL') return null
+  if (kind === 'TEAM') return teammateIds(user)
+  return new Set([uid(user)])
+}
+
 /** 能否代管 targetId(不含"是不是自己"的判断) */
 export async function canManageOkrOf(user, targetId, { targetRole } = {}) {
   const kind = delegateKind(user)
