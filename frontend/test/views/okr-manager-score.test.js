@@ -96,8 +96,8 @@ describe('面板按角色渲染', () => {
   })
 
   test('saveAndClose 没有归档权限时不调 close-by-score', () => {
-    const fn = src('components/okr/OkrManagerScorePanel.vue').split('async function saveAndClose()')[1]
-    assert.ok(fn.indexOf('if (!props.canClose) return') < fn.indexOf('fde.okr.closeByScore(props.week)'))
+    const fn = src('components/okr/OkrManagerScorePanel.vue').split('async function saveAndClose(')[1]
+    assert.ok(fn.indexOf('if (!props.canClose) return') < fn.indexOf('fde.okr.closeByScore(props.week'))
   })
 
   test('页面与面板没有「重开」与应急归档入口', () => {

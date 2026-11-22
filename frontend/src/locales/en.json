@@ -2411,8 +2411,8 @@
       "self_saved": "Self-review submitted",
       "mgr_btn": "Manager scoring",
       "mgr_panel_title": "Manager scoring · {p0}",
-      "mgr_hint": "An objective can get a manager score once its owner has self-reviewed it. When everything is scored, use \"Save and finish week\" to archive.",
-      "mgr_hint_team": "An objective can get a manager score once its owner has self-reviewed it. You can only score members of your own team.",
+      "mgr_hint": "You can score Os even without a self-score. Once every self-scored O has a score, click Save and finish week to archive.",
+      "mgr_hint_team": "You can score Os even without a self-score. You can only score members of your own team.",
       "mgr_self": "Self",
       "mgr_score": "Manager",
       "mgr_no_self": "No self score",
@@ -2665,6 +2665,25 @@
         "MILESTONE_EDIT": "Changed milestones",
         "BLOCKER_EDIT": "Changed blocker"
       }
+    },
+    "close": {
+      "missing_title": "These people self-scored and are waiting for your score",
+      "missing_sub": "{p0} O(s) in total. Score them, then click Finish week again",
+      "no_self_line": "{p0} more didn't self-score. That doesn't block archiving:",
+      "names_more": "{p0} and {p1} more",
+      "go_score": "Go score",
+      "force_label": "Archive anyway (skip {p0} self-scored O(s) without a manager score)",
+      "force_warn": "After archiving the week is read-only. Unscored Os can't be scored later",
+      "force_btn": "Archive anyway",
+      "closed_ok": "Archived {p0}",
+      "closed_with_pending": "Archived {p0}. {p1} didn't self-score; archived as unscored",
+      "dismiss": "Dismiss",
+      "no_self_hint": "No self-score yet. You can score it directly",
+      "pending_self_n": "No self-score {p0}",
+      "pending_self_title": "No self-score · {p0}",
+      "pending_self_empty": "Everyone self-scored this week",
+      "pending_self_os": "{p0} O(s) not self-scored",
+      "self_missing": "Missing"
     }
   },
   "assistant": {

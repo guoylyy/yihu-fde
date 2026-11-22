@@ -17,7 +17,13 @@
     />
 
     <!-- OKR 4.0: 本周进度 + 催交(仅 ADMIN/MANAGER) -->
-    <OkrWeekStatus v-if="lead" :key="weekKeyNow" :week="weekKeyNow" />
+    <OkrWeekStatus v-if="lead" ref="wstRef" :key="weekKeyNow" :week="weekKeyNow" @loaded="s => (wst = s)" />
+
+    <!-- 0.6.3: 已归档的周有人没交自评 → 浅黄提示条(可关闭, 按周记住); 名单来自周状态, 与归档时后端的 pendingSelfScore 同口径 -->
+    <div v-if="closedNotice" class="okr-close-notice" role="status" data-test="okr-close-notice">
+      <span>{{ closedNotice }}</span>
+      <button type="button" class="okr-close-notice-x" :aria-label="$t('okr.close.dismiss')" :title="$t('okr.close.dismiss')" data-test="okr-close-notice-x" @click="hideNotice">×</button>
+    </div>
 
     <!-- 0.6.2: 周进度后面两个计数(主管): 待你确认 / 变更待批, 都可点开 -->
     <div v-if="canScore && data" class="okr-cf-counts" data-test="okr-cf-counts">
@@ -144,7 +150,7 @@
 
       <OkrManagerScorePanel
         v-if="canScore && data.cycle?.status" v-model="mgrOpen" :week="weekKeyNow" :me-id="meId" :closed="data.cycle.status === 'CLOSED'" :can-close="canCloseWeek" :mobile="isMobile"
-        @changed="mgrChanged = true" @update:model-value="v => { if (!v && mgrChanged) { mgrChanged = false; load() } }"
+        @changed="mgrChanged = true" @update:model-value="v => { if (!v && mgrChanged) { mgrChanged = false; load(); wstRef?.reload() } }"
       />
     </template>
   </div>
@@ -165,6 +171,7 @@ import OkrWeekStatus from '@/components/okr/OkrWeekStatus.vue'
 import OkrExportMenu from '@/components/okr/OkrExportMenu.vue'
 import OkrChangeReviewDialog from '@/components/okr/OkrChangeReviewDialog.vue'
 import { teamConfirmCell, teamCounts } from './okrConfirm.js'
+import { pendingSelfFromStatus, closedNoticeText, noticeDismissed, dismissNotice } from './okrClose.js'
 import { exportItems } from './okrFe5.js'
 import { isLead } from './okrFe3.js'
 import { pct, shiftKey, parseKey, isoWeekOf, weekKey } from './okrUtils.js'
@@ -260,6 +267,22 @@ async function onDecided({ id, ownerId }) {
 }
 watch(() => route.query.week, load, { immediate: true })
 
+// ---------------------------------------------------------------- 0.6.3 未交自评(周状态) / 归档提示条
+const wstRef = ref(null)
+const wst = ref(null)
+const pendingSelf = computed(() => (wst.value && wst.value.week === weekKeyNow.value ? pendingSelfFromStatus(wst.value) : []))
+const dismissed = ref(new Set())
+const closedNotice = computed(() => {
+  const week = weekKeyNow.value
+  if (data.value?.cycle?.status !== 'CLOSED' || !pendingSelf.value.length) return ''
+  if (dismissed.value.has(week) || noticeDismissed(week)) return ''
+  return closedNoticeText($t, week, pendingSelf.value)
+})
+function hideNotice() {
+  dismissNotice(weekKeyNow.value)
+  dismissed.value = new Set([...dismissed.value, weekKeyNow.value])
+}
+
 // ---------------------------------------------------------------- OKR 8.0 导出
 const exportMenu = computed(() => exportItems({ page: 'team', user: me, week: weekKeyNow.value, userId: meId }))
 
@@ -323,6 +346,10 @@ function subClass(row) {
 .okr-low li { display: flex; justify-content: space-between; gap: 8px; }
 .okr-low a { color: var(--el-color-primary); text-decoration: none; }
 .okr-admin { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.okr-close-notice { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 12px; padding: 10px 8px 10px 14px; border-radius: 10px; font-size: 13px; line-height: 1.6; color: #6b5300; background: #fdf6d8; border: 1px solid #f1dc8a; }
+.okr-close-notice > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.okr-close-notice-x { flex: none; width: 32px; height: 32px; margin: -6px 0; border: 0; border-radius: 6px; background: none; color: inherit; font-size: 18px; line-height: 1; cursor: pointer; }
+.okr-close-notice-x:hover { background: rgba(0, 0, 0, .06); }
 .okr-cf-counts { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
 .okr-cf-count { min-height: 36px; padding: 0 14px; border-radius: 18px; border: 1px solid var(--el-border-color); background: var(--el-bg-color); color: var(--el-text-color-regular); font-size: 13px; cursor: pointer; }
 .okr-cf-count.hot { border-color: var(--el-color-primary-light-5); color: var(--el-color-primary); font-weight: 600; background: var(--el-color-primary-light-9); }
@@ -339,5 +366,6 @@ function subClass(row) {
 @media (max-width: 640px) {
   .okr-cf-count { min-height: 44px; flex: 1 1 0; }
   .okr-cf-tobtn { min-height: 44px; }
+  .okr-close-notice-x { width: 44px; height: 44px; margin: -10px -4px; }
 }
 </style>

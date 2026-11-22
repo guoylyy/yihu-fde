@@ -2,7 +2,9 @@
   <!-- OKR 3.0 主管评分面板(只给 okr.score.manager 的 ADMIN / MANAGER, 父组件负责不渲染给别人)。
        MANAGER(0.5.8): 只列本团队成员(后端 can.scoreOwner), 没有「保存并完成本周」—— 归档只给 ADMIN(canClose)。
        按人 → 按 O 列出「自评分」和「主管分」输入框, 一次填多个 O:
-       「保存评分」逐个调 /manager-score; 「保存并完成本周」先保存再调 /cycle/close-by-score 归档。
+       「保存评分」逐个调 /manager-score; 「保存并完成本周」先弹二次确认(OkrCloseWeekDialog), 再保存、调 /cycle/close-by-score 归档。
+       0.6.3: 8116 只拦「交了自评还差主管分」的 O → 同一个弹窗换成缺项列表 + 灰字点名没交自评的人;
+       成功但有人没交自评 → 提示「已归档 W47；张三 未交自评，本周按未评归档」。
        员工没自评的 O 后端不让打主管分(8115), 这里直接置灰; 自己的 O 也不能自己打(8109) -->
   <el-drawer
     :model-value="modelValue" :title="$t('okr.v3.mgr_panel_title', { p0: week })"
@@ -41,20 +43,26 @@
     <template #footer>
       <div class="okr-mp-foot">
         <el-button :disabled="closed || !groups.length" :loading="busy === 'save'" data-test="okr-mgr-save" @click="saveOnly">{{ $t('okr.v3.mgr_save') }}</el-button>
-        <el-button v-if="canClose" type="primary" :disabled="closed || !groups.length" :loading="busy === 'close'" data-test="okr-mgr-close" @click="saveAndClose">{{ $t('okr.v3.mgr_save_close') }}</el-button>
+        <el-button v-if="canClose" type="primary" :disabled="closed || !groups.length" :loading="busy === 'close'" data-test="okr-mgr-close" @click="openClose">{{ $t('okr.v3.mgr_save_close') }}</el-button>
         <span v-else class="okr-mp-boss" data-test="okr-mgr-close-by-boss">{{ $t('okr.v3.mgr_close_by_boss') }}</span>
       </div>
     </template>
+    <OkrCloseWeekDialog
+      v-if="canClose" v-model="closeDlg.open" :week="week" :phase="closeDlg.phase" :missing="closeDlg.missing" :pending-self="closeDlg.pendingSelf"
+      :unscored-count="closeDlg.unscored" :busy="busy === 'close'" :mobile="mobile" @submit="saveAndClose"
+    />
   </el-drawer>
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { computed, reactive, ref } from 'vue'
+import { ElMessage } from 'element-plus'
 import { $t } from '@/i18n'
 import { fde } from '@/api/index.js'
 import { managerScoreChanges } from '@/views/okr/okrUtils.js'
 import { sameId, inScorePanel } from '@/views/okr/okrPeople.js'
+import { parseCloseError, unscoredSelfCount, pendingSelfFromGroups, closedNoticeText } from '@/views/okr/okrClose.js'
+import OkrCloseWeekDialog from './OkrCloseWeekDialog.vue'
 
 const props = defineProps({
   modelValue: Boolean,
@@ -67,7 +75,7 @@ const props = defineProps({
   canClose: Boolean,
   mobile: Boolean
 })
-const emit = defineEmits(['update:modelValue', 'changed'])
+const emit = defineEmits(['update:modelValue', 'changed', 'closed'])
 
 const loading = ref(false)
 const busy = ref('')
@@ -142,29 +150,43 @@ async function saveOnly() {
   }
 }
 
-/** 先保存, 再归档。close-by-score 400 时把后端 message 原样展示(里面写了还差谁哪个 O) */
-async function saveAndClose() {
-  try {
-    await ElMessageBox.confirm($t('okr.v3.mgr_confirm_close', { p0: props.week }), $t('okr.v3.mgr_save_close'), {
-      type: 'warning', confirmButtonText: $t('okr.v3.mgr_save_close'), cancelButtonText: $t('common.cancel')
-    })
-  } catch { return }
+// ---------------------------------------------------------------- 0.6.3 完成本周
+// confirm(二次确认, 可勾「仍然归档」) → 保存 → close-by-score; 8116 → 同一个弹窗换成 missing(缺项 + 没交自评的灰字)
+const closeDlg = reactive({ open: false, phase: 'confirm', missing: [], pendingSelf: [], unscored: 0 })
+
+function openClose() {
+  Object.assign(closeDlg, { open: true, phase: 'confirm', missing: [], pendingSelf: pendingSelfFromGroups(groups.value), unscored: unscoredSelfCount(groups.value) })
+}
+
+/** 先保存, 再归档。allow = 弹窗里显式勾了「仍然归档」才为 true; 其余 400 把后端 message 原样展示 */
+async function saveAndClose(allow = false) {
   busy.value = 'close'
   error.value = ''
   try {
     const { saved, failed } = await saveScores()
     if (saved) emit('changed')
     if (failed.length) {
+      closeDlg.open = false
       error.value = $t('okr.v3.mgr_partial', { p0: failed.length, p1: failed.join('；') })
       ElMessage.error(error.value)
       return
     }
     if (!props.canClose) return
-    await fde.okr.closeByScore(props.week)
-    ElMessage.success({ message: $t('okr.v3.mgr_closed'), duration: 5000 })
+    const res = await fde.okr.closeByScore(props.week, { allowUnscoredSelfScored: allow === true })
+    closeDlg.open = false
+    const pending = res?.pendingSelfScore || []
+    ElMessage({ type: pending.length ? 'warning' : 'success', message: closedNoticeText($t, props.week, pending), duration: pending.length ? 10000 : 5000, showClose: true })
     emit('changed')
+    emit('closed', res)
     emit('update:modelValue', false)
   } catch (e) {
+    const miss = parseCloseError(e)
+    if (miss) {
+      // 没交自评的名单以后端为准(它看的是全公司); 后端没给就用面板里算的
+      Object.assign(closeDlg, { open: true, phase: 'missing', missing: miss.missing, pendingSelf: miss.pendingSelfScore.length ? miss.pendingSelfScore : pendingSelfFromGroups(groups.value) })
+      return
+    }
+    closeDlg.open = false
     error.value = e.message
     ElMessage.error({ message: e.message, duration: 8000 })
   } finally {

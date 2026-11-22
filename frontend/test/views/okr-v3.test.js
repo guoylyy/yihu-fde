@@ -334,10 +334,10 @@ describe('主管评分面板 OkrManagerScorePanel', () => {
 
   test('保存并完成本周: 先逐个 /manager-score, 全部成功才调 close-by-score; 失败把 message 放进面板', () => {
     const s = src('components/okr/OkrManagerScorePanel.vue')
-    const fn = s.split('async function saveAndClose()')[1]
-    assert.ok(fn.indexOf('saveScores()') < fn.indexOf('fde.okr.closeByScore(props.week)'))
+    const fn = s.split('async function saveAndClose(')[1]
+    assert.ok(fn.indexOf('saveScores()') < fn.indexOf('fde.okr.closeByScore(props.week'))
     assert.match(fn, /if \(failed\.length\) \{[\s\S]*?return\s*\}/)
-    assert.match(fn, /catch \(e\) \{\s*error\.value = e\.message/)
+    assert.match(fn, /catch \(e\) \{[\s\S]*?error\.value = e\.message/)
     assert.match(s, /fde\.okr\.managerScore\(\{ objectiveId: r\.id, score: r\.score, comment: r\.comment\.trim\(\) \}\)/)
   })
 

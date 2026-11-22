@@ -2411,8 +2411,8 @@
       "self_saved": "自评已提交",
       "mgr_btn": "主管评分",
       "mgr_panel_title": "主管评分 · {p0}",
-      "mgr_hint": "员工交了自评的 O 才能打主管分；全部评完后点「保存并完成本周」归档。",
-      "mgr_hint_team": "员工交了自评的 O 才能打主管分；只能给自己团队的成员打分。",
+      "mgr_hint": "员工没交自评也能直接打分；已交自评的 O 评完后点「保存并完成本周」归档。",
+      "mgr_hint_team": "员工没交自评也能直接打分；只能给自己团队的成员打分。",
       "mgr_self": "自评",
       "mgr_score": "主管分",
       "mgr_no_self": "未自评",
@@ -2665,6 +2665,25 @@
         "MILESTONE_EDIT": "改阶段明细",
         "BLOCKER_EDIT": "改卡点"
       }
+    },
+    "close": {
+      "missing_title": "这些人交了自评，还差你打分",
+      "missing_sub": "共 {p0} 个 O，评完再点「完成本周」",
+      "no_self_line": "另有 {p0} 人没交自评，不影响本周归档：",
+      "names_more": "{p0} 等 {p1} 人",
+      "go_score": "去打分",
+      "force_label": "仍然归档（跳过 {p0} 个已自评但未打分的 O）",
+      "force_warn": "归档后这一周只读，未打分的 O 之后不能再评分",
+      "force_btn": "仍然归档",
+      "closed_ok": "已归档 {p0}",
+      "closed_with_pending": "已归档 {p0}；{p1} 未交自评，本周按未评归档",
+      "dismiss": "关闭提示",
+      "no_self_hint": "员工未自评，可直接评分",
+      "pending_self_n": "未交自评 {p0}",
+      "pending_self_title": "未交自评 · {p0}",
+      "pending_self_empty": "本周没有未交自评的人",
+      "pending_self_os": "{p0} 个 O 没自评",
+      "self_missing": "未交"
     }
   },
   "assistant": {

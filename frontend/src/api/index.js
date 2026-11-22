@@ -636,8 +636,11 @@ export const fde = {
     miss: (objectiveId, data, targetUserId) => request(`/api/okr/objectives/${objectiveId}/miss`, { method: 'POST', body: JSON.stringify(withTarget(data, targetUserId)) }),
     // OKR 3.0: KR 完成开关 { done:true|false, note? } → { kr, objective, completion }
     completeKr: (krId, data, targetUserId) => request(`/api/okr/krs/${krId}/complete`, { method: 'POST', body: JSON.stringify(withTarget(data, targetUserId)) }),
-    // 主管评分完成 → 归档这一周(缺评分 400 + code 8116 + data.missing)
-    closeByScore: (week) => request('/api/okr/cycle/close-by-score', { method: 'POST', body: JSON.stringify(week ? { week } : {}) }),
+    // 主管评分完成 → 归档这一周(已交自评未打分 400 + code 8116 + data.missing / data.pendingSelfScore)
+    // 0.6.3: 返回带 pendingSelfScore(没交自评、按未评归档的人); allowUnscoredSelfScored 只在显式勾选时带 true
+    closeByScore: (week, { allowUnscoredSelfScored = false } = {}) => request('/api/okr/cycle/close-by-score', {
+      method: 'POST', body: JSON.stringify({ ...(week ? { week } : {}), ...(allowUnscoredSelfScored === true ? { allowUnscoredSelfScored: true } : {}) })
+    }),
     exempt: () => request('/api/okr/settings/exempt'),
     saveExempt: (userIds) => request('/api/okr/settings/exempt', { method: 'PUT', body: JSON.stringify({ userIds }) }),
     close: (week) => request('/api/okr/cycle/close', { method: 'POST', body: JSON.stringify(week ? { week } : {}) }),

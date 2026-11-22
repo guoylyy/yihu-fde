@@ -37,9 +37,15 @@ export const CONFIRM_DEFAULTS = {
   confirmRow() {}, onDecided() {}
 }
 
+// 0.6.3 完成本周弹窗 / 未交自评 / 归档提示条在面板与团队页里加的 setup 名字: 缺省「弹窗没开、没人没交自评、没有提示条」
+export const CLOSE_DEFAULTS = {
+  closeDlg: { open: false, phase: 'confirm', missing: [], pendingSelf: [], unscored: 0 }, openClose() {},
+  closedNotice: '', hideNotice() {}, pendingSelf: [], pendingSelfOpen: false, wst: null, wstRef: null
+}
+
 /** 渲染; el-table 把 data 逐行喂给列的默认插槽, 列头插槽也渲染(看 tooltip 文案) */
 export async function renderView(render, state, extra = {}) {
-  const app = Vue.createSSRApp({ render, setup: () => ({ ...FE5_DEFAULTS, ...CONFIRM_DEFAULTS, ...state }) })
+  const app = Vue.createSSRApp({ render, setup: () => ({ ...FE5_DEFAULTS, ...CONFIRM_DEFAULTS, ...CLOSE_DEFAULTS, ...state }) })
   app.use(i18n) // 测试环境语言为 en(Node 没有中文浏览器语言)
   for (const name of STUBS) app.component(name, passthrough)
   // extra: { 组件名: 组件 | true(透传 div) }, 给页面里自带的子组件(如 OkrWeekBar)用

@@ -59,6 +59,8 @@ import { weekProgress, statusCells, mergeReminded, skippedByReason } from '@/vie
 const props = defineProps({
   week: { type: String, required: true }
 })
+// 0.6.3: 团队页拿同一份数据算「未交自评」计数与归档提示条, 不再多拉一次
+const emit = defineEmits(['loaded'])
 
 const status = ref(null)
 const open = ref(false)
@@ -74,6 +76,7 @@ async function load() {
   } catch {
     status.value = null // 非 ADMIN/MANAGER 403: 不出这一条
   }
+  emit('loaded', status.value)
 }
 watch(() => props.week, () => { reminded.value = new Set(); load() }, { immediate: true })
 
