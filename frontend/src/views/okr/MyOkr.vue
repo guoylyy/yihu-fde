@@ -28,6 +28,12 @@
       @shift="shift"
     />
 
+    <!-- 0.6.2 计划确认区: 提交后 灰(等员工确认) → 黄(等主管确认) → 绿(锁定); 锁定后有待批变更申请 → 蓝 -->
+    <OkrConfirmBar
+      v-if="data && !changeMode" :bar="cfBar" :other-name="viewingOther ? ownerName : ''" :busy="busy === 'confirm'"
+      @confirm="confirmOwner" @manager-confirm="confirmManager" @cancel-change="cancelChange"
+    />
+
     <!-- 精简第二轮: 本周项目计划(一周一份, 整体, 不分项目), 随顶部周切换 -->
     <OkrWeekPlanCard :week="weekKeyNow" />
 
@@ -41,7 +47,7 @@
     <template v-if="data">
       <!-- OKR 3.0 页头操作: 「提交自评」主按钮(本人 / 代管, 计划已提交); 「主管评分」次要按钮(ADMIN / MANAGER)。
            不按时间限制, 能不能交由后端说了算; 归档后都置灰 -->
-      <div v-if="data.cycle && !editing && (showSelfBtn || canScoreManager)" class="okr-actions" data-test="okr-actions">
+      <div v-if="data.cycle && !editing && (showSelfBtn || canScoreManager || showChangeBtn || showAuditBtn)" class="okr-actions" data-test="okr-actions">
         <el-button
           v-if="showSelfBtn" type="primary" class="okr-act-btn" :plain="selfAllDone && !isClosed" :disabled="isClosed"
           data-test="okr-self-open" @click="openSelf"
@@ -52,6 +58,9 @@
           v-if="canScoreManager" class="okr-act-btn okr-act-mgr" :disabled="isClosed" :title="isClosed ? $t('okr.v3.closed_tip') : undefined"
           data-test="okr-mgr-open" @click="mgr.visible = true"
         >{{ isClosed ? $t('okr.v3.closed_btn') : $t('okr.v3.mgr_btn') }}</el-button>
+        <!-- 0.6.2: 锁定后改计划只能「申请变更」; 「修改记录」看计划层每一次改动 -->
+        <el-button v-if="showChangeBtn" class="okr-act-btn okr-act-mgr" data-test="okr-change-open" @click="startChange">{{ $t('okr.confirm.request_change') }}</el-button>
+        <el-button v-if="showAuditBtn" class="okr-act-btn okr-act-mgr" data-test="okr-audit-open" @click="auditOpen = true">{{ $t('okr.confirm.audit') }}</el-button>
       </div>
 
       <!-- 本周一句话概况 -->
@@ -60,6 +69,12 @@
         <span v-if="data.selfScore != null">{{ $t('okr.self_score') }} <b>{{ data.selfScore }}</b></span>
         <span v-if="data.managerScore != null && (canScoreManager || !viewingOther)">{{ $t('okr.manager_score') }} <b>{{ data.managerScore }}</b></span>
         <button v-if="canEditPlan" type="button" class="okr-edit-link" @click="startEdit">{{ $t('okr.edit_plan') }}</button>
+        <!-- 已确认锁定: 改计划置灰 + 提示走变更申请(不在编辑器里放行保存) -->
+        <el-tooltip v-else-if="locked && canAct" :content="$t('okr.confirm.locked_tip')" placement="top">
+          <span class="okr-edit-link okr-edit-locked" tabindex="0" data-test="okr-edit-locked">
+            <button type="button" class="okr-edit-link" disabled :aria-label="$t('okr.confirm.locked_tip')">{{ $t('okr.edit_plan') }}</button>
+          </span>
+        </el-tooltip>
       </div>
 
       <!-- 这周一条 O 都没有: 空态必须带去处(补录 / 新建 / 代补录); 只有已归档、超出窗口、看别人且无代管权时才只有说明 -->
@@ -74,7 +89,10 @@
       </div>
 
       <!-- 本周还没提交: 贴周报生成草稿(只填编辑器, 不提交)。代管时常驻, 另加「导入文档生成」 -->
-      <div v-if="editorOpen && (proxyMode || (!submittedOnce && !viewingOther))" class="okr-quick">
+      <!-- 0.6.2 变更申请编辑态: 编辑器同平时, 只是保存变成「提交变更申请」(弹窗写原因), 主管批准后才生效 -->
+      <div v-if="editorOpen && changeMode" class="okr-change-bar" role="status" data-test="okr-change-bar">{{ $t('okr.confirm.change_mode_bar') }}</div>
+
+      <div v-if="editorOpen && !changeMode && (proxyMode || (!submittedOnce && !viewingOther))" class="okr-quick">
         <span class="okr-quick-text">{{ proxyMode ? $t('okr.import.entry_hint', { p0: ownerName }) : $t('okr.report.entry_hint') }}</span>
         <span class="okr-quick-btns">
           <el-button type="primary" plain size="small" data-test="report-open" @click="openDraft('text')">{{ $t('okr.report.open') }}</el-button>
@@ -83,7 +101,7 @@
       </div>
 
       <!-- OKR 7.0 编计划提效: 编辑模式下的三个入口(复制 / 批量导入只往这周追加草稿, 已提交的周后端回 8171) -->
-      <div v-if="editorOpen" class="okr-plan-tools" data-test="okr-plan-tools">
+      <div v-if="editorOpen && !changeMode" class="okr-plan-tools" data-test="okr-plan-tools">
         <el-button class="okr-tool-btn" data-test="okr-copy-open" @click="openCopy">{{ $t('okr.plan.copy_btn') }}</el-button>
         <el-button class="okr-tool-btn" data-test="okr-bulk-open" @click="openImport('')">{{ $t('okr.plan.bulk_btn') }}</el-button>
         <el-button class="okr-tool-btn" data-test="okr-tpl-open" @click="openTemplates">{{ $t('okr.plan.tpl_btn') }}</el-button>
@@ -92,10 +110,10 @@
       <!-- 写计划 / 改计划 -->
       <OkrPlanEditor
         v-if="editorOpen" ref="editorRef"
-        :initial="draftInit" :submitted="submittedOnce" :cancellable="submittedOnce || !!empty" :busy="busy"
-        :late-hint="deadlinePassed && !submittedOnce"
-        :submit-label="proxyMode ? $t('okr.proxy.submit_for', { p0: ownerName }) : ''"
-        @save="(objs) => savePlan(objs, false)" @submit="(objs) => savePlan(objs, true)" @cancel="editing = false"
+        :initial="draftInit" :submitted="submittedOnce || changeMode" :cancellable="submittedOnce || !!empty || changeMode" :busy="busy"
+        :late-hint="deadlinePassed && !submittedOnce && !changeMode"
+        :submit-label="changeMode ? $t('okr.confirm.submit_change') : (proxyMode ? $t('okr.proxy.submit_for', { p0: ownerName }) : '')"
+        @save="(objs) => savePlan(objs, false)" @submit="onEditorSubmit" @cancel="cancelEdit"
       />
 
       <template v-else-if="data.cycle">
@@ -170,6 +188,8 @@
       @changed="mgr.changed = true" @update:model-value="onMgrClosed"
     />
 
+    <OkrAuditDrawer v-model="auditOpen" :week="weekKeyNow" :owner-id="String(ownerId || meId)" :me-id="String(meId)" :mobile="isMobile" />
+
     <OkrReportDraftDialog
       v-model="reportOpen" :source="reportSource" :target-user-id="proxyTarget" :target-name="proxyMode ? ownerName : ''"
       @fill="fillFromReport"
@@ -226,6 +246,9 @@ import OkrTemplateDialog from '@/components/okr/OkrTemplateDialog.vue'
 import OkrExportMenu from '@/components/okr/OkrExportMenu.vue'
 import OkrRiskBars from '@/components/okr/OkrRiskBars.vue'
 import OkrWeekPlanCard from '@/components/okr/OkrWeekPlanCard.vue'
+import OkrConfirmBar from '@/components/okr/OkrConfirmBar.vue'
+import OkrAuditDrawer from '@/components/okr/OkrAuditDrawer.vue'
+import { confirmBar, isLocked, pendingChangeOf, reasonOk, LOCKED_CODE } from './okrConfirm.js'
 import { exportItems, riskByObjective, streakOf, myRiskBars, findRiskTarget } from './okrFe5.js'
 import {
   milestoneClick, milestonesWithDone, applyMilestonePatch, blockerPatch, planWithPatch, blockerPeople,
@@ -318,6 +341,123 @@ const tagType = computed(() => PERSONAL_TAG[data.value?.personalStatus] || 'info
 
 const isClosed = computed(() => data.value?.cycle?.status === 'CLOSED')
 const krBusy = ref('')
+
+// ---------------------------------------------------------------- 0.6.2 二级确认 / 变更申请 / 修改记录
+const changeMode = ref(false)
+const auditOpen = ref(false)
+const locked = computed(() => isLocked(data.value))
+const cfBar = computed(() => confirmBar(data.value, { meId, submitted: submittedOnce.value }))
+/** 「申请变更」: 本人或代管、已锁定、没归档(有待批申请时也出, 点了提示「已有一条待批申请」) */
+const showChangeBtn = computed(() => canAct.value && locked.value && !isClosed.value && !!data.value?.cycle)
+const showAuditBtn = computed(() => !!data.value?.can?.viewAudit && locked.value)
+
+async function confirmOwner() {
+  busy.value = 'confirm'
+  try {
+    await fde.okr.confirmOwner(weekKeyNow.value, proxyTarget.value || undefined)
+    ElMessage.success($t('okr.confirm.confirmed_ok'))
+    await load()
+  } catch (e) {
+    ElMessage.error(e.message)
+  } finally {
+    busy.value = ''
+  }
+}
+
+async function confirmManager() {
+  try {
+    await ElMessageBox.confirm($t('okr.confirm.manager_confirm_body'), $t('okr.confirm.manager_confirm_title'), {
+      type: 'warning', confirmButtonText: $t('okr.confirm.confirm_manager'), cancelButtonText: $t('common.cancel')
+    })
+  } catch { return }
+  busy.value = 'confirm'
+  try {
+    await fde.okr.confirmManager(weekKeyNow.value, data.value?.owner?.id || ownerId.value)
+    ElMessage.success($t('okr.confirm.confirmed_ok'))
+    await load()
+  } catch (e) {
+    ElMessage.error(e.message)
+  } finally {
+    busy.value = ''
+  }
+}
+
+async function cancelChange(id, { ask = true } = {}) {
+  if (ask) {
+    try {
+      await ElMessageBox.confirm($t('okr.confirm.cancel_confirm'), $t('okr.confirm.cancel_change'), {
+        type: 'warning', confirmButtonText: $t('okr.confirm.cancel_change'), cancelButtonText: $t('common.cancel')
+      })
+    } catch { return }
+  }
+  busy.value = 'confirm'
+  try {
+    await fde.okr.cancelChange(id)
+    ElMessage.success($t('okr.confirm.canceled'))
+    await load()
+  } catch (e) {
+    ElMessage.error(e.message)
+  } finally {
+    busy.value = ''
+  }
+}
+
+/** 「申请变更」→ 编辑态; 已有待批申请 → 只提示, 给「撤回申请」(只有申请人自己能撤) */
+async function startChange() {
+  const pend = pendingChangeOf(data.value)
+  if (pend) {
+    const mine = String(pend.requestedBy?.id || '') === String(meId)
+    try {
+      await ElMessageBox.confirm($t('okr.confirm.pending_exists_body'), $t('okr.confirm.pending_exists'), {
+        type: 'info', showConfirmButton: mine, distinguishCancelAndClose: true,
+        confirmButtonText: $t('okr.confirm.cancel_change'), cancelButtonText: $t('okr.confirm.got_it')
+      })
+    } catch { return }
+    return cancelChange(pend.id, { ask: false })
+  }
+  draftInit.value = toDraft(data.value.objectives)
+  changeMode.value = true
+  editing.value = true
+}
+
+function cancelEdit() {
+  editing.value = false
+  changeMode.value = false
+}
+
+function onEditorSubmit(objs) {
+  if (changeMode.value) return submitChange(objs)
+  return savePlan(objs, true)
+}
+
+/** 提交变更申请: 弹窗写原因(必填, ≥4 字) → POST /plan/changes(带整份计划)→ 回到只读, 顶部变蓝 */
+async function submitChange(objectives) {
+  if (!editorRef.value?.isDirty?.()) {
+    ElMessage.warning($t('okr.confirm.change_no_diff'))
+    return
+  }
+  let reason
+  try {
+    const r = await ElMessageBox.prompt('', $t('okr.confirm.reason_title'), {
+      inputType: 'textarea', inputPlaceholder: $t('okr.confirm.reason_ph'),
+      inputValidator: v => reasonOk(v) || $t('okr.confirm.reason_short'),
+      confirmButtonText: $t('okr.confirm.submit_change'), cancelButtonText: $t('common.cancel'),
+      customClass: 'okr-reason-box'
+    })
+    reason = r.value.trim()
+  } catch { return }
+  busy.value = 'submit'
+  try {
+    await fde.okr.requestChange({ week: weekKeyNow.value, reason, objectives }, proxyTarget.value || undefined)
+    ElMessage.success($t('okr.confirm.change_sent'))
+    cancelEdit()
+    await load()
+  } catch (e) {
+    ElMessage.error({ message: e.message, duration: 6000 })
+  } finally {
+    busy.value = ''
+  }
+}
 
 /**
  * KR 完成开关: 点了就调 /krs/:id/complete, 用返回值就地改这一行和所在 O 的完成度(不整页刷新)。
@@ -536,6 +676,7 @@ async function load() {
       o.updatedKey = (o.updates?.length || 0) + ':' + (o.selfScore ?? '') + ':' + (o.managerScore ?? '')
     }
     data.value = d
+    changeMode.value = false
     // 本人(或代管人)、可编辑、还没提交过 → 直接进入写计划。看别人且无代管权时 can.edit 本来就是 false
     // 过去的周一条都没有时不自动进编辑器, 先给「补录这一周」空态, 点了再进
     const pastEmpty = !(d.objectives || []).length && (d.cycle ? !!d.cycle.backfilled : true)
@@ -616,6 +757,8 @@ async function savePlan(objectives, submit) {
     await load()
   } catch (e) {
     ElMessage.error(e.message)
+    // 0.6.2: 别人刚好把这周确认锁了 → 关编辑器, 重拉后只剩「申请变更」
+    if (e.code === LOCKED_CODE) await load()
   } finally {
     busy.value = ''
   }
@@ -711,6 +854,9 @@ async function submitMiss() {
 .okr-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin-bottom: 10px; font-size: 13px; color: var(--el-text-color-secondary); }
 .okr-summary b { color: var(--el-text-color-primary); font-size: 15px; }
 .okr-edit-link { margin-left: auto; border: 0; background: none; color: var(--el-color-primary); font-size: 13px; cursor: pointer; padding: 4px 0; }
+.okr-edit-locked { display: inline-flex; }
+.okr-edit-locked .okr-edit-link { margin-left: 0; color: var(--el-text-color-placeholder); cursor: not-allowed; pointer-events: none; }
+.okr-change-bar { margin-bottom: 10px; padding: 10px 12px; border-radius: 8px; font-size: 13px; font-weight: 600; color: #1d4f91; background: #eaf2fd; border: 1px solid #a9c8f2; }
 .okr-quick { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; padding: 8px 12px; border-radius: 10px; background: var(--el-color-primary-light-9); }
 .okr-quick-text { font-size: 12px; color: var(--el-text-color-regular); min-width: 0; }
 .okr-quick .el-button { flex: none; margin-left: 0; }

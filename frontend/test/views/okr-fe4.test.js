@@ -403,7 +403,8 @@ describe('模板弹窗 + 我的 OKR 页头入口', () => {
   })
   test('我的 OKR: 三个入口只在编辑模式下出; 复制调 copy-from-week(带代管 targetUserId)', () => {
     const src = readFileSync(new URL('../../src/views/okr/MyOkr.vue', import.meta.url), 'utf8')
-    assert.match(src, /<div v-if="editorOpen" class="okr-plan-tools"/)
+    // 0.6.2: 变更申请编辑态不出(复制 / 导入直接写库, 锁定时会被 8201 拦)
+    assert.match(src, /<div v-if="editorOpen && !changeMode" class="okr-plan-tools"/)
     assert.match(src, /fde\.okr\.copyFromWeek\(\{ fromWeek: copy\.from, toWeek: weekKeyNow\.value \}, proxyTarget\.value \|\| undefined\)/)
     assert.match(src, /:target-user-id="proxyTarget"/)
     assert.match(src, /fde\.okr\.patchKr\(kr\.id, \{ currentValue: act\.value, milestones:/)

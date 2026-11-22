@@ -29,9 +29,17 @@ export const FE5_DEFAULTS = {
   exportMenu: [], riskBars: [], riskMap: new Map(), streakOf: () => null, flashId: '', lookRisk() {}
 }
 
+// 0.6.2 二级确认 / 变更申请 / 修改记录在 MyOkr / TeamOkr 里加的 setup 名字: 缺省「没有确认区、没锁、没有待批」
+export const CONFIRM_DEFAULTS = {
+  cfBar: null, changeMode: false, locked: false, showChangeBtn: false, showAuditBtn: false, auditOpen: false,
+  confirmOwner() {}, confirmManager() {}, cancelChange() {}, startChange() {}, cancelEdit() {}, onEditorSubmit() {},
+  counts: { toConfirm: [], pending: [] }, cellOf: () => ({ kind: 'none' }), cfBusy: '', toConfirmOpen: false, changesOpen: false,
+  confirmRow() {}, onDecided() {}
+}
+
 /** 渲染; el-table 把 data 逐行喂给列的默认插槽, 列头插槽也渲染(看 tooltip 文案) */
 export async function renderView(render, state, extra = {}) {
-  const app = Vue.createSSRApp({ render, setup: () => ({ ...FE5_DEFAULTS, ...state }) })
+  const app = Vue.createSSRApp({ render, setup: () => ({ ...FE5_DEFAULTS, ...CONFIRM_DEFAULTS, ...state }) })
   app.use(i18n) // 测试环境语言为 en(Node 没有中文浏览器语言)
   for (const name of STUBS) app.component(name, passthrough)
   // extra: { 组件名: 组件 | true(透传 div) }, 给页面里自带的子组件(如 OkrWeekBar)用
