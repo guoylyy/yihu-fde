@@ -107,11 +107,11 @@ export function skillsMode(role, scope) {
 
 /**
  * 矩阵 → 每人一张卡(手机竖排 / 工程师只看自己): 只列这个人有的格子(人工标注 + 候选), 人工标注按等级降序在前
- * @returns {Array<{ member:{engineerId,name}, items: Array<{ skill, cell }> }>}
+ * @returns {Array<{ member:{engineerId,name}, items: Array<{ skill, cell, singlePoint }> }>}
  */
 export function skillCards(members, matrix) {
   return (members || []).map((member, i) => {
-    const items = (matrix || []).map(r => ({ skill: r.skill, cell: r.cells[i] })).filter(x => x.cell)
+    const items = (matrix || []).map(r => ({ skill: r.skill, cell: r.cells[i], singlePoint: r.singlePoint })).filter(x => x.cell)
     const rank = (c) => (c.source === 'MANUAL' ? 10 + (Number(c.level) || 0) : 0)
     items.sort((a, b) => rank(b.cell) - rank(a.cell))
     return { member, items }

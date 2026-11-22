@@ -218,6 +218,7 @@ test('管理员: 矩阵与手机卡都能点(格子按钮 + 确认 + 添加)', a
   assert.equal((html.match(/data-test="skill-cell"/g) || []).length, 5, "3 技能 × 2 人 - 1 个候选")
   assert.ok(!html.includes('data-test="skill-cell-ro"'))
   assert.ok(html.split('data-test="skill-card"').length - 1 === 2)
+  assert.equal(html.split('data-test="single-point-card"').length - 1, 1, '手机卡也标单点风险(甲的 Go)')
 })
 
 test('只读态样式: 没有 pointer 光标与悬停框; 手机隐藏矩阵改卡片', () => {

@@ -99,16 +99,16 @@
           <p v-if="!card.items.length" class="pc-none">{{ $t('team.skills.card_none') }}</p>
           <ul v-else class="pc-list">
             <li v-for="it in card.items" :key="it.skill.id" class="pc-item">
-              <span class="pc-skill">{{ it.skill.name }}</span>
+              <span class="pc-skill">{{ it.skill.name }}<span v-if="it.singlePoint" class="sp-card" data-test="single-point-card">{{ $t('team.skills.single_point') }}</span></span>
               <span v-if="it.cell.source === 'DERIVED'" class="cand-wrap">
                 <el-tooltip :content="candTip(it.cell)" placement="top"><i class="dot cand" /></el-tooltip>
                 <span v-if="!editable" class="cand-label">{{ $t('team.skills.candidate') }}</span>
                 <el-button v-else link size="small" type="primary" class="confirm" @click="openPick('confirm', it.skill, card.member, null)">{{ $t('team.skills.confirm') }}</el-button>
               </span>
-              <button v-else-if="editable" type="button" class="dots" :title="levelTitle(it.cell.level)" @click="openPick('set', it.skill, card.member, it.cell.level)">
+              <button v-else-if="editable" type="button" class="dots" :title="levelTitle(it.cell.level)" data-test="skill-card-cell" @click="openPick('set', it.skill, card.member, it.cell.level)">
                 <i v-for="(on, k) in levelDots(it.cell.level)" :key="k" class="dot" :class="{ on }" />
               </button>
-              <span v-else class="dots ro" :title="levelTitle(it.cell.level)">
+              <span v-else class="dots ro" :title="levelTitle(it.cell.level)" data-test="skill-card-ro">
                 <i v-for="(on, k) in levelDots(it.cell.level)" :key="k" class="dot" :class="{ on }" />
               </span>
             </li>
@@ -303,6 +303,7 @@ async function saveAdd() {
 .pc-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid #f3f1ed; font-size: 13px; }
 .pc-item:last-child { border-bottom: none; }
 .pc-skill { color: var(--text); }
+.sp-card { margin-left: 6px; font-size: 11px; font-weight: 500; color: var(--danger); }
 .pc-level-wrap { display: inline-flex; align-items: center; gap: 8px; }
 .pc-desc { font-size: 12px; color: var(--text-muted); min-width: 52px; text-align: right; }
 .pc-none { margin: 0; font-size: 12px; color: var(--text-muted); }
