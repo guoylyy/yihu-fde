@@ -3,7 +3,7 @@
 // 产出的草稿交给「我的 OKR」编辑器, 人改完自己点提交; 提交时的硬校验(O 必须有 KR、权重合计 100 等)
 // 仍由 okrRules.normalizePlan 在 API 层做, 这里不重复、也不放宽。
 import { chatJSON } from '../lib/llm.js'
-import { OkrRuleError, METRIC_TYPES, equalWeights, weightsByKrCount, MIN_REPORT_LENGTH } from './okrRules.js'
+import { OkrRuleError, METRIC_TYPES, MAX_OBJECTIVES, MAX_KRS, equalWeights, weightsByKrCount, weightsSumOk, MIN_REPORT_LENGTH } from './okrRules.js'
 
 export { weightsByKrCount, MIN_REPORT_LENGTH }
 
@@ -206,6 +206,182 @@ export function parseReportByRules(text) {
   }
 
   return objs.map(o => ({ ...o, keyResults: o.keyResults.map(title => ({ title, metricType: 'BINARY' })) }))
+}
+
+// ---------------------------------------------------------------- 粘贴 Markdown 批量建 O/KR(OKR 7.0)
+//
+// 与上面的周报解析共用一套 O 行规则(RE_GOAL / RE_PRIORITY / cutTitle / criteriaClauses), 但口径不同:
+// 周报解析只认「完成标准」当 KR、把 ## 当分节; 这里是人照着格式写的计划, ## 标题本身就是 O,
+// O 下面的每个列表项都是 KR, 还会从 KR 行里抽目标值。每一行要么用上、要么进 unparsed, 不悄悄丢。
+
+/** 上限: 需求给的是 5 个 O / 6 条 KR, 但不能超过计划本身的硬上限(MAX_OBJECTIVES / MAX_KRS), 否则落库后这份计划再也存不了 */
+export const BULK_MAX_OBJECTIVES = Math.min(5, MAX_OBJECTIVES)
+export const BULK_MAX_KRS = Math.min(6, MAX_KRS)
+export const BULK_MAX_TEXT = MAX_REPORT_LENGTH
+
+const RE_MD_HEADING = /^(#{1,6})\s+(.+)$/
+// O1 标题 / O1：标题 / O1. 标题(可带列表符、加粗)
+const RE_O_NUM = new RegExp(`^${BULLET}(?:\\*\\*)?O\\s*\\d{1,2}(?:\\*\\*)?(?:\\s*[:：.、]\\s*|\\s+)(.+)$`, 'i')
+// KR 行: - / * / + / • / 1. / 1、 / 1) 开头(* 后面要有空格, 免得撞上 **加粗**; 1.5 这种小数不算序号)
+const RE_LIST_ITEM = /^(?:[-+•·]\s*|\*\s+|\d{1,2}(?:\.(?!\d)|[、)）])\s*)(.*)$/
+const RE_KR_PREFIX = /^(?:\*\*)?KR\s*\d{0,2}(?:\*\*)?\s*[:：.、]?\s*/i
+const RE_CHECKBOX = /^\[[ xX]\]\s*/
+const RE_WEIGHT = /[（(]?\s*权重\s*[:：]?\s*(\d+(?:\.\d+)?)\s*[%％]?\s*[)）]?/
+const RE_TARGET = /[（(]?\s*目标值?\s*[:：]\s*(\d+(?:\.\d+)?)\s*([%％]|[一-龥]|[A-Za-z]{1,10})?\s*[)）]?/
+const RE_GTE = /(?:≥|>=|≧|不少于|至少)\s*(\d+(?:\.\d+)?)\s*([%％]|[一-龥]|[A-Za-z]{1,10})?/
+// 「10 条以上」「3 家及以上」
+const RE_ABOVE = /(\d+(?:\.\d+)?)\s*([%％]|[\u4e00-\u9fa5]|[A-Za-z]{1,10})?\s*(?:及以上|以上)/
+const RE_PERCENT = /(\d+(?:\.\d+)?)\s*[%％]/
+// 列表项里的说明行(不当 KR)。比周报的 RE_NOT_A_KR 窄: 「不少于 3 家」是正经 KR
+const RE_NOT_A_BULK_KR = /^(?:注[:：]|备注|说明[:：]|原因[:：])/
+
+const tidy = s => String(s).replace(/\*\*/g, '').replace(/^[\s｜|，,；;:：、]+|[\s｜|，,；;:：、]+$/g, '').replace(/\s+/g, ' ')
+
+/** 行内「权重 40」→ { weight, rest(去掉权重后的文字) } */
+function takeWeight(text) {
+  const m = RE_WEIGHT.exec(text)
+  if (!m) return { weight: undefined, rest: text }
+  return { weight: Number(m[1]), rest: text.slice(0, m.index) + text.slice(m.index + m[0].length) }
+}
+
+/**
+ * KR 行 → { title, metricType, unit, targetValue, weight }:
+ *  `目标：5 篇` / `≥3 名` / `10 条以上` 抽目标值; 数字带 % → PERCENT, 纯数字 → NUMBER(单位取紧跟的一个汉字或一个英文词);
+ *  没有目标标记但行里有「50%」→ PERCENT; 其余 BINARY。「目标：…」这一段从标题里去掉, ≥3 名这类留在标题里
+ */
+export function parseKrLine(text) {
+  const { weight, rest } = takeWeight(String(text))
+  let body = rest
+  let metricType = 'BINARY'
+  let targetValue = null
+  let unit = null
+  let m = RE_TARGET.exec(body)
+  const fromTarget = !!m
+  if (!m) m = RE_GTE.exec(body) || RE_ABOVE.exec(body)
+  if (m) {
+    const n = Number(m[1])
+    const u = m[2] || ''
+    if (/[%％]/.test(u)) { metricType = 'PERCENT'; targetValue = n; unit = '%' } else if (n > 0) { metricType = 'NUMBER'; targetValue = n; unit = u || null }
+    if (fromTarget) {
+      const cut = tidy(body.slice(0, m.index) + ' ' + body.slice(m.index + m[0].length))
+      if (cut) body = cut
+    }
+  } else if ((m = RE_PERCENT.exec(body))) {
+    metricType = 'PERCENT'; targetValue = Number(m[1]); unit = '%'
+  }
+  if (metricType === 'PERCENT' && !(targetValue > 0)) targetValue = 100
+  return { title: clip(tidy(body), TITLE_MAX), metricType, unit: unit ? clip(unit, UNIT_MAX) : null, targetValue, weight }
+}
+
+/** 一行是不是 O; 是的话返回 { title, rest(完成标准等), weight } */
+function planObjective(line) {
+  const h = RE_MD_HEADING.exec(line)
+  let body = null
+  if (h) {
+    const inner = h[2].trim()
+    const strip = inner.replace(/^(?:\*\*)?O\s*\d{1,2}(?:\*\*)?(?:\s*[:：.、]\s*|\s+)/i, '')
+      .replace(/^(?:目标|Objective)\s*[:：]\s*/i, '')
+      .replace(/^[【[]\s*P\d\s*[】\]]\s*/i, '')
+    // # 一级标题通常是文档名(「本周 OKR」), 只有明写了 O1 / 目标：才算 O
+    if (h[1].length === 1 && strip === inner) return null
+    body = strip
+  } else {
+    if (RE_NOT_A_GOAL.test(stripBullet(line.replace(/\*\*/g, '')))) return null
+    const m = RE_O_NUM.exec(line) || RE_GOAL.exec(line) || RE_PRIORITY.exec(line)
+    if (!m) return null
+    body = m[1]
+  }
+  const { weight, rest } = takeWeight(body)
+  const title = cutTitle(rest)
+  return title ? { title, rest, weight } : null
+}
+
+/**
+ * 粘贴的 Markdown → { objectives:[{ title, description, weight, line, keyResults:[{ title, metricType, unit, targetValue, weight, line }] }], unparsed:[{ line, text }] }
+ * line 从 1 开始。不截断、不配权重(交给 normalizeBulkPlan)。一条 KR 都没有的 O 也进 unparsed(多半是「## 本周目标」这类分节标题)
+ */
+export function parsePlanMarkdown(text) {
+  const lines = String(text || '').replace(/\r\n?/g, '\n').split('\n')
+  const objs = []
+  const unparsed = []
+  let cur = null
+  const miss = (no, raw) => unparsed.push({ line: no, text: raw.trim() })
+
+  lines.forEach((raw, i) => {
+    const no = i + 1
+    const line = raw.trim()
+    if (!line || /^(?:-{3,}|\*{3,}|_{3,}|```.*)$/.test(line)) return
+
+    const cand = planObjective(line)
+    if (cand) {
+      cur = { title: cand.title, description: '', weight: cand.weight, line: no, keyResults: [] }
+      objs.push(cur)
+      const crit = RE_CRITERIA.exec(cand.rest)
+      if (crit) {
+        const after = cand.rest.slice(crit.index + crit[0].length)
+        cur.description = clip(after.split(/[｜|]/)[0], DESC_MAX)
+        for (const c of criteriaClauses(after)) cur.keyResults.push({ ...parseKrLine(c), line: no })
+      }
+      return
+    }
+    if (!cur) return miss(no, raw)
+
+    const crit = RE_CRITERIA.exec(line)
+    if (crit && crit.index <= 2) {
+      const after = line.slice(crit.index + crit[0].length)
+      const clauses = criteriaClauses(after)
+      if (!cur.description && after.trim()) cur.description = clip(after.split(/[｜|]/)[0], DESC_MAX)
+      for (const c of clauses) cur.keyResults.push({ ...parseKrLine(c), line: no })
+      if (!clauses.length && after.trim()) miss(no, raw)
+      return
+    }
+
+    const li = RE_LIST_ITEM.exec(line)
+    const krPrefixed = RE_KR_PREFIX.test(line) && /^(?:\*\*)?KR/i.test(line)
+    if (li || krPrefixed) {
+      const s = (li ? li[1] : line).replace(RE_CHECKBOX, '').replace(RE_KR_PREFIX, '').trim()
+      if (tidy(s).length < 2 || RE_NOT_A_BULK_KR.test(tidy(s))) return miss(no, raw)
+      const kr = parseKrLine(s)
+      if (!kr.title) return miss(no, raw)
+      cur.keyResults.push({ ...kr, line: no })
+      return
+    }
+    miss(no, raw)
+  })
+
+  const kept = []
+  for (const o of objs) {
+    if (o.keyResults.length) kept.push(o)
+    else unparsed.push({ line: o.line, text: lines[o.line - 1].trim() })
+  }
+  unparsed.sort((a, b) => a.line - b.line)
+  return { objectives: kept, unparsed }
+}
+
+/** 权重都给了且合计 100 → 保留, 否则 null(由调用方重算) */
+function givenWeights(items) {
+  const ws = items.map(x => x.weight)
+  if (!ws.length || !ws.every(w => Number.isFinite(w) && w >= 0)) return null
+  return weightsSumOk(ws) ? ws.map(w => Math.round(w * 100) / 100) : null
+}
+
+/**
+ * 截断 + 配权重: O 超 maxObjectives / 某 O 的 KR 超 maxKrs → 截掉并 truncated=true。
+ * KR 权重: 本 O 里都写了且合计 100 就用, 否则均分到 100; O 权重: 都写了且合计 100(且没截掉 O)就用, 否则按 KR 条数占比分到 100
+ */
+export function normalizeBulkPlan(objectives, { maxObjectives = BULK_MAX_OBJECTIVES, maxKrs = BULK_MAX_KRS } = {}) {
+  let truncated = false
+  let list = (objectives || []).map(o => ({ ...o, keyResults: [...o.keyResults] }))
+  if (list.length > maxObjectives) { list = list.slice(0, Math.max(0, maxObjectives)); truncated = true }
+  for (const o of list) {
+    if (o.keyResults.length > maxKrs) { o.keyResults = o.keyResults.slice(0, maxKrs); truncated = true }
+    const ws = givenWeights(o.keyResults) || equalWeights(o.keyResults.length)
+    o.keyResults = o.keyResults.map((k, i) => ({ ...k, weight: ws[i] }))
+  }
+  const ows = (!truncated || list.length === (objectives || []).length ? givenWeights(list) : null) ||
+    weightsByKrCount(list.map(o => o.keyResults.length))
+  list = list.map((o, i) => ({ ...o, weight: ows[i] }))
+  return { objectives: list, truncated }
 }
 
 // ---------------------------------------------------------------- 模型

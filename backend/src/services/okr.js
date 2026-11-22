@@ -26,7 +26,7 @@ const forbidden = (msg, code = 8105) => new OkrRuleError(msg, { status: 403, cod
 const conflict = (msg, code = 8107) => new OkrRuleError(msg, { status: 409, code })
 const notFound = (msg = '不存在', code = 8108) => new OkrRuleError(msg, { status: 404, code })
 
-const READ_ONLY_MSG = '本周 OKR 已进入复盘或已归档, 计划和进展只读; 需要修改请主管重开本周'
+export const READ_ONLY_MSG = '本周 OKR 已进入复盘或已归档, 计划和进展只读; 需要修改请主管重开本周'
 const CLOSED_MSG = '本周 OKR 已归档, 计划、进展和评分只读; 需要修改请 ADMIN 重开本周'
 
 /** 上海日期(用于 OkrUpdate.date, @db.Date) */
@@ -337,7 +337,7 @@ export async function savePlan({ ownerId, operatorId = null, week, objectives, s
 }
 
 /** 见 okrRules.planWritable; 只在复盘期才需要查这人交没交过 */
-async function canWritePlan(cycle, ownerId, db = prisma) {
+export async function canWritePlan(cycle, ownerId, db = prisma) {
   if (isEditable(cycle.status)) return true
   if (cycle.status !== 'REVIEW') return false
   const n = await db.okrObjective.count({ where: { cycleId: cycle.id, ownerId: BigInt(ownerId), submittedAt: { not: null } } })

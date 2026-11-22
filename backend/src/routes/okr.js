@@ -25,6 +25,9 @@
 // OKR 6.0: KR 加阶段型(MILESTONE, 阶段明细 milestones); O 加卡点三件套(blockers / blockerOwnerId / blockerDueDate, 填了说明
 // 另两个必填, 否则 8120)与 riskLevel(LOW/MEDIUM/HIGH), KR 加 blockers。/plan 不传这些字段 = 不动已有的。
 // /my /cycle /team /by-project /projects/:id/objectives /person/:id/overview 的 O 带 riskLevel + blocker 摘要。
+//
+// OKR 7.0: 编计划提效(人点才做, 只写草稿, 不提交): /plan/copy-from-week 从某周复制 O/KR、/plan/bulk-import 粘贴 Markdown
+// 批量建(preview 不落库)。目标周已提交 → 400(8171)。代管同 /plan(targetUserId)。不改上面任何权重 / 提交校验。
 import express from 'express'
 import multer from 'multer'
 import mammoth from 'mammoth'
@@ -47,6 +50,7 @@ import { listProjectDocs, getProjectDoc, loadProject, canWriteProjectDoc, savePr
 import { projectBrief } from '../services/okrObjectiveProjects.js'
 import { byProject, projectObjectives } from '../services/okrByProject.js'
 import { okrBlockerTick } from '../services/okrBlockers.js'
+import { copyFromWeek, bulkImport } from '../services/okrPlanImport.js'
 
 const router = express.Router()
 router.use(internalAuth)
@@ -347,6 +351,55 @@ router.post('/plan/draft-from-file', receiveDraftFile, async (req, res) => {
     const text = await fileText(req.file)
     ok(res, { ...(await generateOkrDraft(text)), fileName: req.file.originalname, ...who })
   } catch (e) { fail(res, e, 'plan/draft-from-file') }
+})
+
+// ---------------------------------------------------------------- 编计划提效(OKR 7.0)
+
+/** fromWeek / toWeek 这类具名周参数; 不合法已回 400, 返回 null */
+function namedWeek(req, res, field) {
+  const w = parseWeek(req.body?.[field] ?? req.query[field])
+  if (!w) {
+    res.status(400).json({ code: 8100, message: `${field} 格式: current / next / prev / YYYY-Www(如 2026-W47)` })
+    return null
+  }
+  return w
+}
+
+// 从某周复制: { fromWeek, toWeek, targetUserId?, objectiveIds? } → { createdObjectives, createdKrs, skipped, overdueBlockers, ... }
+router.post('/plan/copy-from-week', humanOnly('复制计划'), async (req, res) => {
+  try {
+    const from = namedWeek(req, res, 'fromWeek')
+    if (!from) return
+    const to = namedWeek(req, res, 'toWeek')
+    if (!to) return
+    const t = await targetOf(req)
+    const { cycleId, ...r } = await copyFromWeek({ ownerId: t.ownerId, operatorId: t.operatorId, from, to, objectiveIds: req.body?.objectiveIds })
+    if (r.createdObjectives) {
+      logInternalAction(req, 'okr.plan.copy', {
+        resourceType: 'okr_cycle', resourceId: cycleId,
+        details: { fromWeek: r.fromWeek, toWeek: r.toWeek, objectives: r.createdObjectives, krs: r.createdKrs, skipped: r.skipped.length, ...(t.onBehalf ? { ownerId: t.ownerId, onBehalf: true } : {}) }
+      })
+    }
+    ok(res, { ...r, onBehalfOf: onBehalfOf(t) })
+  } catch (e) { fail(res, e, 'plan/copy-from-week') }
+})
+
+// 粘贴 Markdown 批量建: { week, text, targetUserId?, mode: preview|apply }。preview 不落库(已提交的周也能看); apply 写草稿并审计 okr.plan.bulk
+router.post('/plan/bulk-import', humanOnly('批量导入计划'), async (req, res) => {
+  try {
+    const week = weekOf(req, res)
+    if (!week) return
+    const t = await targetOf(req)
+    const mode = req.body?.mode ?? 'preview'
+    const { cycleId, ...r } = await bulkImport({ ownerId: t.ownerId, operatorId: t.operatorId, week, text: req.body?.text, mode })
+    if (mode === 'apply') {
+      logInternalAction(req, 'okr.plan.bulk', {
+        resourceType: 'okr_cycle', resourceId: cycleId,
+        details: { week: r.week, objectives: r.createdObjectives, krs: r.createdKrs, truncated: r.truncated, skipped: r.skipped.length, unparsed: r.unparsed.length, ...(t.onBehalf ? { ownerId: t.ownerId, onBehalf: true } : {}) }
+      })
+    }
+    ok(res, { ...r, onBehalfOf: onBehalfOf(t) })
+  } catch (e) { fail(res, e, 'plan/bulk-import') }
 })
 
 // ---------------------------------------------------------------- 进展
