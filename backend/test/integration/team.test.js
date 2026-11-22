@@ -9,7 +9,7 @@ import { login, api, uniqName, createTestUser, dropPlanTrail } from './helpers.j
 
 describe('0.5.0 R4a 组长层 / 团队四屏', () => {
   const RUN = `r4a${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
-  let admin, L, A, B, C, lead, eng
+  let admin, adminId, L, A, B, C, lead, eng
   const eid = {} // 角色字母 → engineerId 字符串
   const created = { teams: [], customer: null, project: null, cycle: null, skills: [], objectives: [] }
   let S1, S2, S3 // 技能: S1 只有 A 手工会(另有 C 的会话候选), S2 有 L、B 两人手工会, S3 只在 C 的会话里出现
@@ -33,6 +33,7 @@ describe('0.5.0 R4a 组长层 / 团队四屏', () => {
 
   before(async () => {
     admin = api(await login('admin'))
+    adminId = (await prisma.user.findUnique({ where: { username: 'admin' }, select: { id: true } })).id
     L = await createTestUser('TEAM_LEAD', { name: 'unit-test-组长L' })
     A = await createTestUser('FDE_ENGINEER', { name: 'unit-test-组员A' })
     B = await createTestUser('FDE_ENGINEER', { name: 'unit-test-组员B' })
@@ -218,34 +219,35 @@ describe('0.5.0 R4a 组长层 / 团队四屏', () => {
     assert.ok(!l.data.skills.some(s => s.id === String(S3.id)), '本组没人沾 S3, 不出列')
   })
 
-  test('写接口: 设等级写 MANUAL + 审计; 只能改本组; level 校验', async () => {
-    const r = await lead.post(`/api/team/skills/${eid.A}`, { skillId: String(S2.id), level: 5 })
+  test('写接口: 设等级写 MANUAL + 审计; 只有 ADMIN 能写(0.6.4); level 校验', async () => {
+    assert.equal((await lead.post(`/api/team/skills/${eid.A}`, { skillId: String(S2.id), level: 5 })).status, 403, '0.6.4: 组长不能改')
+    const r = await admin.post(`/api/team/skills/${eid.A}`, { skillId: String(S2.id), level: 5 })
     assert.equal(r.code, 0, r.message)
     assert.deepEqual([r.data.source, r.data.level], ['MANUAL', 5])
     const row = await prisma.engineerSkill.findUnique({ where: { engineerId_skillId: { engineerId: eid.A, skillId: S2.id } } })
     assert.equal(row.level, 5)
-    const audit = await prisma.auditLog.findFirst({ where: { action: 'team.skill.set', resourceType: 'engineer_skill', resourceId: row.id, userId: BigInt(L.id) } })
+    const audit = await prisma.auditLog.findFirst({ where: { action: 'team.skill.set', resourceType: 'engineer_skill', resourceId: row.id, userId: adminId } })
     assert.ok(audit, '审计落库')
     assert.equal(audit.details.level, 5)
     assert.equal(audit.details.before, null)
     const engRow = await prisma.engineer.findUnique({ where: { id: eid.A }, select: { skills: true } })
     assert.ok(engRow.skills.includes(S2.name), '冗余 skills JSON 同步')
 
-    const again = await lead.post(`/api/team/skills/${eid.A}`, { skillId: String(S2.id), level: 2 })
+    const again = await admin.post(`/api/team/skills/${eid.A}`, { skillId: String(S2.id), level: 2 })
     assert.equal(again.code, 0, again.message)
     const a2 = await prisma.auditLog.findFirst({ where: { action: 'team.skill.set', resourceId: row.id }, orderBy: { id: 'desc' } })
     assert.equal(a2.details.before, 5, '审计记下改前等级')
 
-    assert.equal((await lead.post(`/api/team/skills/${eid.C}`, { skillId: String(S1.id), level: 3 })).status, 403, '别组的人不能改')
-    assert.equal((await lead.post(`/api/team/skills/${eid.A}`, { skillId: String(S1.id), level: 0 })).status, 400)
-    assert.equal((await lead.post(`/api/team/skills/${eid.A}`, { skillId: String(S1.id), level: 6 })).status, 400)
-    assert.equal((await lead.post(`/api/team/skills/${eid.A}`, { skillId: '999999999', level: 3 })).status, 404)
-    assert.equal((await eng.post(`/api/team/skills/${eid.A}`, { skillId: String(S1.id), level: 3 })).status, 403, '工程师没有 team.view')
+    assert.equal((await admin.post(`/api/team/skills/${eid.A}`, { skillId: String(S1.id), level: 0 })).status, 400)
+    assert.equal((await admin.post(`/api/team/skills/${eid.A}`, { skillId: String(S1.id), level: 6 })).status, 400)
+    assert.equal((await admin.post(`/api/team/skills/${eid.A}`, { skillId: '999999999', level: 3 })).status, 404)
+    assert.equal((await eng.post(`/api/team/skills/${eid.A}`, { skillId: String(S1.id), level: 3 })).status, 403, '工程师不能改')
   })
 
   test('confirm: 技能不存在就建, 再写成 MANUAL + 审计; 已有技能不重复建', async () => {
     const name = `${RUN}new`
-    const r = await lead.post('/api/team/skills/confirm', { engineerId: String(eid.B), skillName: ` ${name} `, level: 4 })
+    assert.equal((await lead.post('/api/team/skills/confirm', { engineerId: String(eid.B), skillName: ` ${name} `, level: 4 })).status, 403, '0.6.4: 组长不能确认')
+    const r = await admin.post('/api/team/skills/confirm', { engineerId: String(eid.B), skillName: ` ${name} `, level: 4 })
     assert.equal(r.code, 0, r.message)
     assert.equal(r.data.skillCreated, true)
     assert.equal(r.data.skillName, name, '去掉首尾空格')
@@ -267,6 +269,6 @@ describe('0.5.0 R4a 组长层 / 团队四屏', () => {
     assert.deepEqual(cs3.map(x => x.source), ['MANUAL'], '确认后候选让位给 MANUAL')
     assert.ok(after.data.singlePoints.includes(String(S3.id)), '确认后 S3 有且只有 1 人会 → 单点')
 
-    assert.equal((await lead.post('/api/team/skills/confirm', { engineerId: String(eid.B), skillName: '', level: 3 })).status, 400)
+    assert.equal((await admin.post('/api/team/skills/confirm', { engineerId: String(eid.B), skillName: '', level: 3 })).status, 400)
   })
 })

@@ -4,13 +4,13 @@
 //   GET /members                  成员卡片            (team.view; 组长本组 / 老板全部)
 //   GET /load?week=YYYY-MM-DD     负载               (team.view)
 //   GET /promise?week=YYYY-MM-DD  承诺 vs 实际        (team.view.all; 只给提示标记, 不打分不排名)
-//   GET /skills                   技能矩阵            (team.view)
-//   POST /skills/confirm          确认一条技能(没有就建技能)  (team.view, 写审计)
-//   POST /skills/:engineerId      设某人某技能等级           (team.view, 写审计)
+//   GET /skills                   技能矩阵            (0.6.4: 登录即可; 有 team.view 按团队范围, 其余人只看自己)
+//   POST /skills/confirm          确认一条技能(没有就建技能)  (0.6.4: 仅 ADMIN, 写审计)
+//   POST /skills/:engineerId      设某人某技能等级           (0.6.4: 仅 ADMIN, 写审计)
 // 数据范围统一走 lib/teamScope.js resolveTeamScope。
 import express from 'express'
 import prisma from '../../lib/prisma.js'
-import { internalAuth, requirePermission } from '../../lib/auth.js'
+import { internalAuth, requirePermission, requireRole, hasPermission } from '../../lib/auth.js'
 import { ENGINEER_ROLES } from '../../lib/engineerRoles.js'
 import { getTeamsByUserIds } from '../../lib/teams.js'
 import { loadLevel, OPEN_TASK_STATUSES, LOAD_THRESHOLD, loadPct, loadBand, promiseFlags, skillsMentioned } from '../../lib/teamLoad.js'
@@ -135,8 +135,8 @@ const weekMeta = w => ({ year: w.year, weekNo: w.weekNo, start: w.start, end: w.
  * 范围内的人: 工程师池角色 + 有工程师档案(团队视图以 engineerId 为键)
  * @returns {Promise<{scope, people: Array<{userId, engineerId, name, role, level}>}>}
  */
-async function scopedPeople(req) {
-  const scope = await resolveTeamScope(req.user)
+async function scopedPeople(req, scope = null) {
+  scope = scope || await resolveTeamScope(req.user)
   const users = await prisma.user.findMany({
     where: { ...userWhereOf(scope), role: { in: ENGINEER_ROLES }, deletedAt: null, status: 1, engineer: { is: { deletedAt: null } } },
     orderBy: { id: 'asc' },
@@ -333,6 +333,19 @@ router.get('/promise', requirePermission('team.view.all'), async (req, res) => {
 const DERIVED_WINDOW_DAYS = 90
 
 /**
+ * 技能矩阵的读范围(0.6.4「人人能看自己」):
+ *   ADMIN / 有 team.view 的角色(组长) → resolveTeamScope, 与原来一致
+ *   其余人                             → 强制只有自己, 不看角色的 dataScope
+ *                                      (防止某个 dataScope=ALL/TEAM 却没有 team.view 的自定义角色借这个口子读全团队)
+ */
+async function skillsReadScope(user) {
+  if (user.role === 'ADMIN' || hasPermission(user, 'team.view')) return resolveTeamScope(user)
+  const uid = BigInt(user.id ?? user.userId)
+  const engs = await prisma.engineer.findMany({ where: { userId: uid, deletedAt: null }, select: { id: true } })
+  return { kind: 'SELF', teamIds: [], userIds: [uid], engineerIds: engs.map(e => e.id) }
+}
+
+/**
  * GET /api/team/skills
  * { skills:[{id,name}], members:[{engineerId,name}], cells:[{engineerId,skillId,level,source,candidate?,hits?}], singlePoints:[skillId] }
  *   MANUAL  = engineer_skills 有记录(人工确认过), level 1-5
@@ -340,9 +353,9 @@ const DERIVED_WINDOW_DAYS = 90
  *             level=null、candidate=true, 不参与 singlePoints; 同一人同一技能已有 MANUAL 就不再出候选
  *   singlePoints = 只有 1 人 MANUAL 且 level>0 的技能
  */
-router.get('/skills', requirePermission('team.view'), async (req, res) => {
+router.get('/skills', async (req, res) => {
   try {
-    const { scope, people } = await scopedPeople(req)
+    const { scope, people } = await scopedPeople(req, await skillsReadScope(req.user))
     const engIds = people.map(p => p.engineerId)
     const since = new Date(Date.now() - DERIVED_WINDOW_DAYS * 86400000)
     const [manual, allSkills, convs] = await Promise.all([
@@ -386,7 +399,8 @@ router.get('/skills', requirePermission('team.view'), async (req, res) => {
         skills,
         members: people.map(p => ({ engineerId: String(p.engineerId), name: p.name })),
         cells,
-        singlePoints: [...holders].filter(([, n]) => n === 1).map(([sid]) => sid)
+        // 单点风险是跨人推导的; 只看自己时不给(只有一个人, 算出来也没意义, 还会暗示别人的情况)
+        singlePoints: scope.kind === 'SELF' ? [] : [...holders].filter(([, n]) => n === 1).map(([sid]) => sid)
       },
       meta: { scope: scope.kind, derivedWindowDays: DERIVED_WINDOW_DAYS }
     })
@@ -410,7 +424,7 @@ function parseId(v, label) {
   return BigInt(v)
 }
 
-/** 目标工程师必须在调用人的团队范围内(组长只能改本组) */
+/** 目标工程师必须存在且在调用人的团队范围内(0.6.4 起写接口只给 ADMIN, 范围恒为 ALL; 保留以防日后放开) */
 async function assertEngineerInScope(req, engineerId) {
   const eng = await prisma.engineer.findFirst({ where: { id: engineerId, deletedAt: null }, select: { id: true } })
   if (!eng) throw new TeamInputError('工程师不存在', 404, 1004)
@@ -451,7 +465,7 @@ function sendInputError(res, e, tag) {
  * 确认一条技能(多半是 DERIVED 候选): 技能主数据没有就新建, 再 upsert 成 MANUAL
  * (要在 /skills/:engineerId 之前注册, 否则 "confirm" 会被当成 engineerId)
  */
-router.post('/skills/confirm', requirePermission('team.view'), async (req, res) => {
+router.post('/skills/confirm', requireRole('ADMIN'), async (req, res) => {
   try {
     const engineerId = parseId(req.body?.engineerId, 'engineerId')
     const level = parseLevel(req.body?.level)
@@ -479,7 +493,7 @@ router.post('/skills/confirm', requirePermission('team.view'), async (req, res) 
 })
 
 /** POST /api/team/skills/:engineerId  { skillId, level }  设某人某技能等级(source=MANUAL) */
-router.post('/skills/:engineerId', requirePermission('team.view'), async (req, res) => {
+router.post('/skills/:engineerId', requireRole('ADMIN'), async (req, res) => {
   try {
     const engineerId = parseId(req.params.engineerId, 'engineerId')
     const skillId = parseId(req.body?.skillId, 'skillId')
