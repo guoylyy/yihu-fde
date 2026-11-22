@@ -5,7 +5,7 @@ import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import prisma from '../../src/lib/prisma.js'
 import { isoWeekOf, weekRange } from '../../src/services/okrRules.js'
-import { login, api, uniqName, createTestUser } from './helpers.js'
+import { login, api, uniqName, createTestUser, dropPlanTrail } from './helpers.js'
 
 describe('0.5.0 R4a 组长层 / 团队四屏', () => {
   const RUN = `r4a${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
@@ -102,7 +102,7 @@ describe('0.5.0 R4a 组长层 / 团队四屏', () => {
     if (created.project) await prisma.project.delete({ where: { id: created.project } }).catch(() => {})
     if (created.customer) await prisma.customer.delete({ where: { id: created.customer } }).catch(() => {})
     await prisma.okrObjective.deleteMany({ where: { id: { in: created.objectives } } })
-    if (created.cycle) await prisma.okrCycle.delete({ where: { id: created.cycle } }).catch(() => {})
+    if (created.cycle) { await dropPlanTrail([created.cycle]).catch(() => {}); await prisma.okrCycle.delete({ where: { id: created.cycle } }).catch(() => {}) }
     const esIds = (await prisma.engineerSkill.findMany({ where: { engineerId: { in: engIds } }, select: { id: true } })).map(r => r.id)
     await prisma.auditLog.deleteMany({ where: { resourceType: 'engineer_skill', resourceId: { in: esIds } } })
     await prisma.engineerSkill.deleteMany({ where: { engineerId: { in: engIds } } })

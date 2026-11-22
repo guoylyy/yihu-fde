@@ -173,3 +173,13 @@ export function stubTest(stubOn) {
     return fn(t)
   })
 }
+
+/** 0.6.2: 删测试周期前顺手删它的确认 / 变更申请 / 修改记录(这三张表按 cycle_id 挂, 没有外键级联) */
+export async function dropPlanTrail(cycleIds) {
+  const ids = (cycleIds || []).filter(v => v != null).map(v => BigInt(String(v)))
+  if (!ids.length) return
+  const where = { cycleId: { in: ids } }
+  await prisma.okrPlanAudit.deleteMany({ where })
+  await prisma.okrPlanChange.deleteMany({ where })
+  await prisma.okrPlanConfirm.deleteMany({ where })
+}

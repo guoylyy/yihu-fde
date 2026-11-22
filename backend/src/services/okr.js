@@ -9,6 +9,7 @@ import {
 } from './okrObjectiveProjects.js'
 import { blockerOwnerNames, riskFields, riskSummary, assertBlockerOwnersExist } from './okrBlockers.js'
 import { decisionBriefsByObjective, detachDecisions } from './okrDecisions.js'
+import { assertPlanUnlocked, auditPlanChange, loadPlanRows } from './okrPlanAudit.js'
 import {
   OkrRuleError, isoWeekOf, weekRange, weekKey, shiftWeek, compareWeek, nextStatus, timeStatus,
   isReopened, isEditable, isScorable, isLate, submitDeadline, normalizePlan, checkKrStatus,
@@ -229,15 +230,44 @@ export async function personWeek(cycle, ownerId, { detail = true, updatesPerObje
  * - 已提交过的人再保存也按提交标准校验, 免得提交后把权重改坏
  * - 提交: 未提交的 O 打上 submittedAt; 过了周一 24:00 记 lateSubmit, 不拦
  * - 同一周反复提交不会产生第二个周期(周期按 year+weekNo 唯一)
+ * - 0.6.2: 这人这周计划已二级确认(CONFIRMED) → 400 / 8201, 只能走变更申请; 审批通过时由 okrPlanConfirm 带 change 调用(跳过锁)。
+ *   每次落库都把计划层差异逐条写进 okr_plan_audit(actorId 缺省 = 实际操作人)
+ * change: { actorId, reason } —— 变更申请批准后套用: 跳过锁校验, 审批人记为 actor, source=CHANGE_APPLY,
+ *   新增的 O 跟着这份计划原来的迟交标记走(不因为审批晚了把整份计划记成迟交)
  */
-export async function savePlan({ ownerId, operatorId = null, week, objectives, submit = false, now = new Date() }) {
+export async function savePlan({ ownerId, operatorId = null, week, objectives, submit = false, change = null, now = new Date() }) {
   const cycle = await getCycle(week, { create: true, now })
+  if (!(await canWritePlan(cycle, BigInt(ownerId)))) throw forbidden(READ_ONLY_MSG)
+  return prisma.$transaction(tx => writePlan(tx, { cycle, ownerId, operatorId, objectives, submit, change, now }), { timeout: 20000 })
+}
+
+const DRY_RUN = Symbol('okr-plan-dry-run')
+
+/**
+ * 0.6.2 变更申请预演: 在事务里按 savePlan 同一套逻辑把 objectives 落一遍, 拿到计划层差异后整体回滚, 库里什么都不留。
+ * 落库会失败的(删有进展的 O / KR、权重不合法 ...)在这里就原样抛出, 提交申请时就能拦下。返回 diff 行
+ */
+export async function previewPlan({ cycle, ownerId, operatorId = null, objectives, submit = false, now = new Date() }) {
+  let diffs = null
+  try {
+    await prisma.$transaction(async (tx) => {
+      const r = await writePlan(tx, { cycle, ownerId, operatorId, objectives, submit, change: { actorId: operatorId ?? ownerId, reason: null }, dryRun: true, now })
+      diffs = r.diffs
+      throw DRY_RUN
+    }, { timeout: 20000 })
+  } catch (e) {
+    if (e !== DRY_RUN) throw e
+  }
+  return diffs
+}
+
+/** savePlan 的落库部分(调用方负责周期可写校验与开事务)。dryRun: 不写审计, 返回 diffs 供预演 */
+export async function writePlan(tx, { cycle, ownerId, operatorId = null, objectives, submit = false, change = null, dryRun = false, now = new Date() }) {
   const owner = BigInt(ownerId)
-  if (!(await canWritePlan(cycle, owner))) throw forbidden(READ_ONLY_MSG)
   // 代管留痕: 他人代为保存/提交记操作人; 本人自己保存时清空
   const operator = operatorId != null && String(operatorId) !== String(ownerId) ? BigInt(operatorId) : null
-
-  return prisma.$transaction(async (tx) => {
+  {
+    if (!change) await assertPlanUnlocked(tx, cycle.id, owner)
     const existing = await tx.okrObjective.findMany({
       where: { cycleId: cycle.id, ownerId: owner },
       include: { keyResults: true, _count: { select: { updates: true, scores: true, misses: true } } }
@@ -273,7 +303,7 @@ export async function savePlan({ ownerId, operatorId = null, week, objectives, s
     }
 
     // 迟交按被操作人这一周的截止判定(周期即被操作人的周期), 与谁点的提交无关
-    const late = isLate(cycle.startDate, now)
+    const late = change ? existing.some(o => o.lateSubmit) : isLate(cycle.startDate, now)
     for (const [i, o] of plan.entries()) {
       const live = o.status !== 'DROPPED'
       const submitFields = submit && live ? { submittedAt: now, lateSubmit: late, submittedByOperator: operator != null } : {}
@@ -341,8 +371,12 @@ export async function savePlan({ ownerId, operatorId = null, week, objectives, s
       const st = derivedObjectiveStatus(fresh)
       if (st !== fresh.status) await tx.okrObjective.update({ where: { id: objId }, data: { status: st } })
     }
-    return { cycle, late: submit ? late : undefined, projectLinks }
-  })
+    const diffs = await auditPlanChange(tx, {
+      cycleId: cycle.id, ownerId: owner, actorId: change ? change.actorId : by, before: existing,
+      source: change ? 'CHANGE_APPLY' : 'DIRECT', reason: change?.reason ?? null, write: !dryRun, now
+    })
+    return { cycle, late: submit ? late : undefined, projectLinks, audited: diffs.length, diffs }
+  }
 }
 
 /** 见 okrRules.planWritable; 只在复盘期才需要查这人交没交过 */
@@ -649,7 +683,11 @@ export async function markMiss({ objectiveId, userId, ownerId, reason, carryToNe
 
   return prisma.$transaction(async (tx) => {
     let carried = null
+    let carryBefore = null
     if (nextCycle) {
+      // 0.6.2: 顺延是往下周计划里加 O(计划层); 下周已二级确认 → 8201, 要走变更申请
+      await assertPlanUnlocked(tx, nextCycle.id, o.ownerId)
+      carryBefore = await loadPlanRows(tx, nextCycle.id, o.ownerId)
       const theirs = await tx.okrObjective.findMany({ where: { cycleId: nextCycle.id, ownerId: o.ownerId, status: { not: 'DROPPED' } } })
       carried = await tx.okrObjective.create({
         data: {
@@ -682,6 +720,7 @@ export async function markMiss({ objectiveId, userId, ownerId, reason, carryToNe
         const ws = equalWeights(all.length)
         for (const [i, t] of all.entries()) await tx.okrObjective.update({ where: { id: t.id }, data: { weight: ws[i] } })
       }
+      await auditPlanChange(tx, { cycleId: nextCycle.id, ownerId: o.ownerId, actorId: userId, before: carryBefore, reason: `顺延自 ${weekKey(o.cycle)}`, now })
     }
     const miss = await tx.okrMiss.create({
       data: {

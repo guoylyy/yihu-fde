@@ -5,7 +5,7 @@
 import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import prisma from '../../src/lib/prisma.js'
-import { createTestUser, api, acquireTestLock } from './helpers.js'
+import { createTestUser, api, acquireTestLock, dropPlanTrail } from './helpers.js'
 import { weekRange, weekKey } from '../../src/services/okrRules.js'
 import { okrMondayReminder } from '../../src/services/okr.js'
 import { EXEMPT_KEY } from '../../src/services/okrExempt.js'
@@ -39,6 +39,7 @@ async function dropCycles(ids) {
   await prisma.okrMiss.deleteMany({ where: { objectiveId: { in: oids } } })
   await prisma.okrKeyResult.deleteMany({ where: { objectiveId: { in: oids } } })
   await prisma.okrObjective.deleteMany({ where: { id: { in: oids } } })
+  await dropPlanTrail(ids)
   await prisma.okrCycle.deleteMany({ where: { id: { in: ids } } })
 }
 

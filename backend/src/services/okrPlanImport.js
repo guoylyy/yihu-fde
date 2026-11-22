@@ -10,6 +10,7 @@ import prisma from '../lib/prisma.js'
 import { getCycle, canWritePlan, READ_ONLY_MSG } from './okr.js'
 import { copyObjectiveProjects } from './okrObjectiveProjects.js'
 import { OkrRuleError, MAX_OBJECTIVES, weekKey, equalWeights, weightsSumOk, parseMilestones, shanghaiDateKey, dateKeyOf, blockerOverdue } from './okrRules.js'
+import { assertPlanUnlocked, isPlanLocked, loadPlanRows, auditPlanChange, LOCKED_MSG } from './okrPlanAudit.js'
 import { parsePlanMarkdown, normalizeBulkPlan, BULK_MAX_OBJECTIVES, BULK_MAX_KRS, BULK_MAX_TEXT } from './okrDraft.js'
 
 export const SUBMITTED_MSG = '目标周已提交计划，先撤回或由主管修改'
@@ -34,6 +35,8 @@ async function targetState(db, cycleId, ownerId) {
 
 async function assertTargetWritable(db, cycle, ownerId, state) {
   if (state.submitted) throw new OkrRuleError(SUBMITTED_MSG, { code: 8171 })
+  // 0.6.2: 已二级确认的计划(哪怕没提交)只能走变更申请
+  if (await isPlanLocked(cycle.id, ownerId, db)) throw new OkrRuleError(LOCKED_MSG, { code: 8201 })
   if (!(await canWritePlan(cycle, ownerId, db))) throw forbidden(READ_ONLY_MSG)
 }
 
@@ -95,6 +98,8 @@ export async function copyFromWeek({ ownerId, operatorId = null, from, to, objec
 
   const result = await prisma.$transaction(async (tx) => {
     await lockCycle(tx, toCycle.id)
+    await assertPlanUnlocked(tx, toCycle.id, ownerId)
+    const before = await loadPlanRows(tx, toCycle.id, ownerId)
     const st = await targetState(tx, toCycle.id, ownerId)
     // 锁内再查一次: 等锁期间可能被提交了
     if (st.submitted) throw new OkrRuleError(SUBMITTED_MSG, { code: 8171 })
@@ -136,8 +141,9 @@ export async function copyFromWeek({ ownerId, operatorId = null, from, to, objec
       })
     }
     const weightsRebalanced = created.length ? await rebalanceWeights(tx, toCycle.id, ownerId) : false
+    await auditPlanChange(tx, { cycleId: toCycle.id, ownerId, actorId: operator ?? owner, before, reason: `从 ${weekKey(from)} 复制`, now })
     return { created, krCount, weightsRebalanced }
-  })
+  }, { timeout: 20000 })
 
   return {
     fromWeek: weekKey(from),
@@ -206,6 +212,8 @@ export async function bulkImport({ ownerId, operatorId = null, week, text, mode,
   await assertTargetWritable(prisma, cycle, ownerId, await targetState(prisma, cycle.id, ownerId))
   return prisma.$transaction(async (tx) => {
     await lockCycle(tx, cycle.id)
+    await assertPlanUnlocked(tx, cycle.id, ownerId)
+    const before = await loadPlanRows(tx, cycle.id, ownerId)
     const state = await targetState(tx, cycle.id, ownerId)
     if (state.submitted) throw new OkrRuleError(SUBMITTED_MSG, { code: 8171 })
     const p = plan(parsed, state)
@@ -232,6 +240,7 @@ export async function bulkImport({ ownerId, operatorId = null, week, text, mode,
       }
     }
     const weightsRebalanced = await rebalanceWeights(tx, cycle.id, ownerId)
+    await auditPlanChange(tx, { cycleId: cycle.id, ownerId, actorId: operator ?? owner, before, reason: '粘贴 Markdown 批量导入', now })
     return {
       ...base, submitted: false,
       objectives: p.objectives.map((o, i) => ({ id: ids[i], ...objOut(o) })),
@@ -240,5 +249,5 @@ export async function bulkImport({ ownerId, operatorId = null, week, text, mode,
       createdKrs: p.objectives.reduce((s, o) => s + o.keyResults.length, 0),
       weightsRebalanced, cycleId: cycle.id
     }
-  })
+  }, { timeout: 20000 })
 }

@@ -8,7 +8,7 @@
 import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import prisma from '../../src/lib/prisma.js'
-import { createTestUser, api, uniqName } from './helpers.js'
+import { createTestUser, api, uniqName, dropPlanTrail } from './helpers.js'
 import { weekRange, weekKey, shanghaiDateKey, MAX_OBJECTIVES } from '../../src/services/okrRules.js'
 import { BULK_MAX_OBJECTIVES, BULK_MAX_KRS } from '../../src/services/okrDraft.js'
 import { SUBMITTED_MSG } from '../../src/services/okrPlanImport.js'
@@ -45,6 +45,7 @@ async function dropCycle(week) {
   await prisma.okrMiss.deleteMany({ where: { objectiveId: { in: oids } } })
   await prisma.okrKeyResult.deleteMany({ where: { objectiveId: { in: oids } } })
   await prisma.okrObjective.deleteMany({ where: { id: { in: oids } } })
+  await dropPlanTrail([c.id])
   await prisma.okrCycle.delete({ where: { id: c.id } })
 }
 

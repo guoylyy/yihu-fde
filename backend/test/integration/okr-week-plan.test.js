@@ -6,7 +6,7 @@
 import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import prisma from '../../src/lib/prisma.js'
-import { createTestUser, api, BASE } from './helpers.js'
+import { createTestUser, api, BASE, dropPlanTrail } from './helpers.js'
 import { weekRange, weekKey } from '../../src/services/okrRules.js'
 
 const rnd = (a, b) => a + Math.floor(Math.random() * (b - a + 1))
@@ -32,6 +32,7 @@ async function dropCycle(week) {
   const oids = (await prisma.okrObjective.findMany({ where: { cycleId: c.id }, select: { id: true } })).map(o => o.id)
   await prisma.okrScore.deleteMany({ where: { OR: [{ cycleId: c.id }, { objectiveId: { in: oids } }] } })
   await prisma.okrObjective.deleteMany({ where: { id: { in: oids } } })
+  await dropPlanTrail([c.id])
   await prisma.okrCycle.delete({ where: { id: c.id } })
 }
 

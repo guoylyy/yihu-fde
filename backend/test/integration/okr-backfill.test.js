@@ -7,7 +7,7 @@
 import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import prisma from '../../src/lib/prisma.js'
-import { createTestUser, api } from './helpers.js'
+import { createTestUser, api, dropPlanTrail } from './helpers.js'
 import { weekRange, weekKey, shiftWeek, isoWeekOf } from '../../src/services/okrRules.js'
 import { getCycle, savePlan, personWeek } from '../../src/services/okr.js'
 
@@ -38,7 +38,7 @@ async function cleanup() {
   }
   for (const id of createdCycles) {
     const left = await prisma.okrObjective.count({ where: { cycleId: id } })
-    if (!left) await prisma.okrCycle.deleteMany({ where: { id } })
+    if (!left) { await dropPlanTrail([id]); await prisma.okrCycle.deleteMany({ where: { id } }) }
   }
 }
 
@@ -223,7 +223,7 @@ describe('周 OKR 补录(服务层, 注入时间)', () => {
 
   after(async () => {
     await cleanup()
-    for (const id of mine) await prisma.okrCycle.deleteMany({ where: { id } })
+    for (const id of mine) { await dropPlanTrail([id]); await prisma.okrCycle.deleteMany({ where: { id } }) }
     for (const u of [U, V]) await u?.cleanup()
   })
 

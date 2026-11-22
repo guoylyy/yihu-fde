@@ -17,7 +17,7 @@ import { join } from 'node:path'
 import ExcelJS from 'exceljs'
 import mammoth from 'mammoth'
 import prisma from '../../src/lib/prisma.js'
-import { createTestUser, api, uniqName, acquireTestLock, BASE } from './helpers.js'
+import { createTestUser, api, uniqName, acquireTestLock, BASE, dropPlanTrail } from './helpers.js'
 import { weekRange, weekKey, shanghaiDateKey } from '../../src/services/okrRules.js'
 import { EXEMPT_KEY } from '../../src/services/okrExempt.js'
 import { DETAIL_HEADERS } from '../../src/services/okrExportFormat.js'
@@ -53,6 +53,7 @@ async function dropCycle(week) {
   await prisma.okrMiss.deleteMany({ where: { objectiveId: { in: oids } } })
   await prisma.okrKeyResult.deleteMany({ where: { objectiveId: { in: oids } } })
   await prisma.okrObjective.deleteMany({ where: { id: { in: oids } } })
+  await dropPlanTrail([c.id])
   await prisma.okrCycle.delete({ where: { id: c.id } })
 }
 
