@@ -665,7 +665,17 @@ export const fde = {
     deleteTemplate: (id) => request(`/api/okr/templates/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     // OKR 10.0 连续未达成预警(范围后端裁: ADMIN 全部 / MANAGER 本团队 / 工程师自己)
     riskObjectives: (params = {}) => request('/api/okr/risk/objectives?' + new URLSearchParams(clean(params)).toString()),
-    riskPeople: (params = {}) => request('/api/okr/risk/people?' + new URLSearchParams(clean(params)).toString())
+    riskPeople: (params = {}) => request('/api/okr/risk/people?' + new URLSearchParams(clean(params)).toString()),
+    // 0.6.2 二级确认 / 变更申请 / 修改记录(锁定后写计划回 8201)
+    confirmOwner: (week, targetUserId) => request('/api/okr/plan/confirm-owner', { method: 'POST', body: JSON.stringify(withTarget({ week }, targetUserId)) }),
+    confirmManager: (week, userId) => request('/api/okr/plan/confirm-manager', { method: 'POST', body: JSON.stringify({ week, userId: String(userId) }) }),
+    confirmStatus: (week, userId) => request('/api/okr/plan/confirm-status?' + new URLSearchParams(clean({ week, userId })).toString()),
+    requestChange: ({ week, reason, objectives }, targetUserId) => request('/api/okr/plan/changes', { method: 'POST', body: JSON.stringify(withTarget({ week, reason, objectives }, targetUserId)) }),
+    changes: (params = {}) => request('/api/okr/plan/changes?' + new URLSearchParams(clean(params)).toString()),
+    approveChange: (id, note) => request(`/api/okr/plan/changes/${encodeURIComponent(id)}/approve`, { method: 'POST', body: JSON.stringify(note ? { note } : {}) }),
+    rejectChange: (id, note) => request(`/api/okr/plan/changes/${encodeURIComponent(id)}/reject`, { method: 'POST', body: JSON.stringify({ note }) }),
+    cancelChange: (id) => request(`/api/okr/plan/changes/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: '{}' }),
+    audit: (params = {}) => request('/api/okr/plan/audit?' + new URLSearchParams(clean(params)).toString())
   },
   reports: {
     projects: (params = {}) => {
