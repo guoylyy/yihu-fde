@@ -13,6 +13,9 @@
 //
 // OKR 2.0 全员可见: 任何登录用户都能看任何人的 O / KR / 进展 / 自评; 主管评分(managerScore /
 // managerComment / 主管评分记录)只返回给本人与评分范围覆盖此人的人(ADMIN 全部, MANAGER 本团队), 其他人不带这些字段。
+//
+// OKR 4.0: 项目周 OKR 文档(/projects, 全员可读, ADMIN / MANAGER / 项目成员可写)、每日进展总结(/daily)、
+// 周评分进度与催交(/week/status、/week/remind, ADMIN 全部 / MANAGER 本团队)。不改上面任何既有规则。
 import express from 'express'
 import multer from 'multer'
 import mammoth from 'mammoth'
@@ -30,6 +33,7 @@ import { resolveOkrTarget, canManageOkrOf, teamListScope, forViewer, teamForView
 import { personOverview, weekStats, yearStats } from '../services/okrStats.js'
 import { describeExempt, setExempt, isExempt } from '../services/okrExempt.js'
 import { dailyView, dailyMissing, saveDailySummary } from '../services/okrDaily.js'
+import { weekStatus, remindWeek, pendingPlanUsers } from '../services/okrWeekStatus.js'
 import { listProjectDocs, getProjectDoc, loadProject, canWriteProjectDoc, saveProjectDoc } from '../services/okrProjectDocs.js'
 
 const router = express.Router()
@@ -509,6 +513,29 @@ router.put('/daily', async (req, res) => {
   } catch (e) { fail(res, e, 'daily put') }
 })
 
+// ---------------------------------------------------------------- 周评分进度 + 催交(OKR 4.0)
+// ADMIN 看全部, MANAGER 看本团队(与 /team 同一口径)。催交只发给计划未交 / 自评没做完的人
+
+router.get('/week/status', leadOnly('查看周评分进度'), async (req, res) => {
+  try {
+    const week = weekOf(req, res)
+    if (!week) return
+    ok(res, await weekStatus(week, { onlyUserIds: await teamListScope(req.user) }))
+  } catch (e) { fail(res, e, 'week/status') }
+})
+
+router.post('/week/remind', humanOnly('催交 OKR'), leadOnly('催交 OKR'), async (req, res) => {
+  try {
+    const week = weekOf(req, res)
+    if (!week) return
+    const r = await remindWeek(week, { userIds: req.body?.userIds, onlyUserIds: await teamListScope(req.user) })
+    if (r.reminded.length) {
+      logInternalAction(req, 'okr.week.remind', { resourceType: 'okr_cycle', details: { week: r.week, userIds: r.reminded.map(x => x.user.id) } })
+    }
+    ok(res, r)
+  } catch (e) { fail(res, e, 'week/remind') }
+})
+
 // ---------------------------------------------------------------- 设置: 免提交白名单
 
 // 登录可读: 前端据此在团队页 / 设置页显示「免提交」
@@ -540,7 +567,9 @@ router.post('/cycle/close-by-score', humanOnly('完成本周评分并归档'), r
     if (changed) {
       await logInternalAction(req, 'okr.cycle.close-by-score', { resourceType: 'okr_cycle', resourceId: cycle.id, details: { week: weekKey(week), scored } })
     }
-    ok(res, { week: weekKey(week), status: cycle.status, changed, scored, closedAt: cycle.closedAt, closedBy: cycle.closedBy != null ? String(cycle.closedBy) : null })
+    // 4.0: 不阻断关闭, 但把还没交计划的人(免提交除外)一并告诉老板
+    const pendingUsers = await pendingPlanUsers(week)
+    ok(res, { week: weekKey(week), status: cycle.status, changed, scored, closedAt: cycle.closedAt, closedBy: cycle.closedBy != null ? String(cycle.closedBy) : null, pendingUsers })
   } catch (e) { fail(res, e, 'cycle/close-by-score') }
 })
 
