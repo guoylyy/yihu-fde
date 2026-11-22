@@ -2453,6 +2453,24 @@
       "imported": "Imported",
       "file_type": "Only .md / .txt / .docx files",
       "file_size": "File must be 2MB or smaller"
+    },
+    "daily": {
+      "scope_me": "Mine",
+      "scope_team": "Team",
+      "missing_today": "{p0} people haven't written today",
+      "missing_day": "{p0} people didn't write on {p1}",
+      "all_written": "Everyone with an OKR has written",
+      "remind": "Remind",
+      "remind_text": "{p0} your daily summary for {p1} is missing. Add a line about today's progress under Delivery → Daily summary.",
+      "remind_copied": "Reminder for {p0} people copied; paste it into the group chat",
+      "summary_line": "Written {p0}/{p1} · {p2} with OKR progress",
+      "unwritten": "Not written",
+      "on_behalf": "Written by {p0}",
+      "no_progress": "No OKR progress today",
+      "placeholder": "Today's summary: what you did, where you're stuck, what's next…",
+      "saved_at": "Saved {p0}",
+      "saved": "Summary saved",
+      "empty": "Nobody needs to write a summary for this day"
     }
   },
   "assistant": {
@@ -2539,7 +2557,8 @@
     "experience_library": "Experience library",
     "conversations": "Conversations",
     "settings": "Settings",
-    "project_okr": "Project OKR"
+    "project_okr": "Project OKR",
+    "daily_summary": "Daily summary"
   },
   "today": {
     "okr_week": "This week's OKR",

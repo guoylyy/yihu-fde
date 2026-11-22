@@ -2453,6 +2453,24 @@
       "imported": "已导入",
       "file_type": "只支持 .md / .txt / .docx",
       "file_size": "文件不能超过 2MB"
+    },
+    "daily": {
+      "scope_me": "我的",
+      "scope_team": "团队",
+      "missing_today": "今天 {p0} 人未写",
+      "missing_day": "{p1} 有 {p0} 人未写",
+      "all_written": "有 OKR 的人都写了",
+      "remind": "提醒",
+      "remind_text": "{p0} {p1} 的每日总结还没写，记得到「项目交付 → 每日总结」补一句今天的进展。",
+      "remind_copied": "已复制给 {p0} 人的提醒，可直接贴到群里",
+      "summary_line": "已写 {p0}/{p1} · 有 OKR 进展 {p2} 人",
+      "unwritten": "未写",
+      "on_behalf": "{p0} 代写",
+      "no_progress": "今天没有 OKR 进展",
+      "placeholder": "今天的总结：做了什么、卡在哪、明天打算……",
+      "saved_at": "{p0} 已保存",
+      "saved": "总结已保存",
+      "empty": "这一天没有需要写总结的人"
     }
   },
   "assistant": {
@@ -2539,7 +2557,8 @@
     "experience_library": "经验库",
     "conversations": "会话",
     "settings": "设置",
-    "project_okr": "项目 OKR"
+    "project_okr": "项目 OKR",
+    "daily_summary": "每日总结"
   },
   "today": {
     "okr_week": "本周 OKR",

@@ -43,6 +43,7 @@ export function buildNav({ can, moduleEnabled = () => true, role } = {}) {
         { path: '/admin/projects', title: 'common.projects', icon: 'Document', show: can('projects') },
         // OKR 4.0: 项目周 OKR 全员可读(写权限在页内判断)
         { path: '/admin/okr/projects', title: 'nav.project_okr', icon: 'Flag', show: moduleEnabled('okr') },
+        { path: '/admin/okr/daily', title: 'nav.daily_summary', icon: 'Notebook', show: moduleEnabled('okr') },
         { path: '/admin/tasks', title: 'common.tasks', icon: 'List', show: can('project.view') || role === 'FDE_ENGINEER' },
         { path: '/admin/customers', title: 'common.customers', icon: 'User', show: can('customers') },
         { path: '/admin/knowledge', title: 'common.knowledge_base', icon: 'Reading', show: can('knowledge') },

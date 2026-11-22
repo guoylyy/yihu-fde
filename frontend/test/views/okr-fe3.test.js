@@ -4,7 +4,8 @@ import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { compileView, renderView, t } from '../helpers/sfc-render.js'
 import {
-  isLead, canEditProjectDoc, projectLabel, projectDocFileProblem, PROJECT_DOC_MAX
+  isLead, canEditProjectDoc, projectLabel, projectDocFileProblem, PROJECT_DOC_MAX,
+  todayKey, weekKeyOfDate, dailyMissingRows, dailyRemindText, summaryText
 } from '../../src/views/okr/okrFe3.js'
 
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/'/g, '&#39;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -84,5 +85,82 @@ describe('项目周 OKR 页', () => {
     lacks(ro, t('okr.proj.paste'))
     const rw = await renderView(render, base({ projectId: '2', detail, canEdit: true }), extra)
     has(rw, t('okr.proj.paste'))
+  })
+})
+
+// ---------------------------------------------------------------- 二、每日总结
+
+describe('每日总结: 纯函数', () => {
+  test('今天按上海时区; 日期 → ISO 周', () => {
+    assert.equal(todayKey(new Date('2026-11-21T15:59:00Z')), '2026-11-21')
+    assert.equal(todayKey(new Date('2026-11-21T16:01:00Z')), '2026-11-22', '上海已过零点')
+    assert.equal(weekKeyOfDate('2026-11-23'), '2026-W48')
+    assert.equal(weekKeyOfDate('2026-11-29'), '2026-W48')
+    assert.equal(weekKeyOfDate('2027-01-01'), '2026-W53')
+    assert.equal(weekKeyOfDate('bad'), '')
+  })
+  test('「未写」名单与后端 dailyMissing 同口径: 有 OKR 且没写', () => {
+    const v = { rows: [
+      { user: { id: '1', name: '林晓' }, hasOkr: true, hasWritten: false },
+      { user: { id: '2', name: '周舟' }, hasOkr: true, hasWritten: true },
+      { user: { id: '3', name: '老王' }, hasOkr: false, hasWritten: false }
+    ] }
+    assert.deepEqual(dailyMissingRows(v).map(r => r.user.id), ['1'])
+    assert.deepEqual(dailyMissingRows(null), [])
+    const text = dailyRemindText(dailyMissingRows(v), '2026-11-21', t)
+    assert.ok(text.includes('@林晓') && text.includes('2026-11-21'))
+    assert.equal(summaryText({ summary: { summaryMd: '写了' } }), '写了')
+    assert.equal(summaryText({ summary: null }), '')
+  })
+})
+
+describe('每日总结页', () => {
+  const render = compileView('views/okr/DailySummary.vue')
+  const item = (text) => ({ text })
+  const mk = (id, name, over = {}) => ({ user: { id, name, role: 'FDE_ENGINEER' }, hasOkr: true, autoItems: [], summary: null, hasWritten: false, ...over })
+  const base = (over = {}) => ({
+    date: '2026-11-21', scope: 'team', isToday: true, lead: false, loading: false, busy: '', drafts: {},
+    view: null, rows: [], missing: [],
+    setQuery: () => {}, remind: () => {}, save: () => {}, initialOf: n => n?.[0] || '?',
+    editable: () => false, dirty: () => false, timeOf: () => '10:00',
+    ...over
+  })
+
+  test('团队视图: 每人一张卡; 没写的出「未写」; 没进展的出「今天没有 OKR 进展」; 写了的只读展示原文', async () => {
+    const rows = [
+      mk('1', '林晓', { autoItems: [item('O1「上线」· KR1「接口」：0 → 2')] }),
+      mk('2', '周舟', { hasWritten: true, summary: { summaryMd: '联调完成', updatedAt: 'x' } })
+    ]
+    const html = await renderView(render, base({ view: { summary: { people: 2, written: 1, withProgress: 1 }, rows }, rows }))
+    has(html, '林晓')
+    has(html, 'O1「上线」· KR1「接口」：0 → 2')
+    assert.equal((html.match(/data-test="dsum-unwritten"/g) || []).length, 1, '只有林晓未写')
+    has(html, t('okr.daily.no_progress'))
+    has(html, '联调完成')
+    has(html, t('okr.daily.summary_line', { p0: 1, p1: 2, p2: 1 }))
+    lacks(html, 'data-test="dsum-lead"')
+  })
+
+  test('主管 · 团队: 顶部「今天 N 人未写」+ 名单 + 提醒; 都写了换成绿色提示', async () => {
+    const rows = [mk('1', '林晓'), mk('3', '老王')]
+    const v = { summary: { people: 2, written: 0, withProgress: 0 }, rows }
+    const html = await renderView(render, base({ lead: true, view: v, rows, missing: rows }))
+    has(html, t('okr.daily.missing_today', { p0: 2 }))
+    has(html, '林晓、老王')
+    assert.ok(html.includes('data-test="dsum-remind"'))
+    const past = await renderView(render, base({ lead: true, view: v, rows, missing: rows, isToday: false, date: '2026-11-20' }))
+    has(past, t('okr.daily.missing_day', { p0: 2, p1: '2026-11-20' }))
+    const ok = await renderView(render, base({ lead: true, view: { ...v, summary: { ...v.summary, written: 2 } }, rows: [], missing: [] }))
+    has(ok, t('okr.daily.all_written'))
+    assert.ok(!ok.includes('data-test="dsum-remind"'))
+  })
+
+  test('可编辑的卡: 出输入框和保存按钮(没进展也能写)', async () => {
+    const rows = [mk('38', '我')]
+    const html = await renderView(render, base({ scope: 'me', view: { summary: {}, rows }, rows, editable: () => true, drafts: { 38: '' } }))
+    assert.ok(html.includes('data-test="dsum-input-38"'))
+    assert.ok(html.includes('data-test="dsum-save-38"'))
+    has(html, t('okr.daily.no_progress'))
+    lacks(html, t('okr.daily.summary_line', { p0: 0, p1: 0, p2: 0 }).slice(0, 6))
   })
 })
