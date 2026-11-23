@@ -245,4 +245,26 @@ describe('0.6.6 管理员可以审批 OKR 变更申请(含自己提的)', () => 
     assert.equal(item.details, undefined)
     assert.equal((await sysAudit('okr.plan.change-approve', id))[0].d.selfDecide, undefined)
   })
+  test('6. 不传 week + ADMIN → 返回跨周的全部 PENDING(按 createdAt 倒序); 传 week 只回那一周', async () => {
+    const a = await requestRetitle(e, W1, E, '工程师的 O(跨周 W1)', 'W1 的变更')
+    const b = await requestRetitle(e, W2, E, '工程师 W2 的 O(跨周 W2)', 'W2 的变更')
+    const all = await admin.get('/api/okr/plan/changes?status=PENDING')
+    assert.equal(all.status, 200, all.message)
+    const mine = all.data.filter(c => c.id === a || c.id === b)
+    console.log(`ℹ admin GET /api/okr/plan/changes?status=PENDING (no week) → ${all.status} total=${all.data.length} ${JSON.stringify(mine.map(c => ({ id: c.id, week: c.week, status: c.status, owner: c.owner?.name, requestedBy: c.requestedBy?.name, createdAt: c.createdAt })))}`)
+    assert.deepEqual(mine.map(c => c.id), [b, a], '两周的申请都在, 新的在前')
+    assert.deepEqual(mine.map(c => c.week), [K(W2), K(W1)])
+    assert.ok(all.data.every(c => c.status === 'PENDING'))
+    for (let i = 1; i < all.data.length; i++) assert.ok(new Date(all.data[i - 1].createdAt) >= new Date(all.data[i].createdAt), '按 createdAt 倒序')
+    // 空 week 参数同样视为不传
+    const blank = await admin.get('/api/okr/plan/changes?status=PENDING&week=')
+    assert.equal(blank.status, 200, blank.message)
+    assert.deepEqual(blank.data.filter(c => c.id === a || c.id === b).map(c => c.id), [b, a])
+    // 传 week 只回那一周
+    const w1 = await admin.get(`/api/okr/plan/changes?status=PENDING&week=${K(W1)}`)
+    assert.equal(w1.status, 200, w1.message)
+    assert.deepEqual(w1.data.map(c => c.id), [a])
+    // 收尾: 撤回, 不影响别的用例
+    for (const id of [a, b]) assert.equal((await e.post(`/api/okr/plan/changes/${id}/cancel`)).status, 200)
+  })
 })
