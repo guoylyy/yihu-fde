@@ -10,7 +10,7 @@
 import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import prisma from '../../src/lib/prisma.js'
-import { createTestUser, api, acquireTestLock, dropPlanTrail } from './helpers.js'
+import { createTestUser, api, acquireTestLock, dropPlanTrail, lockOkrLimits } from './helpers.js'
 import { weekRange, weekKey, shanghaiDateKey } from '../../src/services/okrRules.js'
 import { EXEMPT_KEY } from '../../src/services/okrExempt.js'
 import { personOverview } from '../../src/services/okrStats.js'
@@ -78,7 +78,10 @@ describe('OKR 6.0 阶段型 KR / 卡点与风险 / 到期提醒', () => {
   const O2 = 'unit-test-v6 A-O2 回归'
   const O3 = 'unit-test-v6 A-O3 等工艺模板'
 
+  let releaseLimits
   before(async () => {
+    // 整组围着一份 3 个 O 的计划转, 依赖默认上限 3: 和 okr-limits.test.js 改上限的窗口互斥
+    releaseLimits = await lockOkrLimits()
     A = await createTestUser('FDE_ENGINEER', { name: 'unit-test-v6-工程师A' })
     B = await createTestUser('FDE_ENGINEER', { name: 'unit-test-v6-卡点人B' })
     E = await createTestUser('FDE_ENGINEER', { name: 'unit-test-v6-免提交E' })
@@ -96,6 +99,7 @@ describe('OKR 6.0 阶段型 KR / 卡点与风险 / 到期提醒', () => {
       for (const u of [A, B, E, O]) await u?.cleanup()
     } finally {
       unlock?.()
+      releaseLimits?.()
     }
   })
 

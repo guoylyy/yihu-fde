@@ -8,7 +8,7 @@
 import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import prisma from '../../src/lib/prisma.js'
-import { createTestUser, api, uniqName, sleep, dropPlanTrail } from './helpers.js'
+import { createTestUser, api, uniqName, sleep, dropPlanTrail, lockOkrLimits } from './helpers.js'
 import { weekRange, weekKey } from '../../src/services/okrRules.js'
 import { MAX_PROJECTS_PER_OBJECTIVE, UNASSIGNED_NAME } from '../../src/services/okrObjectiveProjects.js'
 
@@ -190,7 +190,9 @@ describe('OKR 5.0 O 挂项目(多项目)', () => {
     assert.equal(r2.data.objectives.find(o => o.id === aPlan[0].id).projects.length, 2, '没传 projectIds 不会把关联冲掉')
 
     // 临时加一个 O3 挂 P3, 再整份保存时去掉它 → O3 和它的关联都没了
-    const r3 = await a.post(`/api/okr/plan?week=${WK}`, aBody({ extra: [{ title: 'unit-test-v5 A-O3 临时', weight: 0, keyResults: [{ title: 'tmp', metricType: 'BINARY' }], projectIds: [String(P3.id)] }] }))
+    // 3 个 O 依赖默认上限: 和 okr-limits.test.js 改上限的窗口互斥
+    const release = await lockOkrLimits()
+    const r3 = await a.post(`/api/okr/plan?week=${WK}`, aBody({ extra: [{ title: 'unit-test-v5 A-O3 临时', weight: 0, keyResults: [{ title: 'tmp', metricType: 'BINARY' }], projectIds: [String(P3.id)] }] })).finally(release)
     assert.equal(r3.status, 200, r3.message)
     const o3 = r3.data.objectives.find(o => o.title === 'unit-test-v5 A-O3 临时')
     assert.equal((await linkRows(o3.id)).length, 1)

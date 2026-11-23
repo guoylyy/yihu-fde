@@ -149,6 +149,15 @@ export async function acquireTestLock(name, { timeoutMs = 60000, staleMs = 12000
   }
 }
 
+/**
+ * OKR 数量上限(okr.maxObjectives / okr.maxKrsPerObjective, 0.6.5)是全局设置: okr-limits.test.js 临时把它改成 2 / 5 时,
+ * 别的文件同时存 3 个 O 的计划、或断言「默认上限 3」就会被踩。改上限的一方和依赖默认上限的用例都先拿这把锁。
+ * 整个 describe 持锁的文件可能跑一两分钟, 所以等锁与过期都放宽
+ */
+export function lockOkrLimits() {
+  return acquireTestLock('okr-limits', { timeoutMs: 300000, staleMs: 600000 })
+}
+
 export { BASE }
 
 // ---------- 助手 stub 探测 ----------

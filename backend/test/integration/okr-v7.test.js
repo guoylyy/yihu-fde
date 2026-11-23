@@ -8,7 +8,7 @@
 import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import prisma from '../../src/lib/prisma.js'
-import { createTestUser, api, uniqName, dropPlanTrail } from './helpers.js'
+import { createTestUser, api, uniqName, dropPlanTrail, lockOkrLimits } from './helpers.js'
 import { weekRange, weekKey, shanghaiDateKey, MAX_OBJECTIVES } from '../../src/services/okrRules.js'
 import { BULK_MAX_OBJECTIVES, BULK_MAX_KRS } from '../../src/services/okrDraft.js'
 import { SUBMITTED_MSG } from '../../src/services/okrPlanImport.js'
@@ -89,8 +89,11 @@ describe('OKR 7.0 从某周复制 / 粘贴 Markdown 批量建 / 个人模板', (
   let customer, P
   let team
   let src
+  let releaseLimits
 
   before(async () => {
+    // 3 个 O 的复制 / 导入、「到上限 8172」都依赖默认上限: 和 okr-limits.test.js 改上限的窗口互斥
+    releaseLimits = await lockOkrLimits()
     A = await createTestUser('FDE_ENGINEER', { name: 'unit-test-v7-工程师A' })
     B = await createTestUser('FDE_ENGINEER', { name: 'unit-test-v7-工程师B' })
     M = await createTestUser('MANAGER', { name: 'unit-test-v7-主管M' })
@@ -157,6 +160,7 @@ describe('OKR 7.0 从某周复制 / 粘贴 Markdown 批量建 / 个人模板', (
       await prisma.team.delete({ where: { id: team.id } })
     }
     for (const u of [A, B, M]) await u?.cleanup()
+    releaseLimits?.()
   })
 
   // ---------------------------------------------------------------- 复制

@@ -149,6 +149,15 @@ describe('计划校验(提交时的硬约束)', () => {
     assert.equal(p[3].weight, 0)
     assert.ok(weightsSumOk(p.slice(0, 3).map(o => o.weight)))
   })
+  test('limits 入参(0.6.5): 按传入的上限校验, 文案用实际数字; 不传 / 缺字段用默认 3 / 10', () => {
+    const five = ['A', 'B', 'C', 'D', 'E'].map(t => ({ title: t, keyResults: [kr('x')] }))
+    assert.equal(normalizePlan(five, { strict: true, limits: { maxObjectives: 5, maxKrsPerObjective: 10 } }).length, 5)
+    assert.throws(() => normalizePlan(five, { limits: { maxObjectives: 4 } }), e => e.code === 8101 && e.message === '每周最多 4 个 O')
+    assert.throws(() => normalizePlan(five), e => e.message === '每周最多 3 个 O')
+    const krs3 = [{ title: 'A', keyResults: [kr('x'), kr('y'), kr('z')] }]
+    assert.throws(() => normalizePlan(krs3, { limits: { maxKrsPerObjective: 2 } }), e => e.code === 8102 && e.message === '「A」的 KR 超过 2 条')
+    assert.equal(normalizePlan(krs3, { limits: { maxObjectives: 1 } })[0].keyResults.length, 3)
+  })
   test('至少 1 个 O 才能提交', () => {
     assert.throws(() => normalizePlan([], { strict: true }), e => e.code === 8101)
   })

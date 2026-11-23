@@ -5,7 +5,7 @@
 import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import prisma from '../../src/lib/prisma.js'
-import { createTestUser, api, BASE, dropPlanTrail } from './helpers.js'
+import { createTestUser, api, BASE, dropPlanTrail, lockOkrLimits } from './helpers.js'
 import { weekRange, weekKey, shiftWeek, isoWeekOf } from '../../src/services/okrRules.js'
 import { okrTick, okrMondayReminder, REMIND_TYPE, REMIND_SUMMARY_TYPE } from '../../src/services/okr.js'
 
@@ -125,7 +125,9 @@ describe('周 OKR /api/okr', () => {
       const r1 = await a.post(`/api/okr/plan?week=${WK}`, { objectives: [{ title: 'unit-test-草稿 O' }] })
       assert.equal(r1.code, 0, r1.message)
       assert.equal(r1.data.personalStatus, 'NOT_SUBMITTED')
-      const r2 = await a.post(`/api/okr/plan?week=${WK}`, { objectives: plan(3) })
+      // 3 个 O 依赖默认上限: 和 okr-limits.test.js 改上限的窗口互斥
+      const release = await lockOkrLimits()
+      const r2 = await a.post(`/api/okr/plan?week=${WK}`, { objectives: plan(3) }).finally(release)
       assert.equal(r2.code, 0, r2.message)
       assert.deepEqual(r2.data.objectives.map(o => o.weight), [33.33, 33.33, 33.34])
       assert.equal(r2.data.objectives.length, 3, '整份覆盖: 第一次的草稿 O 被替换')
