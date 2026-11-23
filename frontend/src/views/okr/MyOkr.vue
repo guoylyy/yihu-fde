@@ -109,7 +109,7 @@
 
       <!-- 写计划 / 改计划 -->
       <OkrPlanEditor
-        v-if="editorOpen" ref="editorRef"
+        v-if="editorOpen" ref="editorRef" :max-objectives="limits.maxObjectives" :max-krs="limits.maxKrsPerObjective"
         :initial="draftInit" :submitted="submittedOnce || changeMode" :cancellable="submittedOnce || !!empty || changeMode" :busy="busy"
         :late-hint="deadlinePassed && !submittedOnce && !changeMode"
         :submit-label="changeMode ? $t('okr.confirm.submit_change') : (proxyMode ? $t('okr.proxy.submit_for', { p0: ownerName }) : '')"
@@ -191,7 +191,7 @@
     <OkrAuditDrawer v-model="auditOpen" :week="weekKeyNow" :owner-id="String(ownerId || meId)" :me-id="String(meId)" :mobile="isMobile" />
 
     <OkrReportDraftDialog
-      v-model="reportOpen" :source="reportSource" :target-user-id="proxyTarget" :target-name="proxyMode ? ownerName : ''"
+      v-model="reportOpen" :source="reportSource" :target-user-id="proxyTarget" :target-name="proxyMode ? ownerName : ''" :max-objectives="limits.maxObjectives"
       @fill="fillFromReport"
     />
 
@@ -208,7 +208,7 @@
     </el-dialog>
 
     <OkrPlanImportDialog
-      v-model="imp.visible" :week="weekKeyNow" :target-user-id="proxyTarget" :initial-text="imp.text" :before-apply="confirmDiscard"
+      v-model="imp.visible" :week="weekKeyNow" :target-user-id="proxyTarget" :initial-text="imp.text" :before-apply="confirmDiscard" :limits="limits"
       @imported="onImported"
     />
     <OkrTemplateDialog v-model="tpl.visible" :current-md="tpl.md" @use="useTemplate" />
@@ -261,6 +261,7 @@ import {
 } from './okrUtils.js'
 import { viewedUserId, queryForPerson, sameId, mergeDraft, mayScoreManager, mayCloseWeek } from './okrPeople.js'
 import { useOkrPeople } from './useOkrPeople.js'
+import { normalizeLimits, loadLimits } from './okrLimits.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -692,6 +693,10 @@ async function load() {
 watch(() => [route.query.week, ownerId.value], load, { immediate: true })
 watch(() => route.query.week, w => loadPeople(w), { immediate: true })
 
+// 0.6.5 O / KR 数量上限: 进页面读一次(不随周切换 / 渲染重拉); 拿不到回退 3 / 10, 不报错
+const limits = ref(normalizeLimits(null))
+loadLimits(fde.okr.limits).then((l) => { limits.value = l })
+
 function pickPerson(id) {
   router.replace({ query: queryForPerson(route.query, id, meId) })
 }
@@ -719,10 +724,10 @@ function startEdit() {
 /** 贴周报 / 导入文档生成的草稿填进编辑器: 覆盖前确认; 追加接在已有 O 后面。只填不存、永不自动提交 */
 async function fillFromReport(objectives, { mode = 'replace' } = {}) {
   if (mode === 'append' && editorRef.value) {
-    const r = mergeDraft(editorRef.value.getPlan(), objectives, 'append')
+    const r = mergeDraft(editorRef.value.getPlan(), objectives, 'append', { max: limits.value.maxObjectives })
     draftInit.value = r.objectives
     reportOpen.value = false
-    if (r.dropped) ElMessage.warning($t('okr.import.dropped', { p0: r.dropped }))
+    if (r.dropped) ElMessage.warning($t('okr.import.dropped', { p0: r.dropped, p1: limits.value.maxObjectives }))
     else ElMessage.success($t('okr.report.filled'))
     return
   }

@@ -54,8 +54,8 @@ import { splitBulkLines, moveItem, KR_TITLE_MAX } from '@/views/okr/okrUtils.js'
 const props = defineProps({
   modelValue: Boolean,
   objectiveTitle: { type: String, default: '' },
-  /** 这个 O 还能放几条 KR(编辑器上限 10, 空占位行会被顶替, 由调用方算好) */
-  room: { type: Number, default: 10 }
+  /** 这个 O 还能放几条 KR(编辑器按系统设置的每 O KR 上限算好, 空占位行会被顶替) */
+  room: { type: Number, default: 0 }
 })
 const emit = defineEmits(['update:modelValue', 'insert'])
 

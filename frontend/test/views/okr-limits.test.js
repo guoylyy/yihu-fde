@@ -141,3 +141,62 @@ describe('上限: 贴周报追加用配置值', () => {
     assert.ok(en.okr.import.mode_append_sub.includes('{p0}'))
   })
 })
+
+describe('编辑器跟着配置变', () => {
+  const render = compileView('components/okr/OkrPlanEditor.vue')
+  const obj = (i) => ({ _k: i, title: `O${i}`, description: '', weight: 20, status: 'ON_TRACK', keyResults: [{ _k: 100 + i, title: 'k', metricType: 'BINARY', weight: 100, milestones: [] }] })
+  const st = (n, over = {}) => ({
+    draft: Array.from({ length: n }, (_, i) => obj(i + 1)),
+    manualWeights: false, problems: [], MAX_MILESTONES: 20, busy: '', submitted: false, cancellable: false, lateHint: false, submitLabel: '',
+    bulk: { visible: false, obj: null }, roomFor: () => 1,
+    addObjective() {}, addKr() {}, removeObjective() {}, removeKr() {}, openBulk() {}, insertBulk() {}, emitPlan() {},
+    onTypeChange() {}, setMilestoneDone() {}, blankMilestone: () => ({}), ...over
+  })
+  const extra = { 'el-input-number': true, OkrBulkKrDialog: true }
+  const addTag = html => (html.match(/<[^>]*data-test="okr-ed-add-o"[^>]*>/) || [''])[0]
+
+  test('页头动态「1–N 个 O」', async () => {
+    const html = await renderView(render, st(2, { maxObjectives: 5, maxKrs: 8 }), extra)
+    assert.ok(html.includes(esc(t('okr.limits.editor_head', { p0: 5, p1: 8 }))))
+    assert.equal(zh.okr.limits.editor_head.replace('{p0}', 5).replace('{p1}', 8), '本周计划：1–5 个 O，每个 O 最多 8 条 KR')
+  })
+  test('没到上限: 「+ O」可点; 到上限: 置灰 + tooltip 文案带 N', async () => {
+    const open = await renderView(render, st(4, { maxObjectives: 5, objectivesFull: false }), extra)
+    assert.doesNotMatch(addTag(open), /disabled/)
+    const full = await renderView(render, st(5, { maxObjectives: 5, objectivesFull: true }), extra)
+    assert.match(addTag(full), /disabled/)
+    assert.equal(zh.okr.limits.o_full.replace('{p0}', 5), '每人每周最多 5 个 O（可在系统设置里改）')
+    assert.ok(full.includes(esc(t('okr.limits.o_full', { p0: 5 }))) || src('components/okr/OkrPlanEditor.vue').includes(":content=\"$t('okr.limits.o_full', { p0: maxObjectives })\""))
+  })
+  test('源码约束: 编辑器不再写死 3 / 10, 只用 props; O 满了 = 活着的 O ≥ 上限', () => {
+    const s = src('components/okr/OkrPlanEditor.vue')
+    assert.doesNotMatch(s, /draft\.length < 3|const MAX_KRS = 10/)
+    assert.match(s, /const objectivesFull = computed\(\(\) => liveObjectiveCount\(draft\.value\) >= props\.maxObjectives\)/)
+    assert.match(s, /:disabled="o\.keyResults\.length >= maxKrs"/)
+    assert.match(s, /insertKrs\(o, titles, \{ max: props\.maxKrs,/)
+    assert.doesNotMatch(s, /1–3 个 O/)
+  })
+  test('我的 OKR: 进页面读一次上限, 传给编辑器 / 贴周报 / 批量导入; 追加按配置截', () => {
+    const s = src('views/okr/MyOkr.vue')
+    assert.equal((s.match(/fde\.okr\.limits/g) || []).length, 1, '只读一次')
+    assert.match(s, /loadLimits\(fde\.okr\.limits\)\.then/)
+    const loadFn = s.slice(s.indexOf('async function load('), s.indexOf('\n}\n', s.indexOf('async function load(')))
+    assert.ok(loadFn.length > 0 && !loadFn.includes('limits'), '周切换时的 load() 里不重拉上限')
+    assert.match(s, /:max-objectives="limits\.maxObjectives" :max-krs="limits\.maxKrsPerObjective"/)
+    assert.match(s, /<OkrReportDraftDialog[^>]*:max-objectives="limits\.maxObjectives"/)
+    assert.match(s, /<OkrPlanImportDialog[^>]*:limits="limits"/)
+    assert.match(s, /mergeDraft\(editorRef\.value\.getPlan\(\), objectives, 'append', \{ max: limits\.value\.maxObjectives \}\)/)
+    const imp = src('components/okr/OkrPlanImportDialog.vue')
+    assert.doesNotMatch(imp, /maxObjectives: 3, maxKrsPerObjective: 6/)
+    assert.match(imp, /limits\.value = pickLimits\(props\.limits\)/)
+    assert.match(src('components/okr/OkrReportDraftDialog.vue'), /\$t\('okr\.import\.mode_append_sub', \{ p0: maxObjectives \}\)/)
+  })
+  test('批量导入弹窗: 打开时先用配置值出「最多 N 个」', async () => {
+    const r = compileView('components/okr/OkrPlanImportDialog.vue')
+    const html = await renderView(r, {
+      text: '', preview: null, busy: '', limits: { maxObjectives: 5, maxKrsPerObjective: 8 }, krTotal: 0, canApply: false, round: n => n,
+      previewKrMeta: () => '', run() {}, close() {}, modelValue: true
+    }, { 'el-alert': true })
+    assert.ok(html.includes(esc(t('okr.plan.bulk_help_rules', { p0: 5, p1: 8 }))))
+  })
+})

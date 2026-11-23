@@ -1,6 +1,8 @@
 <template>
-  <!-- 周一写计划: 1–3 个 O, 每个 O 至少 1 个 KR; 权重默认均分, 打开「调整权重」才可手改 -->
+  <!-- 周一写计划: 1–N 个 O(N = 系统设置的 maxObjectives), 每个 O 1–M 个 KR(M = maxKrsPerObjective);
+       上限由页面从 GET /api/okr/settings/limits 读一次传进来, 拿不到回退 3 / 10。权重默认均分, 打开「调整权重」才可手改 -->
   <div class="okr-editor">
+    <p class="okr-ed-head" data-test="okr-ed-head">{{ $t('okr.limits.editor_head', { p0: maxObjectives, p1: maxKrs }) }}</p>
     <section v-for="(o, i) in draft" :key="o._k" class="okr-ed-card">
       <div class="okr-ed-row">
         <span class="okr-seq">O{{ i + 1 }}</span>
@@ -46,13 +48,18 @@
         <el-button text size="small" :aria-label="$t('okr.delete_kr')" @click="removeKr(o, j)">✕</el-button>
       </div>
       <div class="okr-ed-kr-add">
-        <el-button text size="small" type="primary" :disabled="o.keyResults.length >= MAX_KRS" @click="addKr(o)">+ KR</el-button>
+        <el-button text size="small" type="primary" :disabled="o.keyResults.length >= maxKrs" @click="addKr(o)">+ KR</el-button>
         <button type="button" class="okr-ed-bulk" :disabled="roomFor(o) <= 0" data-test="bulk-open" @click="openBulk(o)">{{ $t('okr.bulk.open') }}</button>
       </div>
     </section>
 
     <div class="okr-ed-tools">
-      <el-button v-if="draft.length < 3" @click="addObjective">+ {{ $t('okr.objective') }}</el-button>
+      <!-- 到上限: 置灰 + tooltip(禁用按钮收不到 hover, 外面包一层 span) -->
+      <el-tooltip :disabled="!objectivesFull" :content="$t('okr.limits.o_full', { p0: maxObjectives })" placement="top">
+        <span class="okr-ed-add-wrap" :tabindex="objectivesFull ? 0 : undefined" data-test="okr-ed-add-o-wrap">
+          <el-button :disabled="objectivesFull" data-test="okr-ed-add-o" @click="addObjective">+ {{ $t('okr.objective') }}</el-button>
+        </span>
+      </el-tooltip>
       <el-checkbox v-model="manualWeights">{{ $t('okr.manual_weights') }}</el-checkbox>
     </div>
 
@@ -79,11 +86,13 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { $t } from '@/i18n'
 import { rebalance, planProblems, insertKrs } from '@/views/okr/okrUtils.js'
 import { MAX_MILESTONES, blankMilestone, setMilestoneDone, editorKrPayload, planSnapshot } from '@/views/okr/okrFe4.js'
+import { FALLBACK_LIMITS, liveObjectiveCount } from '@/views/okr/okrLimits.js'
 import OkrBulkKrDialog from './OkrBulkKrDialog.vue'
 
-const MAX_KRS = 10
-
 const props = defineProps({
+  // 0.6.5 数量上限(来自系统设置, 页面传入; 默认值只是拿不到配置时的兜底)
+  maxObjectives: { type: Number, default: FALLBACK_LIMITS.maxObjectives },
+  maxKrs: { type: Number, default: FALLBACK_LIMITS.maxKrsPerObjective },
   initial: { type: Array, default: () => [] },
   submitted: Boolean,
   cancellable: Boolean,
@@ -121,9 +130,11 @@ function isEven(objs) {
 }
 
 const problems = computed(() => planProblems(draft.value, $t))
+const objectivesFull = computed(() => liveObjectiveCount(draft.value) >= props.maxObjectives)
 
 
 function addObjective() {
+  if (objectivesFull.value) return
   draft.value.push(blankObj())
   if (!manualWeights.value) rebalance(draft.value)
 }
@@ -133,6 +144,7 @@ function onTypeChange(k) {
 }
 
 function addKr(o) {
+  if (o.keyResults.length >= props.maxKrs) return
   o.keyResults.push(blankKr())
   if (!manualWeights.value) rebalance(o.keyResults)
 }
@@ -175,7 +187,7 @@ const bulk = reactive({ visible: false, obj: null })
 function roomFor(o) {
   const krs = o.keyResults
   const placeholder = krs.length === 1 && !String(krs[0].title || '').trim() && !krs[0].id
-  return MAX_KRS - (placeholder ? 0 : krs.length)
+  return Math.max(0, props.maxKrs - (placeholder ? 0 : krs.length))
 }
 
 function openBulk(o) {
@@ -186,7 +198,7 @@ function openBulk(o) {
 function insertBulk(titles) {
   const o = bulk.obj
   if (!o) return
-  const { added, dropped } = insertKrs(o, titles, { max: MAX_KRS, makeKr: (title) => ({ ...blankKr(), title }) })
+  const { added, dropped } = insertKrs(o, titles, { max: props.maxKrs, makeKr: (title) => ({ ...blankKr(), title }) })
   if (!manualWeights.value) rebalance(o.keyResults)
   if (dropped) ElMessage.warning($t('okr.bulk.dropped', { p0: added, p1: dropped }))
   else ElMessage.success($t('okr.bulk.inserted', { p0: added }))
@@ -217,6 +229,8 @@ function emitPlan(kind) {
 
 <style scoped>
 .okr-editor { display: flex; flex-direction: column; gap: 12px; }
+.okr-ed-head { margin: 0; font-size: 12px; color: var(--el-text-color-secondary); }
+.okr-ed-add-wrap { display: inline-flex; }
 .okr-ed-card { background: var(--el-bg-color); border: 1px solid var(--el-border-color-lighter); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
 .okr-ed-row { display: flex; align-items: center; gap: 6px; }
 .okr-seq, .okr-kr-no { font-size: 12px; font-weight: 600; color: var(--el-color-primary); flex: none; }

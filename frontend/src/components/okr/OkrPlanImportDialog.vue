@@ -55,6 +55,7 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue'
+import { normalizeLimits } from '@/views/okr/okrLimits.js'
 import { ElMessage } from 'element-plus'
 import { $t } from '@/i18n'
 import { fde } from '@/api/index.js'
@@ -67,18 +68,22 @@ const props = defineProps({
   /** 打开时预填的文字(模板「使用」带进来) */
   initialText: { type: String, default: '' },
   /** 导入前的确认(编辑器有没保存的改动时由页面问一句); 返回 false 不导入 */
-  beforeApply: { type: Function, default: null }
+  beforeApply: { type: Function, default: null },
+  // 0.6.5 系统设置的上限(页面传入); 预览 / 导入后改用后端返回的本次实际上限(批量导入另有保守上限, 取小)
+  limits: { type: Object, default: null }
 })
 const emit = defineEmits(['update:modelValue', 'imported'])
 
 const text = ref('')
 const preview = ref(null)
 const busy = ref('')
-const limits = ref({ maxObjectives: 3, maxKrsPerObjective: 6 })
+const pickLimits = (l) => { const n = normalizeLimits(l); return { maxObjectives: n.maxObjectives, maxKrsPerObjective: n.maxKrsPerObjective } }
+const limits = ref(pickLimits(props.limits))
 
 watch(() => props.modelValue, (v) => {
   if (!v) return
   text.value = props.initialText || ''
+  limits.value = pickLimits(props.limits)
   preview.value = null
 })
 

@@ -44,9 +44,15 @@ export const CLOSE_DEFAULTS = {
   closedNotice: '', hideNotice() {}, pendingSelf: [], pendingSelfOpen: false, wst: null, wstRef: null, selfCell
 }
 
+// 0.6.5 数量上限: MyOkr 读一次传给编辑器 / 弹窗; 编辑器的 props 与「O 满了」。缺省 = 回退值 3 / 10、没满
+export const LIMIT_DEFAULTS = {
+  limits: { maxObjectives: 3, maxKrsPerObjective: 10, defaults: { maxObjectives: 3, maxKrsPerObjective: 10 }, ranges: { maxObjectives: [1, 10], maxKrsPerObjective: [1, 20] } },
+  maxObjectives: 3, maxKrs: 10, objectivesFull: false
+}
+
 /** 渲染; el-table 把 data 逐行喂给列的默认插槽, 列头插槽也渲染(看 tooltip 文案) */
 export async function renderView(render, state, extra = {}) {
-  const app = Vue.createSSRApp({ render, setup: () => ({ ...FE5_DEFAULTS, ...CONFIRM_DEFAULTS, ...CLOSE_DEFAULTS, ...state }) })
+  const app = Vue.createSSRApp({ render, setup: () => ({ ...FE5_DEFAULTS, ...CONFIRM_DEFAULTS, ...CLOSE_DEFAULTS, ...LIMIT_DEFAULTS, ...state }) })
   app.use(i18n) // 测试环境语言为 en(Node 没有中文浏览器语言)
   for (const name of STUBS) app.component(name, passthrough)
   // extra: { 组件名: 组件 | true(透传 div) }, 给页面里自带的子组件(如 OkrWeekBar)用

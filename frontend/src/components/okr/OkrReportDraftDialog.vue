@@ -25,7 +25,7 @@
           <el-radio-button value="append">{{ $t('okr.import.mode_append') }}</el-radio-button>
         </el-radio-group>
       </div>
-      <p class="okr-rp-mode-sub">{{ fillMode === 'append' ? $t('okr.import.mode_append_sub') : $t('okr.import.mode_replace_sub') }}</p>
+      <p class="okr-rp-mode-sub">{{ fillMode === 'append' ? $t('okr.import.mode_append_sub', { p0: maxObjectives }) : $t('okr.import.mode_replace_sub') }}</p>
       <el-alert v-if="error" type="error" :closable="false" show-icon class="okr-rp-alert" :title="error" data-test="report-error" />
       <div v-if="step === 'loading'" class="okr-rp-loading" data-test="report-loading">
         <span class="okr-rp-spin" aria-hidden="true" />
@@ -97,6 +97,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, ref } from 'vue'
+import { FALLBACK_LIMITS } from '@/views/okr/okrLimits.js'
 import { $t } from '@/i18n'
 import { fde } from '@/api/index.js'
 import { reportLength, weightsByKrCount, equalWeights, draftToEditor } from '@/views/okr/okrUtils.js'
@@ -109,7 +110,9 @@ const props = defineProps({
   // text = 贴周报; file = 导入文档
   source: { type: String, default: 'text' },
   targetUserId: { type: String, default: '' },
-  targetName: { type: String, default: '' }
+  targetName: { type: String, default: '' },
+  // 0.6.5 追加时最多几个 O(系统设置, 页面传入)
+  maxObjectives: { type: Number, default: FALLBACK_LIMITS.maxObjectives }
 })
 const emit = defineEmits(['update:modelValue', 'fill'])
 const isFile = computed(() => props.source === 'file')
