@@ -35,6 +35,9 @@
 // OKR 10.0: GET /risk/objectives、/risk/people 连续未达成预警(只读现算, 口径见 services/okrRisk.js)。
 // 范围: ADMIN 全部, MANAGER 本团队, 工程师只看自己(自己的 CRITICAL 照样给)。?weeks=2–26(缺省 4), ?asOf=YYYY-MM-DD 回看某天视角。
 //
+// 0.6.5: 每周 O 上限 / 每 O 的 KR 上限改成系统设置(app_settings 的 okr.maxObjectives / okr.maxKrsPerObjective, 默认 3 / 10),
+// GET /settings/limits 登录可读, PUT 仅 ADMIN(审计 okr.settings.limits)。保存 / 确认 / 复制 / 批量导入都按它校验。
+//
 // 精简第一轮: /week-plan 本周项目整体计划(一周一份 Markdown, 取代按项目拆分的 /projects 文档; 后者暂留)。
 // 全员可读, ADMIN / MANAGER 可写; 已结束的周只读(400)。import 只解析不落库。留痕 okr.weekplan.update。
 //
@@ -60,6 +63,7 @@ import { generateOkrDraft } from '../services/okrDraft.js'
 import { resolveOkrTarget, canManageOkrOf, teamListScope, riskListScope, forViewer, teamForViewer, managerScoreScope, scopeCovers, canSeeManagerScore, stripManagerScore } from '../services/okrAccess.js'
 import { personOverview, weekStats, yearStats } from '../services/okrStats.js'
 import { describeExempt, setExempt, isExempt } from '../services/okrExempt.js'
+import { describeLimits, setLimits } from '../services/okrLimits.js'
 import { dailyView, dailyMissing, saveDailySummary } from '../services/okrDaily.js'
 import { weekStatus, remindWeek, pendingPlanUsers } from '../services/okrWeekStatus.js'
 import { listProjectDocs, getProjectDoc, loadProject, canWriteProjectDoc, saveProjectDoc } from '../services/okrProjectDocs.js'
@@ -964,6 +968,23 @@ router.put('/settings/exempt', humanOnly('修改 OKR 免提交名单'), async (r
     await logInternalAction(req, 'okr.settings.exempt', { resourceType: 'appSetting', details: diff })
     ok(res, await describeExempt())
   } catch (e) { fail(res, e, 'settings/exempt') }
+})
+
+// ---------------------------------------------------------------- 设置: O / KR 数量上限(0.6.5)
+
+// 登录可读: 前端据此提示「本周最多 N 个 O」; 返回当前值 + 默认值 + 范围
+router.get('/settings/limits', async (req, res) => {
+  try { ok(res, await describeLimits()) } catch (e) { fail(res, e, 'settings/limits') }
+})
+
+// 仅 ADMIN: 两项可只改一项; 越界 400(8103); 前后值写审计 okr.settings.limits
+router.put('/settings/limits', humanOnly('修改 OKR 数量上限'), async (req, res) => {
+  try {
+    if (req.user?.role !== 'ADMIN') return res.status(403).json({ code: 8143, message: '只有管理员能修改 OKR 数量上限' })
+    const diff = await setLimits(req.body, { by: req.user.id })
+    await logInternalAction(req, 'okr.settings.limits', { resourceType: 'appSetting', details: diff })
+    ok(res, await describeLimits())
+  } catch (e) { fail(res, e, 'settings/limits') }
 })
 
 // ---------------------------------------------------------------- 周期管理
