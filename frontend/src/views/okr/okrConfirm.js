@@ -41,6 +41,7 @@ export const reasonOk = s => [...String(s ?? '').trim()].length >= REASON_MIN
  * 0.6.5 管理员自确认: 这份是我自己的(ownerId = meId)、我是 ADMIN、后端 can.confirmManager → awaiting 带 self=true
  *   (按钮「确认并锁定」); 非 ADMIN 看自己那份一律不给按钮(后端也不放)。
  *   已锁定且主管确认人就是本人 → confirmed 带 selfConfirm=true(绿条「管理员自确认 · 时间」)
+ * 0.6.6 管理员自审批: 我是 ADMIN 且待批申请是我提的 → pending 带 canApprove=true(蓝条「你是管理员，可以自己批准这条变更」+「批准」)
  */
 export function confirmBar(d, { meId, submitted, ownerId, isAdmin = false } = {}) {
   const c = d?.confirm
@@ -48,10 +49,13 @@ export function confirmBar(d, { meId, submitted, ownerId, isAdmin = false } = {}
   const status = c.lockStatus || 'DRAFT'
   const pend = c.pendingChange
   if (status === 'CONFIRMED' && pend) {
+    const mine = sameId(pend.requestedBy?.id, meId)
     return {
       kind: 'pending', tone: 'blue', changeId: pend.id,
       by: pend.requestedBy?.name || '', at: shortTime(pend.createdAt),
-      cancellable: sameId(pend.requestedBy?.id, meId)
+      cancellable: mine,
+      // 0.6.6: 管理员自己提的 → 提示条上直接「批准」(后端放开 ADMIN 自审批)
+      canApprove: !!isAdmin && mine
     }
   }
   const owner = ownerId ?? d.owner?.id ?? meId
@@ -102,8 +106,12 @@ export function teamConfirmCell(row, status, { meId, canScore, isAdmin = false }
   return { kind: 'await_owner' }
 }
 
-/** 这条变更申请我能不能批: 不是我自己的、也不是我提的(后端还会按团队范围再卡一次) */
-export const decidable = (c, meId) => c?.status === 'PENDING' && !sameId(c.owner?.id, meId) && !sameId(c.requestedBy?.id, meId)
+/**
+ * 这条变更申请我能不能批: 不是我自己的、也不是我提的(后端还会按团队范围再卡一次)。
+ * 0.6.6: ADMIN 例外 —— 自己计划上的、自己提的也能批(与后端同口径)
+ */
+export const decidable = (c, meId, { isAdmin = false } = {}) =>
+  c?.status === 'PENDING' && (!!isAdmin || (!sameId(c.owner?.id, meId) && !sameId(c.requestedBy?.id, meId)))
 
 /** 「O2.KR1 客户现场复测」→ { code: 'O2.KR1', title: '客户现场复测' }; 不是 O/KR 引用 → code 为空 */
 export function splitRef(ref) {
@@ -185,6 +193,6 @@ export function changeRow(c, t = k => k) {
 /** 团队页两个计数: 待你确认(行) / 变更待批(我能批的 PENDING) */
 export function teamCounts(rows, statusMap, changes, ctx) {
   const toConfirm = (rows || []).filter(r => teamConfirmCell(r, statusMap?.[String(r.user?.id)], ctx).kind === 'confirm')
-  const pending = (changes || []).filter(c => decidable(c, ctx?.meId))
+  const pending = (changes || []).filter(c => decidable(c, ctx?.meId, { isAdmin: !!ctx?.isAdmin }))
   return { toConfirm, pending }
 }

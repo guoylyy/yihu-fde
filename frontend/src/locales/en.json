@@ -2588,6 +2588,7 @@
       "bar_confirmed": "This week's OKR is confirmed and locked (you {p0} · manager {p1} {p2})",
       "bar_confirmed_other": "This week's OKR is confirmed and locked ({p3} {p0} · manager {p1} {p2})",
       "bar_pending": "Change request submitted. Waiting for manager approval",
+      "bar_pending_admin": "You are an admin, so you can approve this change yourself",
       "confirm_mine": "I confirm this OKR",
       "confirm_for": "Confirm for {p0}",
       "confirm_manager": "Confirm",
@@ -2671,7 +2672,10 @@
       "self_confirm_body": "This is your own OKR. Once confirmed, this week is locked",
       "bar_confirmed_self": "This week's OKR is confirmed and locked (admin self-confirm · {p0})",
       "bar_confirmed_self_other": "This week's OKR is confirmed and locked ({p1}, admin self-confirm · {p0})",
-      "self_confirmed_ok": "Confirmed and locked (admin self-confirm)"
+      "self_confirmed_ok": "Confirmed and locked (admin self-confirm)",
+      "self_approve_title": "Approve your own change request",
+      "self_approve_body": "You are an admin, so you can approve this change yourself. Once approved, the plan is updated right away",
+      "self_approved_ok": "Approved. The plan is updated (admin self-approval)"
     },
     "close": {
       "missing_title": "These people self-scored and are waiting for your score",

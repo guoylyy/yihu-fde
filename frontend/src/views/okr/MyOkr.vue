@@ -31,7 +31,7 @@
     <!-- 0.6.2 计划确认区: 提交后 灰(等员工确认) → 黄(等主管确认) → 绿(锁定); 锁定后有待批变更申请 → 蓝 -->
     <OkrConfirmBar
       v-if="data && !changeMode" :bar="cfBar" :other-name="viewingOther ? ownerName : ''" :busy="busy === 'confirm'"
-      @confirm="confirmOwner" @manager-confirm="confirmManager" @cancel-change="cancelChange"
+      @confirm="confirmOwner" @manager-confirm="confirmManager" @cancel-change="cancelChange" @approve-change="approveOwnChange"
     />
 
     <!-- 精简第二轮: 本周项目计划(一周一份, 整体, 不分项目), 随顶部周切换 -->
@@ -404,6 +404,25 @@ async function cancelChange(id, { ask = true } = {}) {
     await load()
   } catch (e) {
     ElMessage.error(e.message)
+  } finally {
+    busy.value = ''
+  }
+}
+
+/** 0.6.6 管理员批准自己提的变更申请(蓝条「批准」), 不用切到团队页 */
+async function approveOwnChange(id) {
+  try {
+    await ElMessageBox.confirm($t('okr.confirm.self_approve_body'), $t('okr.confirm.self_approve_title'), {
+      type: 'warning', confirmButtonText: $t('okr.confirm.approve'), cancelButtonText: $t('common.cancel')
+    })
+  } catch { return }
+  busy.value = 'confirm'
+  try {
+    await fde.okr.approveChange(id)
+    ElMessage.success($t('okr.confirm.self_approved_ok'))
+    await load()
+  } catch (e) {
+    ElMessage.error({ message: e.message, duration: 6000 })
   } finally {
     busy.value = ''
   }

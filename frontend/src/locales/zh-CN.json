@@ -2588,6 +2588,7 @@
       "bar_confirmed": "本周 OKR 已确认并锁定（你 {p0} · 主管 {p1} {p2}）",
       "bar_confirmed_other": "本周 OKR 已确认并锁定（{p3} {p0} · 主管 {p1} {p2}）",
       "bar_pending": "变更申请已提交，等主管批准",
+      "bar_pending_admin": "你是管理员，可以自己批准这条变更",
       "confirm_mine": "我确认这份 OKR",
       "confirm_for": "替 {p0} 确认",
       "confirm_manager": "确认",
@@ -2671,7 +2672,10 @@
       "self_confirm_body": "这是你自己的 OKR，确认后本周锁定",
       "bar_confirmed_self": "本周 OKR 已确认并锁定（管理员自确认 · {p0}）",
       "bar_confirmed_self_other": "本周 OKR 已确认并锁定（{p1} 管理员自确认 · {p0}）",
-      "self_confirmed_ok": "已确认并锁定（管理员自确认）"
+      "self_confirmed_ok": "已确认并锁定（管理员自确认）",
+      "self_approve_title": "批准自己的变更申请",
+      "self_approve_body": "你是管理员，可以自己批准这条变更。批准后按申请改动计划，立即生效",
+      "self_approved_ok": "已批准，计划已更新（管理员自审批）"
     },
     "close": {
       "missing_title": "这些人交了自评，还差你打分",
