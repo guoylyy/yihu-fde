@@ -23,6 +23,7 @@ import prisma from '../lib/prisma.js'
 import { pushNotification } from '../lib/notify.js'
 import { OkrRuleError, weekKey, parseMilestones, isLate, normalizePlan, shanghaiDateKey } from './okrRules.js'
 import { getCycle, canWritePlan, writePlan, previewPlan, READ_ONLY_MSG } from './okr.js'
+import { okrLimits } from './okrLimits.js'
 import { lockStatusOf, confirmRow, lockConfirmRow, writeAudit, loadPlanRows, ACTION_LABELS } from './okrPlanAudit.js'
 
 export const CHANGE_STATUSES = ['PENDING', 'APPROVED', 'REJECTED', 'CANCELED']
@@ -132,7 +133,7 @@ export async function confirmOwner({ week, ownerId, actorId, now = new Date() })
     let isLateNow = false
     if (pending.length) {
       try {
-        normalizePlan(planPayload(rows), { strict: true, today: shanghaiDateKey(now) })
+        normalizePlan(planPayload(rows), { strict: true, today: shanghaiDateKey(now), limits: await okrLimits(tx) })
       } catch (e) {
         if (e instanceof OkrRuleError) throw bad(`确认会一并提交本周计划, 但计划还不能提交: ${e.message}`, 8204)
         throw e

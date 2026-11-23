@@ -3,6 +3,7 @@
 import prisma from '../lib/prisma.js'
 import { pushNotification } from '../lib/notify.js'
 import { exemptIds } from './okrExempt.js'
+import { okrLimits } from './okrLimits.js'
 import {
   normalizeProjectIds, assertProjectsExist, replaceObjectiveProjects, deleteObjectiveProjects, copyObjectiveProjects,
   projectsByObjective, objectiveIdsOfProject
@@ -274,7 +275,9 @@ export async function writePlan(tx, { cycle, ownerId, operatorId = null, objecti
     })
     const alreadySubmitted = existing.some(o => o.submittedAt)
     const today = shanghaiDateKey(now)
-    const plan = normalizePlan(objectives, { strict: submit || alreadySubmitted, today })
+    // 0.6.5: O / KR 数量上限读系统设置
+    const limits = await okrLimits(tx)
+    const plan = normalizePlan(objectives, { strict: submit || alreadySubmitted, today, limits })
     // 5.0: 每个 O 的 projectIds(normalizePlan 与入参逐条对应); null = 没传, 不动已有关联
     const projectIdsOf = plan.map((o, i) => normalizeProjectIds(objectives[i]?.projectIds, o.title))
     await assertProjectsExist(projectIdsOf.flatMap(ids => ids || []), tx)

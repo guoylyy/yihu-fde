@@ -3,15 +3,17 @@
 // 都是「人点了才做」的一次性写入(不做定时自动复制), 只往目标周追加草稿(不提交、不动已有 O):
 //  - 目标周这人已提交过计划 → 400(8171), 要先撤回或由主管改; 周已复盘 / 归档 → 403(同 savePlan 口径)
 //  - 目标周已有同名 O(同 owner + 同标题) → 跳过, 列进 skipped
-//  - O 总数不超过计划硬上限(MAX_OBJECTIVES), 放不下的跳过(复制)或截断(批量导入)
+//  - O 总数不超过系统设置里的每周上限(okrLimits, 默认 MAX_OBJECTIVES), 放不下的跳过(复制)或截断(批量导入);
+//    批量导入另有自己的保守上限 BULK_MAX_OBJECTIVES / BULK_MAX_KRS, 不跟着配置放大
 //  - 写完后这人这周未放弃的 O 权重合计不是 100 → 按原比例缩放到 100(只动草稿; 提交时的硬校验不变)
 // 同一周的复制 / 导入在事务里先锁周期行, 两个请求并发时后到的看得到先到的结果, 不会建出两份同名 O。
 import prisma from '../lib/prisma.js'
 import { getCycle, canWritePlan, READ_ONLY_MSG } from './okr.js'
 import { copyObjectiveProjects } from './okrObjectiveProjects.js'
-import { OkrRuleError, MAX_OBJECTIVES, weekKey, equalWeights, weightsSumOk, parseMilestones, shanghaiDateKey, dateKeyOf, blockerOverdue } from './okrRules.js'
+import { OkrRuleError, weekKey, equalWeights, weightsSumOk, parseMilestones, shanghaiDateKey, dateKeyOf, blockerOverdue } from './okrRules.js'
 import { assertPlanUnlocked, isPlanLocked, loadPlanRows, auditPlanChange, LOCKED_MSG } from './okrPlanAudit.js'
 import { parsePlanMarkdown, normalizeBulkPlan, BULK_MAX_OBJECTIVES, BULK_MAX_KRS, BULK_MAX_TEXT } from './okrDraft.js'
+import { okrLimits } from './okrLimits.js'
 
 export const SUBMITTED_MSG = '目标周已提交计划，先撤回或由主管修改'
 const forbidden = msg => new OkrRuleError(msg, { status: 403, code: 8105 })
@@ -103,6 +105,7 @@ export async function copyFromWeek({ ownerId, operatorId = null, from, to, objec
     const st = await targetState(tx, toCycle.id, ownerId)
     // 锁内再查一次: 等锁期间可能被提交了
     if (st.submitted) throw new OkrRuleError(SUBMITTED_MSG, { code: 8171 })
+    const { maxObjectives } = await okrLimits(tx)
     let seq = st.existing.length
     let live = st.live
     const created = []
@@ -110,7 +113,7 @@ export async function copyFromWeek({ ownerId, operatorId = null, from, to, objec
     for (const o of sources) {
       const key = titleKey(o.title)
       if (st.titles.has(key)) { skipped.push({ objectiveId: String(o.id), title: o.title, reason: `${weekKey(to)} 已有同名 O` }); continue }
-      if (live >= MAX_OBJECTIVES) { skipped.push({ objectiveId: String(o.id), title: o.title, reason: `超过每周 ${MAX_OBJECTIVES} 个 O 的上限` }); continue }
+      if (live >= maxObjectives) { skipped.push({ objectiveId: String(o.id), title: o.title, reason: `超过每周 ${maxObjectives} 个 O 的上限` }); continue }
       const row = await tx.okrObjective.create({
         data: {
           cycleId: toCycle.id, ownerId: owner, seq: ++seq, title: o.title, description: o.description,
@@ -168,8 +171,19 @@ function checkText(text) {
   return src
 }
 
-/** 解析结果 + 目标周现状 → 这次实际要建的 O(去同名 → 按剩余名额截断 → 配权重) */
-function plan(parsed, state) {
+/** 这次批量导入实际用的上限: 批量自己的保守上限与系统设置取小 */
+function bulkCaps(limits) {
+  return {
+    maxObjectives: Math.min(BULK_MAX_OBJECTIVES, limits.maxObjectives),
+    maxKrsPerObjective: Math.min(BULK_MAX_KRS, limits.maxKrsPerObjective)
+  }
+}
+
+/**
+ * 解析结果 + 目标周现状 → 这次实际要建的 O(去同名 → 按剩余名额截断 → 配权重)。
+ * truncatedReasons: 截断的原因(文案里的数字是实际上限), 没截断为 []
+ */
+function plan(parsed, state, limits) {
   const skipped = []
   const fresh = []
   const seen = new Set(state ? state.titles : [])
@@ -179,9 +193,20 @@ function plan(parsed, state) {
     seen.add(key)
     fresh.push(o)
   }
-  const room = Math.max(0, Math.min(BULK_MAX_OBJECTIVES, MAX_OBJECTIVES - (state ? state.live : 0)))
-  const { objectives, truncated } = normalizeBulkPlan(fresh, { maxObjectives: room, maxKrs: BULK_MAX_KRS })
-  return { objectives, truncated, skipped }
+  const caps = bulkCaps(limits)
+  const live = state ? state.live : 0
+  const room = Math.max(0, Math.min(caps.maxObjectives, limits.maxObjectives - live))
+  const { objectives, truncated } = normalizeBulkPlan(fresh, { maxObjectives: room, maxKrs: caps.maxKrsPerObjective })
+  const truncatedReasons = []
+  if (fresh.length > room && room > 0) {
+    truncatedReasons.push(limits.maxObjectives - live <= caps.maxObjectives
+      ? `超过每周 ${limits.maxObjectives} 个 O 的上限${live ? `(本周已有 ${live} 个)` : ''}, 只导入前 ${room} 个`
+      : `一次最多导入 ${caps.maxObjectives} 个 O, 只导入前 ${room} 个`)
+  }
+  if (fresh.slice(0, room).some(o => o.keyResults.length > caps.maxKrsPerObjective)) {
+    truncatedReasons.push(`每个 O 最多导入 ${caps.maxKrsPerObjective} 条 KR, 多出的没导入`)
+  }
+  return { objectives, truncated, truncatedReasons, skipped }
 }
 
 const krOut = k => ({ title: k.title, metricType: k.metricType, unit: k.unit, targetValue: k.metricType === 'BINARY' ? null : k.targetValue, weight: k.weight, line: k.line })
@@ -196,14 +221,15 @@ export async function bulkImport({ ownerId, operatorId = null, week, text, mode,
   if (!['preview', 'apply'].includes(mode)) throw new OkrRuleError('mode 只能是 preview / apply', { code: 8170 })
   const parsed = parsePlanMarkdown(checkText(text))
   const parsedCount = { objectives: parsed.objectives.length, krs: parsed.objectives.reduce((s, o) => s + o.keyResults.length, 0) }
-  const limits = { maxObjectives: BULK_MAX_OBJECTIVES, maxKrsPerObjective: BULK_MAX_KRS }
-  const base = { mode, week: weekKey(week), parsed: parsedCount, unparsed: parsed.unparsed, limits }
+  const limits = await okrLimits()
+  // 返回的 limits 是本次批量导入实际用的上限(批量保守上限与系统设置取小)
+  const base = { mode, week: weekKey(week), parsed: parsedCount, unparsed: parsed.unparsed, limits: bulkCaps(limits) }
 
   if (mode === 'preview') {
     const cycle = await getCycle(week, { now })
     const state = cycle ? await targetState(prisma, cycle.id, ownerId) : null
-    const p = plan(parsed, state)
-    return { ...base, submitted: !!state?.submitted, objectives: p.objectives.map(objOut), truncated: p.truncated, skipped: p.skipped }
+    const p = plan(parsed, state, limits)
+    return { ...base, submitted: !!state?.submitted, objectives: p.objectives.map(objOut), truncated: p.truncated, truncatedReasons: p.truncatedReasons, skipped: p.skipped }
   }
 
   const owner = BigInt(ownerId)
@@ -216,10 +242,10 @@ export async function bulkImport({ ownerId, operatorId = null, week, text, mode,
     const before = await loadPlanRows(tx, cycle.id, ownerId)
     const state = await targetState(tx, cycle.id, ownerId)
     if (state.submitted) throw new OkrRuleError(SUBMITTED_MSG, { code: 8171 })
-    const p = plan(parsed, state)
+    const p = plan(parsed, state, limits)
     if (!p.objectives.length) {
       const why = !parsed.objectives.length ? '没识别出 O: 用「## 标题」「O1：标题」或「- 【P0】标题」写 O, 下面用「- 」列 KR'
-        : (p.skipped.length && state.live < MAX_OBJECTIVES ? '识别出的 O 本周都已经有了' : `本周已有 ${state.live} 个 O, 到上限 ${MAX_OBJECTIVES} 个了`)
+        : (p.skipped.length && state.live < limits.maxObjectives ? '识别出的 O 本周都已经有了' : `本周已有 ${state.live} 个 O, 到上限 ${limits.maxObjectives} 个了`)
       throw new OkrRuleError(why, { code: 8172, data: { unparsed: parsed.unparsed, skipped: p.skipped } })
     }
     let seq = state.existing.length
@@ -244,7 +270,7 @@ export async function bulkImport({ ownerId, operatorId = null, week, text, mode,
     return {
       ...base, submitted: false,
       objectives: p.objectives.map((o, i) => ({ id: ids[i], ...objOut(o) })),
-      truncated: p.truncated, skipped: p.skipped,
+      truncated: p.truncated, truncatedReasons: p.truncatedReasons, skipped: p.skipped,
       createdObjectives: p.objectives.length,
       createdKrs: p.objectives.reduce((s, o) => s + o.keyResults.length, 0),
       weightsRebalanced, cycleId: cycle.id

@@ -17,6 +17,7 @@ export const RISK_LEVELS = ['LOW', 'MEDIUM', 'HIGH']
 export const BLOCKER_MAX = 2000
 export const BLOCKER_INCOMPLETE_MSG = '填了卡点就要写清卡在谁、什么时候要'
 
+// 0.6.5 起这两个是「默认值」: 实际上限读系统设置(services/okrLimits.js), 没配时用它们
 export const MAX_OBJECTIVES = 3
 export const MAX_KRS = 10
 export const MAX_MILESTONES = 20
@@ -266,11 +267,14 @@ export function checkKrStatus(metricType, status) {
  * 输入: [{ id?, title, description?, weight?, status?, keyResults: [{ id?, title, metricType?, unit?, targetValue?, currentValue?, weight?, status? }] }]
  * strict=true 时(提交)校验三条硬约束: 每个 O 至少 1 个 KR、O 权重合计 100、每个 O 的 KR 权重合计 100。
  * 草稿只做类型与长度校验, 不要求凑齐。
+ * limits: { maxObjectives, maxKrsPerObjective }(0.6.5, 来自系统设置); 不传或缺字段用默认值 MAX_OBJECTIVES / MAX_KRS
  */
-export function normalizePlan(objectives, { strict = false, today = shanghaiDateKey() } = {}) {
+export function normalizePlan(objectives, { strict = false, today = shanghaiDateKey(), limits } = {}) {
+  const maxObjectives = limits?.maxObjectives ?? MAX_OBJECTIVES
+  const maxKrsPerObjective = limits?.maxKrsPerObjective ?? MAX_KRS
   if (!Array.isArray(objectives)) throw new OkrRuleError('objectives 必须是数组', { code: 8101 })
   const active = objectives.filter(o => o && o.status !== 'DROPPED')
-  if (active.length > MAX_OBJECTIVES) throw new OkrRuleError(`每周最多 ${MAX_OBJECTIVES} 个 O`, { code: 8101 })
+  if (active.length > maxObjectives) throw new OkrRuleError(`每周最多 ${maxObjectives} 个 O`, { code: 8101 })
   if (strict && active.length === 0) throw new OkrRuleError('至少要有 1 个 O 才能提交', { code: 8101 })
 
   const out = objectives.map((o, i) => {
@@ -281,7 +285,7 @@ export function normalizePlan(objectives, { strict = false, today = shanghaiDate
     const status = o.status ?? 'ON_TRACK'
     if (!OBJECTIVE_STATUSES.includes(status)) throw new OkrRuleError(`O 状态不合法: ${status}`, { code: 8101 })
     const krsIn = Array.isArray(o.keyResults) ? o.keyResults : []
-    if (krsIn.length > MAX_KRS) throw new OkrRuleError(`「${title}」的 KR 超过 ${MAX_KRS} 条`, { code: 8102 })
+    if (krsIn.length > maxKrsPerObjective) throw new OkrRuleError(`「${title}」的 KR 超过 ${maxKrsPerObjective} 条`, { code: 8102 })
     if (strict && status !== 'DROPPED' && krsIn.length === 0) {
       throw new OkrRuleError(`「${title}」还没有 KR: 每个 O 至少 1 个 KR`, { code: 8102 })
     }

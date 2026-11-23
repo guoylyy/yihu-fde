@@ -214,7 +214,11 @@ export function parseReportByRules(text) {
 // 周报解析只认「完成标准」当 KR、把 ## 当分节; 这里是人照着格式写的计划, ## 标题本身就是 O,
 // O 下面的每个列表项都是 KR, 还会从 KR 行里抽目标值。每一行要么用上、要么进 unparsed, 不悄悄丢。
 
-/** 上限: 需求给的是 5 个 O / 6 条 KR, 但不能超过计划本身的硬上限(MAX_OBJECTIVES / MAX_KRS), 否则落库后这份计划再也存不了 */
+/**
+ * 上限: 需求给的是 5 个 O / 6 条 KR, 但不能超过计划本身的默认上限(MAX_OBJECTIVES / MAX_KRS), 否则落库后这份计划再也存不了。
+ * 0.6.5 起计划上限可在系统设置里配: 这里仍按默认值算(批量导入自己的保守上限, 不跟着配置放大);
+ * 配置调得更小时, okrPlanImport 再与配置取小
+ */
 export const BULK_MAX_OBJECTIVES = Math.min(5, MAX_OBJECTIVES)
 export const BULK_MAX_KRS = Math.min(6, MAX_KRS)
 export const BULK_MAX_TEXT = MAX_REPORT_LENGTH
