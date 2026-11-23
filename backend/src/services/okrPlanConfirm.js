@@ -16,7 +16,8 @@
 //  - 确认后不能取消, 要改只能走变更申请; 归档周(CLOSED)不可确认 / 申请 / 审批
 //  - 变更申请: 只能在 CONFIRMED 时提(没锁直接改就行); reason 必填; objectives 省略 = 用当前计划。
 //    提交时就在事务里按 savePlan 同一套逻辑预演一遍(previewPlan, 回滚), 落库会失败的当场拦下; 同人同周只能有 1 条 PENDING(8203)
-//  - 审批: 范围同主管确认; 不能批自己提的申请。通过 → payload 覆盖计划(跳过锁), applied_at, 留痕 CHANGE_APPROVE + 逐条 diff
+//  - 审批: 范围同主管确认; 不能批自己提的申请。0.6.6: ADMIN 例外 —— 可以批 / 驳任何人的申请, 含自己计划上的、自己提的
+//    (与 0.6.5 自确认同理: 没有比 ADMIN 更高的角色)。这种「自审批」留痕标 selfDecide(afterText 带「管理员自审批」, audit_logs details.selfDecide)。通过 → payload 覆盖计划(跳过锁), applied_at, 留痕 CHANGE_APPROVE + 逐条 diff
 //    (source=CHANGE_APPLY); 驳回 → 必须写 note, 计划不动; 撤回 → 只有申请人自己
 //
 // 错误码: 8201 已锁定不能直接改 / 8202 员工还没确认 / 8203 已有待审批的申请 / 8204 确认的前置不满足 /
@@ -292,12 +293,18 @@ async function loadChange(id) {
   return c
 }
 
-/** 审批范围由路由给 scope(managerScoreScope 结果); 这里校验「不能批自己的 / 不能批自己提的」 */
-function assertCanDecide(c, actorId, scope) {
+/** 审批范围由路由给 scope(managerScoreScope 结果); 这里校验「不能批自己的 / 不能批自己提的」(ADMIN 不受这两条限制) */
+function assertCanDecide(c, actorId, scope, { isAdmin = false } = {}) {
   const covered = scope === null || (scope instanceof Set && scope.has(String(c.ownerId)))
-  if (!covered || String(c.ownerId) === String(actorId)) throw denied('只有管理员或本团队主管能审批这条变更申请')
+  if (!covered) throw denied('只有管理员或本团队主管能审批这条变更申请')
+  if (isAdmin) return
+  if (String(c.ownerId) === String(actorId)) throw denied('只有管理员或本团队主管能审批这条变更申请')
   if (String(c.requestedBy) === String(actorId)) throw denied('不能审批自己提的变更申请，请另一位主管或管理员处理')
 }
+
+/** 管理员审批自己计划上的 / 自己提的申请 */
+const isSelfDecide = (c, actorId, isAdmin) => !!isAdmin && (String(c.ownerId) === String(actorId) || String(c.requestedBy) === String(actorId))
+export const SELF_DECIDE_MARK = '管理员自审批'
 
 async function cycleForDecision(c) {
   const row = await prisma.okrCycle.findUnique({ where: { id: c.cycleId } })
@@ -306,9 +313,10 @@ async function cycleForDecision(c) {
   return cycle
 }
 
-export async function approveChange({ id, actorId, scope, note, now = new Date() }) {
+export async function approveChange({ id, actorId, scope, note, isAdmin = false, now = new Date() }) {
   const c = await loadChange(id)
-  assertCanDecide(c, actorId, scope)
+  assertCanDecide(c, actorId, scope, { isAdmin })
+  const selfDecide = isSelfDecide(c, actorId, isAdmin)
   if (c.status !== 'PENDING') throw bad(`这条申请已经是 ${c.status}, 不能再审批`, 8205)
   const cycle = await cycleForDecision(c)
   assertNotClosed(cycle, '套用变更', 8205)
@@ -332,19 +340,20 @@ export async function approveChange({ id, actorId, scope, note, now = new Date()
     // 批准这一行晚于逐条 diff 落库(同一时刻按 id 倒序排在最上面)
     await writeAudit(tx, {
       cycleId: cycle.id, ownerId: c.ownerId, actorId, action: 'CHANGE_APPROVE', targetRef: `变更申请 #${c.id}`,
-      beforeText: '待审批', afterText: `已批准并生效，改动 ${w.diffs.length} 处${text ? `；意见：${text}` : ''}`,
+      beforeText: '待审批', afterText: `已批准并生效${selfDecide ? `(${SELF_DECIDE_MARK})` : ''}，改动 ${w.diffs.length} 处${text ? `；意见：${text}` : ''}`,
       reason: c.reason, source: 'CHANGE_APPLY', now
     })
     return { updated, diffs: w.diffs }
   }, { timeout: 20000 })
 
   await notifyDecision(cycle, c, actorId, true, text)
-  return changeView(r.updated, { preview: r.diffs })
+  return { ...(await changeView(r.updated, { preview: r.diffs })), ...(selfDecide ? { selfDecide: true } : {}) }
 }
 
-export async function rejectChange({ id, actorId, scope, note, now = new Date() }) {
+export async function rejectChange({ id, actorId, scope, note, isAdmin = false, now = new Date() }) {
   const c = await loadChange(id)
-  assertCanDecide(c, actorId, scope)
+  assertCanDecide(c, actorId, scope, { isAdmin })
+  const selfDecide = isSelfDecide(c, actorId, isAdmin)
   const text = String(note ?? '').trim()
   if (!text) throw bad('驳回要写原因(note)', 8205)
   if (c.status !== 'PENDING') throw bad(`这条申请已经是 ${c.status}, 不能再审批`, 8205)
@@ -359,12 +368,12 @@ export async function rejectChange({ id, actorId, scope, note, now = new Date() 
     })
     await writeAudit(tx, {
       cycleId: cycle.id, ownerId: c.ownerId, actorId, action: 'CHANGE_REJECT', targetRef: `变更申请 #${c.id}`,
-      beforeText: '待审批', afterText: '已驳回，计划不变', reason: text, source: 'CHANGE_APPLY', now
+      beforeText: '待审批', afterText: `已驳回${selfDecide ? `(${SELF_DECIDE_MARK})` : ''}，计划不变`, reason: text, source: 'CHANGE_APPLY', now
     })
     return u
   })
   await notifyDecision(cycle, c, actorId, false, text)
-  return changeView(updated)
+  return { ...(await changeView(updated)), ...(selfDecide ? { selfDecide: true } : {}) }
 }
 
 export async function cancelChange({ id, actorId, now = new Date() }) {

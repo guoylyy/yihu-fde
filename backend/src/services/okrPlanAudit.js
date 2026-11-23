@@ -262,7 +262,9 @@ export async function listAudit(cycle, ownerId, { limit } = {}) {
       targetType: r.targetType, targetRef: r.targetRef, field: r.field,
       before: r.beforeText, after: r.afterText, reason: r.reason, source: r.source, createdAt: r.createdAt,
       // 0.6.5: 管理员给自己做的主管确认(表里没有 details 列, 由 actor = owner 推出)
-      ...(r.action === 'MANAGER_CONFIRM' && String(r.actorId) === String(r.ownerId) ? { details: { selfConfirm: true } } : {})
+      ...(r.action === 'MANAGER_CONFIRM' && String(r.actorId) === String(r.ownerId) ? { details: { selfConfirm: true } } : {}),
+      // 0.6.6: 管理员审批自己计划上的 / 自己提的变更申请(申请人不在本表里, 由 afterText 里的标记推出)
+      ...((r.action === 'CHANGE_APPROVE' || r.action === 'CHANGE_REJECT') && String(r.afterText || '').includes('管理员自审批') ? { details: { selfDecide: true } } : {})
     }))
   }
 }

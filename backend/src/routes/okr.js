@@ -449,16 +449,16 @@ router.get('/plan/changes', async (req, res) => {
 
 router.post('/plan/changes/:id/approve', humanOnly('审批 OKR 变更申请'), async (req, res) => {
   try {
-    const c = await approveChange({ id: req.params.id, actorId: req.user.id, scope: await decideScope(req), note: req.body?.note })
-    await logInternalAction(req, 'okr.plan.change-approve', { resourceType: 'okr_plan_change', resourceId: c.id, details: { week: c.week, ownerId: c.owner?.id, diffCount: c.diffCount } })
+    const c = await approveChange({ id: req.params.id, actorId: req.user.id, scope: await decideScope(req), note: req.body?.note, isAdmin: isBoss(req) })
+    await logInternalAction(req, 'okr.plan.change-approve', { resourceType: 'okr_plan_change', resourceId: c.id, details: { week: c.week, ownerId: c.owner?.id, diffCount: c.diffCount, ...(c.selfDecide ? { selfDecide: true } : {}) } })
     ok(res, c)
   } catch (e) { fail(res, e, 'plan/changes approve') }
 })
 
 router.post('/plan/changes/:id/reject', humanOnly('审批 OKR 变更申请'), async (req, res) => {
   try {
-    const c = await rejectChange({ id: req.params.id, actorId: req.user.id, scope: await decideScope(req), note: req.body?.note })
-    await logInternalAction(req, 'okr.plan.change-reject', { resourceType: 'okr_plan_change', resourceId: c.id, details: { week: c.week, ownerId: c.owner?.id } })
+    const c = await rejectChange({ id: req.params.id, actorId: req.user.id, scope: await decideScope(req), note: req.body?.note, isAdmin: isBoss(req) })
+    await logInternalAction(req, 'okr.plan.change-reject', { resourceType: 'okr_plan_change', resourceId: c.id, details: { week: c.week, ownerId: c.owner?.id, ...(c.selfDecide ? { selfDecide: true } : {}) } })
     ok(res, c)
   } catch (e) { fail(res, e, 'plan/changes reject') }
 })
