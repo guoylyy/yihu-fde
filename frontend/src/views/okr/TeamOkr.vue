@@ -58,7 +58,7 @@
         <el-table-column :label="$t('okr.submission')" width="96" align="center">
           <template #default="{ row }"><span :class="subClass(row)">{{ subText(row) }}</span></template>
         </el-table-column>
-        <el-table-column :label="$t('okr.confirm.col')" width="104" align="center">
+        <el-table-column :label="$t('okr.confirm.col')" width="120" align="center">
           <template #default="{ row }">
             <span class="okr-cf-cell" :data-test="'okr-cf-cell-' + row.user.id" @click.stop>
               <template v-for="c in [cellOf(row)]" :key="c.kind">
