@@ -1,11 +1,12 @@
 // OKR 2.0 前端: 看别人 / 代操作 / 个人统计用的纯函数(有单测)。
 // 权限判断以后端为准(/cycle 的 can.proxy、响应里有没有 managerScore 字段), 这里只决定界面画不画。
 import { weightsByKrCount } from './okrUtils.js'
+import { FALLBACK_LIMITS } from './okrLimits.js'
 
 export const DRAFT_FILE_MAX = 2 * 1024 * 1024
 export const DRAFT_FILE_ACCEPT = '.md,.markdown,.txt,.docx'
 const DRAFT_FILE_EXT = /\.(md|markdown|txt|docx)$/i
-const MAX_OBJECTIVES = 3
+
 
 /** 当前登录人 { id, name, role }(localStorage); 拿不到返回 {} */
 export function currentUser(storage = globalThis.localStorage) {
@@ -77,13 +78,13 @@ export function draftFileProblem(file) {
 }
 
 /**
- * 草稿填进编辑器: replace 直接用新的; append 接在已有 O 后面, 最多 3 个 O, O 权重按 KR 条数重分。
- * 返回 { objectives, dropped }(dropped = 因为满 3 个被丢掉的 O 数)
+ * 草稿填进编辑器: replace 直接用新的; append 接在已有 O 后面, 最多 max 个 O(0.6.5 来自系统设置, 不传回退 3), O 权重按 KR 条数重分。
+ * 返回 { objectives, dropped }(dropped = 因为满了被丢掉的 O 数)
  */
-export function mergeDraft(existing = [], incoming = [], mode = 'replace') {
+export function mergeDraft(existing = [], incoming = [], mode = 'replace', { max = FALLBACK_LIMITS.maxObjectives } = {}) {
   if (mode !== 'append') return { objectives: incoming, dropped: 0 }
   const kept = existing.filter(o => String(o.title || '').trim() || o.keyResults?.some(k => String(k.title || '').trim()))
-  const room = Math.max(0, MAX_OBJECTIVES - kept.filter(o => o.status !== 'DROPPED').length)
+  const room = Math.max(0, max - kept.filter(o => o.status !== 'DROPPED').length)
   const take = incoming.slice(0, room)
   const all = [...kept.map(o => ({ ...o })), ...take.map(o => ({ ...o }))]
   const live = all.filter(o => o.status !== 'DROPPED')

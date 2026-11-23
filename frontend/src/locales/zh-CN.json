@@ -2347,13 +2347,13 @@
       "mode_replace": "覆盖",
       "mode_append": "追加",
       "mode_replace_sub": "用生成的草稿替换编辑器里还没提交的内容",
-      "mode_append_sub": "接在已有 O 后面（最多 3 个 O），O 权重按 KR 条数重新分配",
+      "mode_append_sub": "接在已有 O 后面（最多 {p0} 个 O），O 权重按 KR 条数重新分配",
       "from_file": "来自文件：{p0}",
       "need_file": "请先选一个文件",
       "bad_type": "只支持 .md / .txt / .docx（老版 .doc 请先另存为 .docx）",
       "too_big": "文件超过 2MB",
       "empty": "文件是空的",
-      "dropped": "已追加；最多 3 个 O，有 {p0} 个没放进去"
+      "dropped": "已追加；最多 {p1} 个 O，有 {p0} 个没放进去"
     },
     "person": {
       "o_count": "O 数",
@@ -2664,7 +2664,14 @@
         "WEIGHT_EDIT": "改权重",
         "MILESTONE_EDIT": "改阶段明细",
         "BLOCKER_EDIT": "改卡点"
-      }
+      },
+      "confirm_self": "确认（自）",
+      "confirm_lock": "确认并锁定",
+      "self_confirm_title": "确认自己的 OKR",
+      "self_confirm_body": "这是你自己的 OKR，确认后本周锁定",
+      "bar_confirmed_self": "本周 OKR 已确认并锁定（管理员自确认 · {p0}）",
+      "bar_confirmed_self_other": "本周 OKR 已确认并锁定（{p1} 管理员自确认 · {p0}）",
+      "self_confirmed_ok": "已确认并锁定（管理员自确认）"
     },
     "close": {
       "missing_title": "这些人交了自评，还差你打分",
@@ -2685,6 +2692,19 @@
       "pending_self_os": "{p0} 个 O 没自评",
       "self_missing": "未交",
       "saved_score": "已评 {p0}"
+    },
+    "limits": {
+      "title": "计划上限",
+      "desc": "每人每周最多填几个 O、每个 O 最多几条 KR。改完立即生效，已提交的周不受影响。",
+      "max_o": "每人每周最多 O",
+      "max_kr": "每个 O 最多 KR",
+      "range_hint": "{p0}–{p1}，默认 {p2}",
+      "readonly": "仅管理员可修改",
+      "saved": "已保存",
+      "err_int": "要填 {p0}–{p1} 的整数",
+      "err_range": "超出范围，要在 {p0}–{p1} 之间",
+      "o_full": "每人每周最多 {p0} 个 O（可在系统设置里改）",
+      "editor_head": "本周计划：1–{p0} 个 O，每个 O 最多 {p1} 条 KR"
     }
   },
   "assistant": {

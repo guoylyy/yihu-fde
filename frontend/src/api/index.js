@@ -643,6 +643,9 @@ export const fde = {
     }),
     exempt: () => request('/api/okr/settings/exempt'),
     saveExempt: (userIds) => request('/api/okr/settings/exempt', { method: 'PUT', body: JSON.stringify({ userIds }) }),
+    // 0.6.5 O / KR 数量上限: 登录可读, PUT 仅 ADMIN(两项可只传一项)
+    limits: () => request('/api/okr/settings/limits'),
+    saveLimits: (patch) => request('/api/okr/settings/limits', { method: 'PUT', body: JSON.stringify(patch) }),
     close: (week) => request('/api/okr/cycle/close', { method: 'POST', body: JSON.stringify(week ? { week } : {}) }),
     reopen: (week, reason) => request('/api/okr/cycle/reopen', { method: 'POST', body: JSON.stringify({ week, reason }) }),
     // 精简第二轮: 本周项目整体计划(一周一份 Markdown, 全员可读, ADMIN / MANAGER 可写; 取代按项目拆分的项目周 OKR)

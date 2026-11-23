@@ -63,8 +63,11 @@
         </el-card>
       </el-tab-pane>
 
-      <!-- OKR: 免提交名单(仅 ADMIN; 后端 PUT 也只认 ADMIN) -->
+      <!-- OKR: 计划上限(0.6.5) + 免提交名单(仅 ADMIN; 后端 PUT 也只认 ADMIN) -->
       <el-tab-pane v-if="isAdmin" :label="$t('okr.v3.exempt_tab')" name="okr" lazy>
+        <el-card shadow="never" class="block-card">
+          <OkrLimitSettings />
+        </el-card>
         <el-card shadow="never" class="block-card">
           <OkrExemptSettings />
         </el-card>
@@ -85,6 +88,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { fde } from '@/api/index.js'
 import LlmConfigs from './LlmConfigs.vue'
+import OkrLimitSettings from '@/components/okr/OkrLimitSettings.vue'
 import OkrExemptSettings from '@/components/okr/OkrExemptSettings.vue'
 import { currentUser } from '@/views/okr/okrPeople.js'
 
@@ -135,6 +139,7 @@ onMounted(load)
 .page-title { font-size: 22px; font-weight: 700; margin: 0; color: #1c1917; }
 .hint { font-size: 13px; color: #868580; margin: 4px 0 0 0; }
 .block-card { border-radius: 12px; }
+.block-card + .block-card { margin-top: 16px; }
 .settings-form { max-width: 760px; }
 .field-note { width: 100%; font-size: 12px; color: #a8a29e; line-height: 1.5; margin-top: 4px; }
 .dim { color: #a8a29e; }

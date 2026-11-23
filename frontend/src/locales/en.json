@@ -2347,13 +2347,13 @@
       "mode_replace": "Replace",
       "mode_append": "Append",
       "mode_replace_sub": "Replace the unsubmitted content in the editor with the draft",
-      "mode_append_sub": "Add after the existing objectives (max 3); objective weights are re-split by KR count",
+      "mode_append_sub": "Add after the existing objectives (max {p0}); objective weights are re-split by KR count",
       "from_file": "From file: {p0}",
       "need_file": "Choose a file first",
       "bad_type": "Only .md / .txt / .docx (save old .doc files as .docx first)",
       "too_big": "The file is larger than 2MB",
       "empty": "The file is empty",
-      "dropped": "Appended; max 3 objectives, {p0} did not fit"
+      "dropped": "Appended; max {p1} objectives, {p0} did not fit"
     },
     "person": {
       "o_count": "Objectives",
@@ -2664,7 +2664,14 @@
         "WEIGHT_EDIT": "Changed weight",
         "MILESTONE_EDIT": "Changed milestones",
         "BLOCKER_EDIT": "Changed blocker"
-      }
+      },
+      "confirm_self": "Confirm (self)",
+      "confirm_lock": "Confirm & lock",
+      "self_confirm_title": "Confirm your own OKR",
+      "self_confirm_body": "This is your own OKR. Once confirmed, this week is locked",
+      "bar_confirmed_self": "This week's OKR is confirmed and locked (admin self-confirm · {p0})",
+      "bar_confirmed_self_other": "This week's OKR is confirmed and locked ({p1}, admin self-confirm · {p0})",
+      "self_confirmed_ok": "Confirmed and locked (admin self-confirm)"
     },
     "close": {
       "missing_title": "These people self-scored and are waiting for your score",
@@ -2685,6 +2692,19 @@
       "pending_self_os": "{p0} O(s) not self-scored",
       "self_missing": "Missing",
       "saved_score": "Saved {p0}"
+    },
+    "limits": {
+      "title": "Plan limits",
+      "desc": "How many objectives each person can set per week, and how many KRs each objective can have. Takes effect immediately; weeks already submitted are not affected.",
+      "max_o": "Max objectives per person per week",
+      "max_kr": "Max KRs per objective",
+      "range_hint": "{p0}–{p1}, default {p2}",
+      "readonly": "Only admins can change this",
+      "saved": "Saved",
+      "err_int": "Enter a whole number from {p0} to {p1}",
+      "err_range": "Out of range, must be between {p0} and {p1}",
+      "o_full": "At most {p0} objectives per person per week (can be changed in System Settings)",
+      "editor_head": "This week: 1–{p0} objectives, up to {p1} KRs each"
     }
   },
   "assistant": {
