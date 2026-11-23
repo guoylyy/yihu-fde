@@ -347,7 +347,9 @@ const krBusy = ref('')
 const changeMode = ref(false)
 const auditOpen = ref(false)
 const locked = computed(() => isLocked(data.value))
-const cfBar = computed(() => confirmBar(data.value, { meId, submitted: submittedOnce.value }))
+const cfBar = computed(() => confirmBar(data.value, {
+  meId, submitted: submittedOnce.value, ownerId: data.value?.owner?.id || ownerId.value || meId, isAdmin: me.role === 'ADMIN'
+}))
 /** 「申请变更」: 本人或代管、已锁定、没归档(有待批申请时也出, 点了提示「已有一条待批申请」) */
 const showChangeBtn = computed(() => canAct.value && locked.value && !isClosed.value && !!data.value?.cycle)
 const showAuditBtn = computed(() => !!data.value?.can?.viewAudit && locked.value)
@@ -365,16 +367,20 @@ async function confirmOwner() {
   }
 }
 
+/** 主管确认; 0.6.5 管理员自己那份(cfBar.self)弹窗写清「这是你自己的 OKR」, 不用切到团队页 */
 async function confirmManager() {
+  const selfConfirm = !!cfBar.value?.self
   try {
-    await ElMessageBox.confirm($t('okr.confirm.manager_confirm_body'), $t('okr.confirm.manager_confirm_title'), {
-      type: 'warning', confirmButtonText: $t('okr.confirm.confirm_manager'), cancelButtonText: $t('common.cancel')
-    })
+    await ElMessageBox.confirm(
+      selfConfirm ? $t('okr.confirm.self_confirm_body') : $t('okr.confirm.manager_confirm_body'),
+      selfConfirm ? $t('okr.confirm.self_confirm_title') : $t('okr.confirm.manager_confirm_title'),
+      { type: 'warning', confirmButtonText: selfConfirm ? $t('okr.confirm.confirm_lock') : $t('okr.confirm.confirm_manager'), cancelButtonText: $t('common.cancel') }
+    )
   } catch { return }
   busy.value = 'confirm'
   try {
-    await fde.okr.confirmManager(weekKeyNow.value, data.value?.owner?.id || ownerId.value)
-    ElMessage.success($t('okr.confirm.confirmed_ok'))
+    await fde.okr.confirmManager(weekKeyNow.value, data.value?.owner?.id || ownerId.value || meId)
+    ElMessage.success(selfConfirm ? $t('okr.confirm.self_confirmed_ok') : $t('okr.confirm.confirmed_ok'))
     await load()
   } catch (e) {
     ElMessage.error(e.message)

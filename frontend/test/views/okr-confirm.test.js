@@ -357,7 +357,8 @@ describe('团队页: 确认列 / 两个计数', () => {
   })
   test('接线: 行确认带二次确认弹窗; 逐人拉 confirm-status; 主管拉 PENDING 变更; 批准后移除并刷新', () => {
     const s = src('views/okr/TeamOkr.vue')
-    assert.match(s, /async function confirmRow[\s\S]{0,200}ElMessageBox\.confirm\(\$t\('okr\.confirm\.manager_confirm_body'\)/)
+    // 0.6.5: 管理员自己那行换自确认文案, 其余仍是 manager_confirm_body
+    assert.match(s, /async function confirmRow[\s\S]{0,400}ElMessageBox\.confirm\([\s\S]{0,120}\$t\('okr\.confirm\.manager_confirm_body'\)/)
     assert.equal(zh.okr.confirm.manager_confirm_body, '确认后这周 OKR 锁定，改动需走变更申请')
     assert.match(s, /fde\.okr\.confirmStatus\(week, userId\)/)
     assert.match(s, /fde\.okr\.changes\(\{ week, status: 'PENDING' \}\)/)

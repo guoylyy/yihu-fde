@@ -38,8 +38,11 @@ export const reasonOk = s => [...String(s ?? '').trim()].length >= REASON_MIN
  *   confirmed 绿  已确认并锁定(你 10:12 · 主管 张三 15:20)
  *   awaiting  黄  你已确认(11-24 10:12)，等主管确认(主管看时出「确认」)
  *   draft     灰  计划已提交，等你自己确认 ——「我确认这份 OKR」
+ * 0.6.5 管理员自确认: 这份是我自己的(ownerId = meId)、我是 ADMIN、后端 can.confirmManager → awaiting 带 self=true
+ *   (按钮「确认并锁定」); 非 ADMIN 看自己那份一律不给按钮(后端也不放)。
+ *   已锁定且主管确认人就是本人 → confirmed 带 selfConfirm=true(绿条「管理员自确认 · 时间」)
  */
-export function confirmBar(d, { meId, submitted } = {}) {
+export function confirmBar(d, { meId, submitted, ownerId, isAdmin = false } = {}) {
   const c = d?.confirm
   if (!d?.cycle || !c) return null
   const status = c.lockStatus || 'DRAFT'
@@ -51,15 +54,19 @@ export function confirmBar(d, { meId, submitted } = {}) {
       cancellable: sameId(pend.requestedBy?.id, meId)
     }
   }
+  const owner = ownerId ?? d.owner?.id ?? meId
   if (status === 'CONFIRMED') {
     return {
       kind: 'confirmed', tone: 'green',
       ownerAt: clock(c.ownerConfirmedAt), managerAt: clock(c.managerConfirmedAt),
-      manager: c.managerConfirmedBy?.name || ''
+      manager: c.managerConfirmedBy?.name || '',
+      selfConfirm: owner != null && sameId(c.managerConfirmedBy?.id, owner)
     }
   }
   if (status === 'AWAITING_MANAGER') {
-    return { kind: 'awaiting', tone: 'yellow', at: shortTime(c.ownerConfirmedAt), canManager: !!d.can?.confirmManager }
+    const self = owner != null && sameId(owner, meId)
+    const canManager = !!d.can?.confirmManager && (!self || !!isAdmin)
+    return { kind: 'awaiting', tone: 'yellow', at: shortTime(c.ownerConfirmedAt), canManager, self: self && canManager }
   }
   if (!submitted) return null
   return { kind: 'draft', tone: 'gray', canConfirm: !!d.can?.confirmOwner }
@@ -69,11 +76,12 @@ export function confirmBar(d, { meId, submitted } = {}) {
  * 团队页「确认」列。status = confirm-status 的返回(还没拉到为 undefined)。
  *   none          未提交(且没确认过) → `-`
  *   await_owner   已提交待员工确认 → 灰字
- *   confirm       待主管确认、我能确认 → 主色按钮
- *   await_manager 待主管确认、不归我确认(自己 / 员工确认是我代点的 / 不是主管) → 灰字
+ *   confirm       待主管确认、我能确认 → 主色按钮(0.6.5: ADMIN 自己那行也是, self=true →「确认（自）」)
+ *   await_manager 待主管确认、不归我确认(非 ADMIN 的自己 / 员工确认是我代点的 / 不是主管) → 灰字
  *   done          已确认 → 绿字, 悬浮两个时间
+ * ADMIN 可以确认任何人(含自己), 也不受「员工确认是我代点的」限制(与后端 can.confirmManager 同口径)
  */
-export function teamConfirmCell(row, status, { meId, canScore } = {}) {
+export function teamConfirmCell(row, status, { meId, canScore, isAdmin = false } = {}) {
   const s = status?.lockStatus
   if (s === 'CONFIRMED') {
     return {
@@ -84,8 +92,11 @@ export function teamConfirmCell(row, status, { meId, canScore } = {}) {
     }
   }
   if (s === 'AWAITING_MANAGER') {
-    const mine = canScore && !sameId(row?.user?.id, meId) && !sameId(status.ownerConfirmedBy?.id, meId)
-    return { kind: mine ? 'confirm' : 'await_manager', ownerAt: shortTime(status.ownerConfirmedAt) }
+    const selfRow = sameId(row?.user?.id, meId)
+    const mine = canScore && (isAdmin || (!selfRow && !sameId(status.ownerConfirmedBy?.id, meId)))
+    const cell = { kind: mine ? 'confirm' : 'await_manager', ownerAt: shortTime(status.ownerConfirmedAt) }
+    if (mine && selfRow) cell.self = true
+    return cell
   }
   if (!row || row.submission === 'NONE' || !status) return { kind: 'none' }
   return { kind: 'await_owner' }

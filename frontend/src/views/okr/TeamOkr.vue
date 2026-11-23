@@ -62,7 +62,7 @@
           <template #default="{ row }">
             <span class="okr-cf-cell" :data-test="'okr-cf-cell-' + row.user.id" @click.stop>
               <template v-for="c in [cellOf(row)]" :key="c.kind">
-                <el-button v-if="c.kind === 'confirm'" type="primary" size="small" :loading="cfBusy === String(row.user.id)" data-test="okr-row-confirm" @click.stop="confirmRow(row)">{{ $t('okr.confirm.confirm_manager') }}</el-button>
+                <el-button v-if="c.kind === 'confirm'" type="primary" size="small" :loading="cfBusy === String(row.user.id)" :data-self="c.self ? 'true' : undefined" data-test="okr-row-confirm" @click.stop="confirmRow(row)">{{ c.self ? $t('okr.confirm.confirm_self') : $t('okr.confirm.confirm_manager') }}</el-button>
                 <el-tooltip v-else-if="c.kind === 'done'" :content="$t('okr.confirm.done_tip', { p0: c.ownerAt, p1: c.manager, p2: c.managerAt })" placement="top">
                   <span class="okr-cf-done" tabindex="0">{{ $t('okr.confirm.done') }}</span>
                 </el-tooltip>
@@ -111,7 +111,7 @@
           <span :class="subClass(row)">{{ subText(row) }}</span>
           <span class="okr-m-cf" :data-test="'okr-cf-cell-' + row.user.id" @click.stop>
             <template v-for="c in [cellOf(row)]" :key="c.kind">
-              <el-button v-if="c.kind === 'confirm'" type="primary" class="okr-m-cf-btn" :loading="cfBusy === String(row.user.id)" data-test="okr-row-confirm" @click.stop="confirmRow(row)">{{ $t('okr.confirm.confirm_manager') }}</el-button>
+              <el-button v-if="c.kind === 'confirm'" type="primary" class="okr-m-cf-btn" :loading="cfBusy === String(row.user.id)" :data-self="c.self ? 'true' : undefined" data-test="okr-row-confirm" @click.stop="confirmRow(row)">{{ c.self ? $t('okr.confirm.confirm_self') : $t('okr.confirm.confirm_manager') }}</el-button>
               <span v-else-if="c.kind === 'done'" class="okr-cf-done" :title="$t('okr.confirm.done_tip', { p0: c.ownerAt, p1: c.manager, p2: c.managerAt })">{{ $t('okr.confirm.done') }}</span>
               <span v-else-if="c.kind === 'await_owner'" class="okr-dim">{{ $t('okr.confirm.await_owner') }}</span>
               <span v-else-if="c.kind === 'await_manager'" class="okr-dim">{{ $t('okr.confirm.await_manager') }}</span>
@@ -150,7 +150,7 @@
           <li v-for="row in counts.toConfirm" :key="row.user.id">
             <span class="okr-who"><el-avatar :size="24" :src="row.user.avatarUrl || undefined" class="okr-who-av">{{ initialOf(row.user.name) }}</el-avatar>{{ row.user.name }}</span>
             <span class="okr-dim">{{ cellOf(row).ownerAt }}</span>
-            <el-button type="primary" class="okr-cf-tobtn" :loading="cfBusy === String(row.user.id)" @click="confirmRow(row)">{{ $t('okr.confirm.confirm_manager') }}</el-button>
+            <el-button type="primary" class="okr-cf-tobtn" :loading="cfBusy === String(row.user.id)" @click="confirmRow(row)">{{ cellOf(row).self ? $t('okr.confirm.confirm_self') : $t('okr.confirm.confirm_manager') }}</el-button>
           </li>
         </ul>
       </el-dialog>
@@ -233,7 +233,8 @@ const changes = ref([])
 const cfBusy = ref('')
 const toConfirmOpen = ref(false)
 const changesOpen = ref(false)
-const cfCtx = { meId, canScore }
+// 0.6.5: ADMIN 可以确认任何人, 含自己那行(「确认（自）」)
+const cfCtx = { meId, canScore, isAdmin: me.role === 'ADMIN' }
 const cellOf = row => teamConfirmCell(row, cfMap.value[String(row.user.id)], cfCtx)
 const counts = computed(() => teamCounts(data.value?.rows, cfMap.value, changes.value, cfCtx))
 
@@ -257,18 +258,22 @@ async function loadConfirms() {
   }
 }
 
-/** 行里的「确认」: 二次确认(锁定后改动需走变更申请)→ 主管确认 → 只刷这一行 */
+/** 行里的「确认」: 二次确认(锁定后改动需走变更申请)→ 主管确认 → 只刷这一行。
+ *  0.6.5 管理员自己那行: 弹窗写清「这是你自己的 OKR，确认后本周锁定」 */
 async function confirmRow(row) {
+  const selfConfirm = !!cellOf(row).self
   try {
-    await ElMessageBox.confirm($t('okr.confirm.manager_confirm_body'), $t('okr.confirm.manager_confirm_title') + ' · ' + row.user.name, {
-      type: 'warning', confirmButtonText: $t('okr.confirm.confirm_manager'), cancelButtonText: $t('common.cancel')
-    })
+    await ElMessageBox.confirm(
+      selfConfirm ? $t('okr.confirm.self_confirm_body') : $t('okr.confirm.manager_confirm_body'),
+      (selfConfirm ? $t('okr.confirm.self_confirm_title') : $t('okr.confirm.manager_confirm_title')) + ' · ' + row.user.name,
+      { type: 'warning', confirmButtonText: selfConfirm ? $t('okr.confirm.confirm_lock') : $t('okr.confirm.confirm_manager'), cancelButtonText: $t('common.cancel') }
+    )
   } catch { return }
   cfBusy.value = String(row.user.id)
   try {
     const s = await fde.okr.confirmManager(weekKeyNow.value, row.user.id)
     cfMap.value = { ...cfMap.value, [String(row.user.id)]: s }
-    ElMessage.success($t('okr.confirm.confirmed_ok'))
+    ElMessage.success(selfConfirm ? $t('okr.confirm.self_confirmed_ok') : $t('okr.confirm.confirmed_ok'))
   } catch (e) {
     ElMessage.error(e.message)
     await loadConfirmOf(row.user.id)
