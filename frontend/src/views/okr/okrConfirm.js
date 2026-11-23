@@ -182,6 +182,11 @@ export function changeRow(c, t = k => k) {
     owner: c.owner || null,
     ownerName: c.owner?.name || '',
     requester: c.requestedBy && !sameId(c.requestedBy.id, c.owner?.id) ? (c.requestedBy.name || '') : '',
+    // 0.6.6: 弹窗拉的是全部 PENDING(跨周), 每条标出周次 + 「谁提的 · 谁的计划」
+    week: c.week || '',
+    relation: c.requestedBy && !sameId(c.requestedBy.id, c.owner?.id)
+      ? t('okr.confirm.relation', { p0: c.requestedBy.name || '', p1: c.owner?.name || '' })
+      : t('okr.confirm.relation_self', { p0: c.owner?.name || '' }),
     reason: c.reason || '',
     count: c.diffCount ?? diffs.length,
     diffs,

@@ -15,6 +15,12 @@
     <!-- OKR 10.0 连续未达成: 自己的 CRITICAL 红条 / WARN 黄条, 「看看」滚到那张 O 卡 -->
     <OkrRiskBars :bars="riskBars" :compact="isMobile" @look="lookRisk" />
 
+    <!-- 0.6.6 管理员全局入口: 全部待审批的变更申请(跨周、跨人), 「查看」打开与团队页同一个弹窗; N=0 / 非 ADMIN 不出 -->
+    <div v-if="isAdmin && adminPending.length" class="okr-admin-pending-bar" role="status" data-test="okr-admin-pending-bar">
+      <span>{{ $t('okr.confirm.admin_pending_bar', { p0: adminPending.length }) }}</span>
+      <el-button type="primary" size="small" class="okr-admin-pending-btn" data-test="okr-admin-pending-view" @click="adminChangesOpen = true">{{ $t('common.view') }}</el-button>
+    </div>
+
     <!-- 代管: 常驻提示条(不是弹窗), 用 warning 色 -->
     <div v-if="proxyMode" class="okr-proxy-bar" role="status" data-test="okr-proxy-bar">
       {{ $t('okr.proxy.banner', { p0: ownerName, p1: meName }) }}
@@ -188,6 +194,7 @@
       @changed="mgr.changed = true" @update:model-value="onMgrClosed"
     />
 
+    <OkrChangeReviewDialog v-if="isAdmin" v-model="adminChangesOpen" :changes="adminPending" :mobile="isMobile" @decided="onAdminDecided" @goto-week="adminGotoWeek" />
     <OkrAuditDrawer v-model="auditOpen" :week="weekKeyNow" :owner-id="String(ownerId || meId)" :me-id="String(meId)" :mobile="isMobile" />
 
     <OkrReportDraftDialog
@@ -248,7 +255,8 @@ import OkrRiskBars from '@/components/okr/OkrRiskBars.vue'
 import OkrWeekPlanCard from '@/components/okr/OkrWeekPlanCard.vue'
 import OkrConfirmBar from '@/components/okr/OkrConfirmBar.vue'
 import OkrAuditDrawer from '@/components/okr/OkrAuditDrawer.vue'
-import { confirmBar, isLocked, pendingChangeOf, reasonOk, LOCKED_CODE } from './okrConfirm.js'
+import OkrChangeReviewDialog from '@/components/okr/OkrChangeReviewDialog.vue'
+import { confirmBar, isLocked, pendingChangeOf, reasonOk, decidable, LOCKED_CODE } from './okrConfirm.js'
 import { exportItems, riskByObjective, streakOf, myRiskBars, findRiskTarget } from './okrFe5.js'
 import {
   milestoneClick, milestonesWithDone, applyMilestonePatch, blockerPatch, planWithPatch, blockerPeople,
@@ -693,7 +701,38 @@ const selfBtnText = computed(() => {
 /** KR 处理情况(自评前置): 前端自算, 后端 8112 兜底 */
 const handling = computed(() => krHandling(data.value?.objectives))
 
+// ---------------------------------------------------------------- 0.6.6 管理员: 全部待审批的变更申请
+// 不传 week(跨周), 跟着页面每次 load 一起刷(换周 / 自己批完 / 撤回后都会重拉); 非 ADMIN 不拉
+const isAdmin = me.role === 'ADMIN'
+const adminChanges = ref([])
+const adminChangesOpen = ref(false)
+const adminPending = computed(() => adminChanges.value.filter(c => decidable(c, meId, { isAdmin: true })))
+let adminSeq = 0
+async function loadAdminPending() {
+  if (!isAdmin) return
+  const seq = ++adminSeq
+  try {
+    const list = await fde.okr.changes({ status: 'PENDING' })
+    if (seq === adminSeq) adminChanges.value = Array.isArray(list) ? list : (list?.items || [])
+  } catch { /* 拉不到就不出这条 */ }
+}
+/** 弹窗里批 / 驳后: 移除这条; 正在看的就是这份计划(同周同人)就重拉页面 */
+async function onAdminDecided({ id, ownerId: owner }) {
+  const c = adminChanges.value.find(x => String(x.id) === String(id))
+  adminChanges.value = adminChanges.value.filter(x => String(x.id) !== String(id))
+  if (!adminChanges.value.length) adminChangesOpen.value = false
+  const viewing = String(data.value?.owner?.id || ownerId.value || meId)
+  if (c && c.week === weekKeyNow.value && sameId(owner, viewing)) await load()
+}
+/** 弹窗里点周次: 跳到那一周(负责人不是自己就带上 ?userId= 看那份计划), 关弹窗 */
+function adminGotoWeek({ week, ownerId: owner }) {
+  adminChangesOpen.value = false
+  if (!week) return
+  router.push({ query: { ...queryForPerson(route.query, owner || meId, meId), week } })
+}
+
 async function load() {
+  loadAdminPending()
   loading.value = true
   try {
     const d = await fde.okr.cycle({ week: route.query.week, ownerId: ownerId.value })
@@ -886,6 +925,10 @@ async function submitMiss() {
 .okr-edit-link { margin-left: auto; border: 0; background: none; color: var(--el-color-primary); font-size: 13px; cursor: pointer; padding: 4px 0; }
 .okr-edit-locked { display: inline-flex; }
 .okr-edit-locked .okr-edit-link { margin-left: 0; color: var(--el-text-color-placeholder); cursor: not-allowed; pointer-events: none; }
+.okr-admin-pending-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; padding: 8px 12px; border-radius: 8px;
+  font-size: 13px; font-weight: 600; color: #1d4f91; background: #eaf2fd; border: 1px solid #a9c8f2; }
+.okr-admin-pending-bar .el-button { flex: none; margin-left: 0; }
+@media (max-width: 640px) { .okr-admin-pending-btn { min-height: 36px; } }
 .okr-change-bar { margin-bottom: 10px; padding: 10px 12px; border-radius: 8px; font-size: 13px; font-weight: 600; color: #1d4f91; background: #eaf2fd; border: 1px solid #a9c8f2; }
 .okr-quick { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; padding: 8px 12px; border-radius: 10px; background: var(--el-color-primary-light-9); }
 .okr-quick-text { font-size: 12px; color: var(--el-text-color-regular); min-width: 0; }

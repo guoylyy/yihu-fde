@@ -25,8 +25,9 @@
       <button type="button" class="okr-close-notice-x" :aria-label="$t('okr.close.dismiss')" :title="$t('okr.close.dismiss')" data-test="okr-close-notice-x" @click="hideNotice">×</button>
     </div>
 
-    <!-- 0.6.2: 周进度后面两个计数(主管): 待你确认 / 变更待批, 都可点开; 0.6.3 多一个「未交自评」(名单来自周状态) -->
-    <div v-if="canScore && data" class="okr-cf-counts" data-test="okr-cf-counts">
+    <!-- 0.6.2: 周进度后面两个计数(主管): 待你确认 / 变更待批, 都可点开; 0.6.3 多一个「未交自评」(名单来自周状态)
+         0.6.6: 只看 canScore —— 团队数据没拉到也照样出(之前要求 data, 拉失败时整条消失, 管理员看不到变更待批) -->
+    <div v-if="canScore" class="okr-cf-counts" data-test="okr-cf-counts">
       <button type="button" class="okr-cf-count" :class="{ hot: counts.toConfirm.length }" data-test="okr-to-confirm" @click="toConfirmOpen = true">
         {{ $t('okr.confirm.to_confirm_n', { p0: counts.toConfirm.length }) }}
       </button>
@@ -164,13 +165,14 @@
           </li>
         </ul>
       </el-dialog>
-      <OkrChangeReviewDialog v-model="changesOpen" :changes="counts.pending" :mobile="isMobile" @decided="onDecided" />
 
       <OkrManagerScorePanel
         v-if="canScore && data.cycle?.status" v-model="mgrOpen" :week="weekKeyNow" :me-id="meId" :closed="data.cycle.status === 'CLOSED'" :can-close="canCloseWeek" :mobile="isMobile"
         @changed="mgrChanged = true" @update:model-value="v => { if (!v && mgrChanged) { mgrChanged = false; load(); wstRef?.reload() } }"
       />
     </template>
+    <!-- 0.6.6: 放在 v-if="data" 外面, 团队数据为空时计数条点开也有弹窗 -->
+    <OkrChangeReviewDialog v-if="canScore" v-model="changesOpen" :changes="counts.pending" :mobile="isMobile" @decided="onDecided" @goto-week="gotoWeek" />
   </div>
 </template>
 
@@ -250,12 +252,23 @@ async function loadConfirms() {
   cfMap.value = {}
   const rows = data.value?.rows || []
   await Promise.all(rows.map(r => loadConfirmOf(r.user.id, week)))
-  if (canScore) {
-    try {
-      const list = await fde.okr.changes({ week, status: 'PENDING' })
-      if (week === weekKeyNow.value) changes.value = Array.isArray(list) ? list : (list?.items || [])
-    } catch { changes.value = [] }
-  }
+}
+
+/** 0.6.6 变更待批: 拉全部 PENDING(不传 week —— 员工在上周 / 补录周提的也要看得到), 与团队数据各拉各的 */
+let changesSeq = 0
+async function loadChanges() {
+  if (!canScore) return
+  const seq = ++changesSeq
+  try {
+    const list = await fde.okr.changes({ status: 'PENDING' })
+    if (seq === changesSeq) changes.value = Array.isArray(list) ? list : (list?.items || [])
+  } catch { if (seq === changesSeq) changes.value = [] }
+}
+
+/** 弹窗里点周次: 改 ?week= 并关弹窗 */
+function gotoWeek({ week }) {
+  changesOpen.value = false
+  if (week && week !== route.query.week) router.push({ query: { ...route.query, week } })
 }
 
 /** 行里的「确认」: 二次确认(锁定后改动需走变更申请)→ 主管确认 → 只刷这一行。
@@ -288,7 +301,7 @@ async function onDecided({ id, ownerId }) {
   if (ownerId) await loadConfirmOf(ownerId)
   try { data.value = { ...data.value, ...(await fde.okr.team(weekKeyNow.value)) } } catch { /* 下次进页再刷 */ }
 }
-watch(() => route.query.week, load, { immediate: true })
+watch(() => route.query.week, () => { load(); loadChanges() }, { immediate: true })
 
 // ---------------------------------------------------------------- 0.6.3 未交自评(周状态) / 归档提示条
 const wstRef = ref(null)

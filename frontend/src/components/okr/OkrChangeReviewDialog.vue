@@ -1,6 +1,8 @@
 <template>
   <!-- 0.6.2 团队页「变更待批」: 申请人、原因、改了几条、查看差异(before → after)、批准 / 拒绝(拒绝必须写原因)。
-       批准 / 拒绝后从列表移除, 由父组件刷新这个人的行 -->
+       批准 / 拒绝后从列表移除, 由父组件刷新这个人的行。
+       0.6.6: 列表是全部 PENDING(跨周), 每条带周次(点了 emit goto-week, 父组件改 ?week= 并关弹窗)+「谁提的 · 谁的计划」;
+       团队页和我的 OKR(ADMIN)共用 -->
   <el-dialog
     :model-value="modelValue" :title="$t('okr.confirm.pending_title')" :width="mobile ? '100%' : 'min(92vw, 640px)'" :fullscreen="mobile"
     append-to-body @update:model-value="v => $emit('update:modelValue', v)"
@@ -9,8 +11,11 @@
     <ul v-else class="okr-cr-list" data-test="okr-changes">
       <li v-for="r in rows" :key="r.id" class="okr-cr-item" :data-test="'okr-change-' + r.id">
         <div class="okr-cr-head">
-          <b class="okr-cr-who">{{ r.ownerName }}</b>
-          <span v-if="r.requester" class="okr-cr-sub">{{ $t('okr.confirm.on_behalf', { p0: r.requester }) }}</span>
+          <button
+            v-if="r.week" type="button" class="okr-cr-week" :title="$t('okr.confirm.goto_week', { p0: r.week })" :data-test="'okr-change-week-' + r.id"
+            @click="$emit('goto-week', { week: r.week, ownerId: r.owner?.id || '' })"
+          >{{ r.week }}</button>
+          <b class="okr-cr-who" :data-test="'okr-change-rel-' + r.id">{{ r.relation }}</b>
           <span class="okr-cr-sub">{{ r.at }}</span>
           <span class="okr-cr-count">{{ $t('okr.confirm.diff_n', { p0: r.count }) }}</span>
         </div>
@@ -50,7 +55,7 @@ const props = defineProps({
   changes: { type: Array, default: () => [] },
   mobile: Boolean
 })
-const emit = defineEmits(['update:modelValue', 'decided'])
+const emit = defineEmits(['update:modelValue', 'decided', 'goto-week'])
 
 const busy = ref('')
 const open = reactive({})
@@ -103,6 +108,9 @@ async function reject(r) {
 .okr-cr-item { padding: 10px 12px; border: 1px solid var(--el-border-color-lighter); border-radius: 10px; font-size: 13px; }
 .okr-cr-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
 .okr-cr-who { font-size: 14px; }
+.okr-cr-week { padding: 1px 8px; border: 1px solid var(--el-color-primary-light-5); border-radius: 999px; background: var(--el-color-primary-light-9);
+  color: var(--el-color-primary); font: 600 12px/18px var(--el-font-family, inherit); cursor: pointer; font-variant-numeric: tabular-nums; }
+.okr-cr-week:hover, .okr-cr-week:focus-visible { background: var(--el-color-primary-light-8); outline: none; }
 .okr-cr-sub { color: var(--el-text-color-secondary); font-size: 12px; }
 .okr-cr-count { margin-left: auto; font-weight: 600; color: var(--el-color-primary); }
 .okr-cr-reason { margin: 6px 0 0; overflow-wrap: anywhere; white-space: pre-wrap; }

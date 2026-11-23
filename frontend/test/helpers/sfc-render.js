@@ -35,7 +35,9 @@ export const CONFIRM_DEFAULTS = {
   cfBar: null, changeMode: false, locked: false, showChangeBtn: false, showAuditBtn: false, auditOpen: false,
   confirmOwner() {}, confirmManager() {}, cancelChange() {}, startChange() {}, cancelEdit() {}, onEditorSubmit() {},
   counts: { toConfirm: [], pending: [] }, cellOf: () => ({ kind: 'none' }), cfBusy: '', toConfirmOpen: false, changesOpen: false,
-  confirmRow() {}, onDecided() {}
+  confirmRow() {}, onDecided() {},
+  // 0.6.6 管理员待审批入口: 团队页点周次; 我的 OKR 蓝条 / 弹窗。缺省「不是管理员、没有待批」
+  gotoWeek() {}, isAdmin: false, adminPending: [], adminChangesOpen: false, onAdminDecided() {}, adminGotoWeek() {}
 }
 
 // 0.6.3 完成本周弹窗 / 未交自评 / 归档提示条在面板与团队页里加的 setup 名字: 缺省「弹窗没开、没人没交自评、没有提示条」
