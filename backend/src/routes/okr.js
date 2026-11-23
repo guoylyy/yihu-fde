@@ -180,8 +180,9 @@ async function weekPayload(req, res, { detail }) {
     // 计划可写: 进行中的周; 或周五复盘里这人还一条没交(补交, 记迟交); 已二级确认的不能直接改
     edit: (mine || proxy) && planWritable(data.cycle.status, submittedBefore) && !locked,
     confirmOwner: (mine || proxy) && !viaAssistant(req) && open && data.confirm.lockStatus === 'DRAFT' && data.objectives.some(o => o.status !== 'DROPPED'),
-    confirmManager: !mine && !viaAssistant(req) && open && data.confirm.lockStatus === 'AWAITING_MANAGER' && scopeCovers(scoreScope, ownerId) &&
-      String(data.confirm.ownerConfirmedBy?.id) !== String(req.user.id),
+    // 0.6.5: ADMIN 可以确认任何人(含自己), 也不受「员工确认 / 主管确认要两个人」限制
+    confirmManager: (!mine || isBoss(req)) && !viaAssistant(req) && open && data.confirm.lockStatus === 'AWAITING_MANAGER' && scopeCovers(scoreScope, ownerId) &&
+      (isBoss(req) || String(data.confirm.ownerConfirmedBy?.id) !== String(req.user.id)),
     requestChange: (mine || proxy) && !viaAssistant(req) && open && locked && !data.confirm.pendingChange,
     viewAudit: mine || scopeCovers(scoreScope, ownerId),
     // OKR 3.0: KR 进展 / 完成开关, 已提交且没归档就能改(复盘里也能改, 自评前要把 KR 都标完)
@@ -394,7 +395,7 @@ router.post('/plan/confirm-owner', humanOnly('确认 OKR'), async (req, res) => 
   } catch (e) { fail(res, e, 'plan/confirm-owner') }
 })
 
-// 主管确认: { week, userId }。ADMIN 或本团队 MANAGER; 不能确认自己的
+// 主管确认: { week, userId }。ADMIN 或本团队 MANAGER; 非 ADMIN 不能确认自己的, ADMIN 可以确认任何人(含自己)
 router.post('/plan/confirm-manager', humanOnly('确认 OKR'), async (req, res) => {
   try {
     const week = weekOf(req, res)
@@ -402,11 +403,12 @@ router.post('/plan/confirm-manager', humanOnly('确认 OKR'), async (req, res) =
     const raw = req.body?.userId
     if (raw == null || raw === '' || !/^\d+$/.test(String(raw))) return res.status(400).json({ code: 8100, message: 'userId 必填(要确认谁的 OKR)' })
     const ownerId = String(raw)
-    if (ownerId === String(req.user.id) || !scopeCovers(await decideScope(req), ownerId)) {
-      return res.status(403).json({ code: 8206, message: '只有管理员或本团队主管能做主管确认(不能确认自己的)' })
+    const self = ownerId === String(req.user.id)
+    if ((self && !isBoss(req)) || !scopeCovers(await decideScope(req), ownerId)) {
+      return res.status(403).json({ code: 8206, message: '只有管理员或本团队主管能做主管确认(主管不能确认自己的)' })
     }
-    const r = await confirmManager({ week, ownerId, actorId: req.user.id })
-    if (r.changed) await logInternalAction(req, 'okr.plan.confirm-manager', { resourceType: 'okr_cycle', details: { week: weekKey(week), ownerId } })
+    const r = await confirmManager({ week, ownerId, actorId: req.user.id, actorRole: req.user.role })
+    if (r.changed) await logInternalAction(req, 'okr.plan.confirm-manager', { resourceType: 'okr_cycle', details: { week: weekKey(week), ownerId, ...(self ? { selfConfirm: true } : {}) } })
     ok(res, r)
   } catch (e) { fail(res, e, 'plan/confirm-manager') }
 })

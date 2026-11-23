@@ -9,8 +9,10 @@
 //    没提交过也能确认(确认即「我认这份并交上去」): 同一事务里给还没提交的 O 补上提交(submittedAt / lateSubmit / submittedByOperator,
 //    迟交口径 = isLate, 与 /plan/submit 相同; 先按提交的硬约束校验, 不过 → 8204), 返回 submitted=true;
 //    已提交过的不动提交时间。重复确认不报错(changed=false, 不重复留痕 / 通知)
-//  - 主管确认: ADMIN 或本团队 MANAGER(= 主管评分范围, 见 okrAccess.managerScoreScope), 不能确认自己的。
+//  - 主管确认: ADMIN 或本团队 MANAGER(= 主管评分范围, 见 okrAccess.managerScoreScope), 主管不能确认自己的。
 //    前置: 员工已确认(否则 8202); 员工确认是这位主管代点的 → 403 / 8206(二级确认要两个人)
+//    0.6.5: ADMIN 例外 —— 可以确认任何人(含自己), 「两个人」只约束 MANAGER / TEAM_LEAD; 系统里没有比 ADMIN 更高的角色,
+//    否则管理员自己那份永远停在 AWAITING_MANAGER。自确认(owner = actor)的留痕标 selfConfirm, 通知文案换成「已由管理员确认」
 //  - 确认后不能取消, 要改只能走变更申请; 归档周(CLOSED)不可确认 / 申请 / 审批
 //  - 变更申请: 只能在 CONFIRMED 时提(没锁直接改就行); reason 必填; objectives 省略 = 用当前计划。
 //    提交时就在事务里按 savePlan 同一套逻辑预演一遍(previewPlan, 回滚), 落库会失败的当场拦下; 同人同周只能有 1 条 PENDING(8203)
@@ -163,26 +165,29 @@ export async function confirmOwner({ week, ownerId, actorId, now = new Date() })
   return { changed, submitted, ...(submitted ? { lateSubmit: late } : {}), ...(await confirmInfo(cycle, ownerId)) }
 }
 
-/** 主管确认。范围(ADMIN / 本团队 MANAGER)由路由校验; 这里校验前置与「两个人」 */
-export async function confirmManager({ week, ownerId, actorId, now = new Date() }) {
+/** 主管确认。范围(ADMIN / 本团队 MANAGER, 主管不能确认自己)由路由校验; 这里校验前置与「两个人」(ADMIN 不受限) */
+export async function confirmManager({ week, ownerId, actorId, actorRole = null, now = new Date() }) {
   const cycle = await existingCycle(week)
   assertNotClosed(cycle, '确认', 8204)
   const owner = BigInt(ownerId)
+  const admin = actorRole === 'ADMIN'
+  const self = String(ownerId) === String(actorId)
   const changed = await prisma.$transaction(async (tx) => {
     const row = await lockConfirmRow(tx, cycle.id, owner)
     if (!row.ownerConfirmedAt) throw bad('员工还没确认', 8202)
     if (row.managerConfirmedAt) return false
-    if (String(row.ownerConfirmedBy) === String(actorId)) throw denied('员工确认是你代点的，主管确认要换一位主管或管理员')
+    if (!admin && String(row.ownerConfirmedBy) === String(actorId)) throw denied('员工确认是你代点的，主管确认要换一位主管或管理员')
     await tx.okrPlanConfirm.update({ where: { id: row.id }, data: { managerConfirmedAt: now, managerConfirmedBy: BigInt(actorId) } })
-    await writeAudit(tx, { cycleId: cycle.id, ownerId: owner, actorId, action: 'MANAGER_CONFIRM', beforeText: '待主管确认', afterText: '已确认(锁定)', now })
+    await writeAudit(tx, { cycleId: cycle.id, ownerId: owner, actorId, action: 'MANAGER_CONFIRM', beforeText: '待主管确认', afterText: self ? '已确认(锁定, 管理员自确认)' : '已确认(锁定)', now })
     return true
   })
   if (changed) {
     const key = weekKey(cycle)
+    // 自确认: 通知照发给本人(锁定是实打实的状态变化); pushNotification 默认「触发人 = 收件人不发」, 所以这里不带 actorId
     await notifySafe([{
-      userId: ownerId, actorId, type: NOTIFY.CONFIRMED, data: { week: key, ownerId: String(ownerId) },
-      title: `${shortWeek(cycle)} OKR 已确认，已锁定；要改请提交变更申请`,
-      body: `${key} 的计划主管已确认`,
+      userId: ownerId, actorId: self ? null : actorId, type: NOTIFY.CONFIRMED, data: { week: key, ownerId: String(ownerId), ...(self ? { selfConfirm: true } : {}) },
+      title: self ? `${key} OKR 已由管理员确认并锁定` : `${shortWeek(cycle)} OKR 已确认，已锁定；要改请提交变更申请`,
+      body: self ? `${key} 的计划已锁定；要改请提交变更申请` : `${key} 的计划主管已确认`,
       link: `/admin/okr?week=${key}`
     }])
   }

@@ -260,7 +260,9 @@ export async function listAudit(cycle, ownerId, { limit } = {}) {
       id: String(r.id), action: r.action, actionLabel: ACTION_LABELS[r.action] || r.action,
       actorId: String(r.actorId), actorName: names.get(String(r.actorId)) || null,
       targetType: r.targetType, targetRef: r.targetRef, field: r.field,
-      before: r.beforeText, after: r.afterText, reason: r.reason, source: r.source, createdAt: r.createdAt
+      before: r.beforeText, after: r.afterText, reason: r.reason, source: r.source, createdAt: r.createdAt,
+      // 0.6.5: 管理员给自己做的主管确认(表里没有 details 列, 由 actor = owner 推出)
+      ...(r.action === 'MANAGER_CONFIRM' && String(r.actorId) === String(r.ownerId) ? { details: { selfConfirm: true } } : {})
     }))
   }
 }
