@@ -6,3 +6,6 @@ dist
 uploads
 .DS_Store
 *.log
+
+# CC 自测证据，不进库
+docs/evidence/
