@@ -129,6 +129,7 @@
             :class="{ 'okr-flash': flashId === String(o.id) }"
             :streak="streakOf(riskMap, o)"
             :can-edit="data.can.edit && !!o.submittedAt && o.status !== 'DROPPED'"
+            :can-progress="!!data.can.progress && !!o.submittedAt && o.status !== 'DROPPED'"
             :can-miss="canAct && data.cycle.status === 'REVIEW' && !['DONE', 'MISSED', 'DROPPED'].includes(o.status)"
             :can-manager-score="canScoreManager && data.can.managerScore && !!o.submittedAt"
             :can-complete="canAct && !!data.can.progress"

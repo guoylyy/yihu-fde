@@ -118,7 +118,7 @@
 
     <div v-if="open" class="okr-panel">
       <!-- 记进展: 挑一条 KR(或不挂), 写一句, 可选改数值 -->
-      <form v-if="canEdit" class="okr-add" @submit.prevent="send">
+      <form v-if="canProgress" class="okr-add" data-test="okr-progress-form" @submit.prevent="send">
         <el-select v-model="form.krId" size="small" class="okr-kr-pick" :placeholder="$t('okr.pick_kr')">
           <el-option v-for="kr in obj.keyResults" :key="kr.id" :value="kr.id" :label="`KR${kr.seq} ${kr.title}`" />
           <el-option value="" :label="$t('okr.no_kr')" />
@@ -146,7 +146,7 @@
           <span class="okr-tl-body">{{ $t('okr.missed_reason', { p0: m.reason }) }}</span>
         </li>
       </ol>
-      <p v-else-if="!canEdit" class="okr-none">{{ $t('okr.no_updates') }}</p>
+      <p v-else-if="!canProgress" class="okr-none" data-test="okr-progress-none">{{ $t('okr.no_updates') }}</p>
 
       <!-- 主管/老板: 给这个 O 打分 -->
       <form v-if="canManagerScore" class="okr-add-row okr-mscore" @submit.prevent="$emit('manager-score', { objectiveId: obj.id, score: mScore, comment: mComment })">
@@ -170,7 +170,10 @@ import { RISK_LEVELS, milestoneRows, overdueDays, blockerForm, blockerFormState 
 
 const props = defineProps({
   obj: { type: Object, required: true },
+  /** 计划可编辑(data.can.edit): 0.6.7 起不再控制进展表单, 复盘周计划只读但进展照写 */
   canEdit: Boolean,
+  /** 0.6.7 记进展(data.can.progress && 已提交 && 未放弃): 复盘周也为 true, 归档后 false */
+  canProgress: Boolean,
   canMiss: Boolean,
   canManagerScore: Boolean,
   /** OKR 3.0: KR 完成开关可点(本人或代管、已提交、未归档) */
@@ -234,17 +237,17 @@ function complete(kr, done) {
   emit('complete', { kr, done, objectiveId: props.obj.id })
 }
 const nUpdates = computed(() => props.obj.updates?.length || 0)
-const hasPanel = computed(() => props.canEdit || props.canMiss || props.canManagerScore || nUpdates.value > 0)
+const hasPanel = computed(() => props.canProgress || props.canMiss || props.canManagerScore || nUpdates.value > 0)
 const pickedKr = computed(() => (props.obj.keyResults || []).find(k => k.id === form.krId) || null)
 const toggleText = computed(() => {
   if (props.canManagerScore) return $t('okr.toggle_review', { p0: nUpdates.value })
-  if (props.canEdit) return $t('okr.toggle_log', { p0: nUpdates.value })
+  if (props.canProgress) return $t('okr.toggle_log', { p0: nUpdates.value })
   return $t('okr.updates_n', { p0: nUpdates.value })
 })
 
 function toggle() {
   open.value = !open.value
-  if (open.value && props.canEdit) {
+  if (open.value && props.canProgress) {
     // 默认挑第一条还没完成的 KR
     const krs = props.obj.keyResults || []
     const kr = krs.find(k => k.status !== 'DONE') || krs[0]
