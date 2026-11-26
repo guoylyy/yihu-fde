@@ -287,13 +287,18 @@ export function emptyState(d, { viewingOther = false, ownerName = '', now = new 
   const canCreate = d.cycle ? !!d.can?.edit : !!d.can?.create
   const proxy = !!d.can?.proxy
   const name = ownerName || d.owner?.name || d.owner?.username || ''
+  // 0.6.7: 本周(当前自然周)的空态要把话说清 —— 「本周(2026-W48)还没写 OKR」, 看别人是「<姓名> 本周还没提交 OKR」
+  const thisWeek = !!key && key === weekKey(isoWeekOf(now))
   if (viewingOther) {
-    const text = ['okr.backfill.other_none', { p0: name }]
+    const text = thisWeek
+      ? (name ? ['okr.backfill.other_none_this', { p0: name }] : ['okr.backfill.other_none_this_anon'])
+      : ['okr.backfill.other_none', { p0: name }]
     if (proxy && canCreate) return { text, action: 'proxy', label: [past ? 'okr.backfill.proxy_backfill' : 'okr.backfill.proxy_create', { p0: name }] }
     return { text, action: null }
   }
   if (canCreate) {
     if (past) return { text: ['okr.backfill.empty_past'], action: 'backfill', label: ['okr.backfill.action'] }
+    if (thisWeek) return { text: ['okr.backfill.empty_this', { p0: key }], action: 'create', label: ['okr.backfill.create_this'] }
     const isNext = compareKey(key, weekKey(isoWeekOf(now))) > 0
     return { text: ['okr.backfill.empty_now'], action: 'create', label: [isNext ? 'okr.backfill.create_next' : 'okr.backfill.create_this'] }
   }

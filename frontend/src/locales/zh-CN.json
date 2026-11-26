@@ -2321,7 +2321,7 @@
     },
     "backfill": {
       "action": "补录这一周",
-      "create_this": "新建本周 OKR",
+      "create_this": "写本周 OKR",
       "create_next": "新建下周 OKR",
       "banner": "补录 {p0}（原截止已过，记为迟交）",
       "week_label": "{p0}/第{p1}周",
@@ -2332,7 +2332,10 @@
       "out_of_window": "只能新建或补录 {p0} ~ {p1} 的 OKR",
       "other_none": "{p0} 这一周没有提交 OKR",
       "proxy_backfill": "代 {p0} 补录",
-      "proxy_create": "代 {p0} 新建"
+      "proxy_create": "代 {p0} 新建",
+      "empty_this": "本周（{p0}）还没写 OKR",
+      "other_none_this": "{p0} 本周还没提交 OKR",
+      "other_none_this_anon": "TA 本周还没提交 OKR"
     },
     "import": {
       "open": "导入文档生成",

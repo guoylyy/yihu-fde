@@ -85,7 +85,7 @@
 
       <!-- 这周一条 O 都没有: 空态必须带去处(补录 / 新建 / 代补录); 只有已归档、超出窗口、看别人且无代管权时才只有说明 -->
       <div v-if="empty && !editing" class="okr-empty okr-empty-box" data-test="okr-empty">
-        <p>{{ $t(...empty.text) }}</p>
+        <p class="okr-empty-title">{{ $t(...empty.text) }}</p>
         <el-button v-if="empty.action" type="primary" class="okr-empty-btn" :data-test="'okr-empty-' + empty.action" @click="startBackfill">{{ $t(...empty.label) }}</el-button>
       </div>
 
@@ -744,9 +744,10 @@ async function load() {
     data.value = d
     changeMode.value = false
     // 本人(或代管人)、可编辑、还没提交过 → 直接进入写计划。看别人且无代管权时 can.edit 本来就是 false
-    // 过去的周一条都没有时不自动进编辑器, 先给「补录这一周」空态, 点了再进
-    const pastEmpty = !(d.objectives || []).length && (d.cycle ? !!d.cycle.backfilled : true)
-    editing.value = !!d.cycle && !!d.can?.edit && !(d.objectives || []).some(o => o.submittedAt) && (!viewingOther.value || !!d.can?.proxy) && !pastEmpty
+    // 这周一条 O 都没有时不自动进编辑器: 先给空态卡(本周「本周(2026-W48)还没写 OKR / 写本周 OKR」, 过去周「补录这一周」), 点了再进。
+    // 0.6.7: 以前本周空着会直接弹编辑器、没有任何提示, 老板以为页面坏了
+    const noObjs = !(d.objectives || []).length
+    editing.value = !!d.cycle && !!d.can?.edit && !(d.objectives || []).some(o => o.submittedAt) && (!viewingOther.value || !!d.can?.proxy) && !noObjs
     if (editing.value) draftInit.value = toDraft(d.objectives)
   } catch (e) {
     ElMessage.error(e.message)
@@ -936,8 +937,9 @@ async function submitMiss() {
 .okr-quick .el-button { flex: none; margin-left: 0; }
 .okr-list { display: flex; flex-direction: column; gap: 10px; }
 .okr-empty { color: var(--el-text-color-secondary); font-size: 13px; text-align: center; padding: 24px 0; }
-.okr-empty-box { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.okr-empty-box { display: flex; flex-direction: column; align-items: center; gap: 12px; background: var(--el-bg-color); border: 1px dashed var(--el-border-color); border-radius: 10px; padding: 28px 16px; margin-top: 12px; }
 .okr-empty-box p { margin: 0; }
+.okr-empty-title { font-size: 15px; font-weight: 600; color: var(--el-text-color-primary); }
 .okr-empty-btn { min-height: 44px; padding: 0 20px; }
 .okr-backfill-bar { margin-bottom: 10px; padding: 10px 12px; border-radius: 8px; font-size: 13px; font-weight: 600;
   color: var(--el-color-warning-dark-2); background: var(--el-color-warning-light-9); border: 1px solid var(--el-color-warning-light-5); }
